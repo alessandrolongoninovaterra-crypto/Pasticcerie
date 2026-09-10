@@ -180,8 +180,13 @@ def main():
         encoding="utf-8"
     ) + Path("scripts/vendor/MarkerCluster.Default.css").read_text(encoding="utf-8")
 
+    # Il template usa {{ }} raddoppiate per restare leggibile come CSS/JS
+    # letterale; le riduciamo a singole PRIMA di iniettare i contenuti reali
+    # (GeoJSON/CSS), che non devono essere toccati.
     html = (
-        TEMPLATE.replace("__GEOJSON__", geojson_text)
+        TEMPLATE.replace("{{", "{")
+        .replace("}}", "}")
+        .replace("__GEOJSON__", geojson_text)
         .replace("__LEAFLET_CSS__", leaflet_css)
         .replace("__MARKERCLUSTER_CSS__", cluster_css)
     )
