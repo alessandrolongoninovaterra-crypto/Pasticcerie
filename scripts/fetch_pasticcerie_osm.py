@@ -135,7 +135,10 @@ def main():
     with open("data/pasticcerie_italia.geojson", "w", encoding="utf-8") as f:
         json.dump(geojson, f, ensure_ascii=False)
 
-    print(f"Totale attività trovate: {len(rows)}", file=sys.stderr)
+    print(f"Totale attività trovate (bounding box, include zone di confine estere): {len(rows)}", file=sys.stderr)
+    print("Filtro le attività fuori dai confini italiani...", file=sys.stderr)
+    import filter_to_italy  # noqa: E402
+    filter_to_italy.main()
 
 
 if __name__ == "__main__":
