@@ -47,6 +47,13 @@ CATEGORIES = [
     ('nwr["craft"="bakery"]', "Panificio artigianale"),
     ('nwr["craft"="confectionery"]', "Pasticceria artigianale"),
     ('nwr["shop"="pasta"]', "Pastificio"),
+    # Bar-pasticceria italiani spesso mappati come "cafe" con un tag cuisine
+    # che indica prodotti da forno, invece che come shop=bakery/pastry.
+    ('nwr["amenity"="cafe"]["cuisine"~"bakery|pastry|patisserie",i]', "Bar-Pasticceria"),
+    # Rete di sicurezza: cattura punti taggati in modo non standard (es.
+    # shop=yes, o senza alcun tag shop/craft riconosciuto) ma il cui nome
+    # contiene chiaramente "panetteria/panificio/pasticceria".
+    ('nwr["name"~"panetteria|panificio|pasticceria|pasticcer",i]', "Panetteria/Pasticceria (per nome)"),
 ]
 
 
