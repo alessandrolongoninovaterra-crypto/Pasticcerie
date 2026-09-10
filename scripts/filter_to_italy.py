@@ -46,7 +46,7 @@ def main():
 
     kept_ids = {f["properties"]["osm_id"] for f in kept}
     rows = list(csv.DictReader(CSV_PATH.open(encoding="utf-8")))
-    rows = [r for r in rows if int(r["osm_id"]) in kept_ids]
+    rows = [r for r in rows if r["osm_id"] in kept_ids]
     with CSV_PATH.open("w", newline="", encoding="utf-8") as f:
         writer = csv.DictWriter(f, fieldnames=rows[0].keys())
         writer.writeheader()

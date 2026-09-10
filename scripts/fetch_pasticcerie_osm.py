@@ -34,15 +34,19 @@ MIRRORS = [
     "https://overpass-api.de/api/interpreter",
 ]
 
-# tag OSM -> categoria leggibile
+# tag OSM -> categoria leggibile. Usiamo "nwr" (node/way/relation) invece
+# del solo "node": molti panifici/pasticcerie piu' grandi sono mappati in
+# OSM come area (contorno dell'edificio), non come singolo punto, e con
+# "node" soltanto venivano persi.
 CATEGORIES = [
-    ('node["shop"="bakery"]', "Panetteria"),
-    ('node["shop"="pastry"]', "Pasticceria"),
-    ('node["shop"="confectionery"]', "Confetteria/Dolciumi"),
-    ('node["shop"="chocolate"]', "Cioccolateria"),
-    ('node["shop"="ice_cream"]', "Gelateria"),
-    ('node["craft"="bakery"]', "Panificio artigianale"),
-    ('node["craft"="confectionery"]', "Pasticceria artigianale"),
+    ('nwr["shop"="bakery"]', "Panetteria"),
+    ('nwr["shop"="pastry"]', "Pasticceria"),
+    ('nwr["shop"="confectionery"]', "Confetteria/Dolciumi"),
+    ('nwr["shop"="chocolate"]', "Cioccolateria"),
+    ('nwr["shop"="ice_cream"]', "Gelateria"),
+    ('nwr["craft"="bakery"]', "Panificio artigianale"),
+    ('nwr["craft"="confectionery"]', "Pasticceria artigianale"),
+    ('nwr["shop"="pasta"]', "Pastificio"),
 ]
 
 
@@ -62,7 +66,9 @@ def run_query(query, timeout=200):
 
 
 def fetch_category(tag_filter, label):
-    query = f'[out:json][timeout:180];{tag_filter}({BBOX});out body;'
+    # "out center" da' anche il centro delle way/relation (aree), non solo
+    # dei nodi, cosi' ogni elemento ha comunque lat/lon utilizzabili.
+    query = f'[out:json][timeout:180];{tag_filter}({BBOX});out center;'
     print(f"Scarico categoria: {label} ...", file=sys.stderr)
     result = run_query(query)
     elements = result.get("elements", [])
@@ -74,6 +80,7 @@ def fetch_category(tag_filter, label):
 
 def normalize(el):
     tags = el.get("tags", {})
+    center = el.get("center", {})
     return {
         "nome": tags.get("name", ""),
         "categoria": el.get("_categoria", ""),
@@ -85,9 +92,9 @@ def normalize(el):
         "provincia": tags.get("addr:state", tags.get("addr:province", "")),
         "telefono": tags.get("phone", tags.get("contact:phone", "")),
         "sito_web": tags.get("website", tags.get("contact:website", "")),
-        "lat": el.get("lat"),
-        "lon": el.get("lon"),
-        "osm_id": el.get("id"),
+        "lat": el.get("lat", center.get("lat")),
+        "lon": el.get("lon", center.get("lon")),
+        "osm_id": f'{el.get("type","node")}/{el.get("id")}',
     }
 
 
@@ -101,9 +108,10 @@ def main():
             print(f"ERRORE categoria {label}: {e}", file=sys.stderr)
             continue
         for el in elements:
-            if el["id"] in seen_ids:
+            key = (el.get("type", "node"), el["id"])
+            if key in seen_ids:
                 continue
-            seen_ids.add(el["id"])
+            seen_ids.add(key)
             rows.append(normalize(el))
         time.sleep(2)  # rispetta il rate limit dei server pubblici Overpass
 
