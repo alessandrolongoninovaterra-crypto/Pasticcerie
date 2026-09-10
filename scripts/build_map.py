@@ -10,7 +10,6 @@ import json
 from pathlib import Path
 
 GEOJSON_PATH = Path("data/pasticcerie_italia.geojson")
-REGIONS_PATH = Path("scripts/vendor/italy_regions_simplified.geojson")
 OUTPUT_PATH = Path("scripts/out/mappa_pasticcerie.html")
 
 TEMPLATE = """<title>Pasticcerie d'Italia</title>
@@ -19,21 +18,21 @@ TEMPLATE = """<title>Pasticcerie d'Italia</title>
   :root {{
     --bg:#f1ede4; --surface:#ffffff; --surface-2:#faf8f3; --fg:#2c2620; --fg-dim:#6b6255;
     --border:#e2dbcb; --accent:#a8781f; --accent-fg:#ffffff; --shadow:0 8px 24px -12px rgba(44,38,32,.35);
-    --sea:#dce8ea; --land:#eee7d6; --land-border:#cdbf9f;
+    --sea:#dce8ea;
     --c1:#a8781f; --c2:#6b7c5c; --c3:#8a4a6b; --c4:#3f6b7a; --c5:#b2542f; --c6:#5a6b9c; --c7:#7a7248;
   }}
   @media (prefers-color-scheme: dark) {{
     :root:not([data-theme="light"]) {{
       --bg:#1a1611; --surface:#241f19; --surface-2:#1f1a15; --fg:#ecE6da; --fg-dim:#a89c88;
       --border:#3a3226; --accent:#d9a441; --accent-fg:#1a1611; --shadow:0 8px 24px -12px rgba(0,0,0,.6);
-      --sea:#182428; --land:#2a2419; --land-border:#4a4130;
+      --sea:#182428;
       --c1:#d9a441; --c2:#94ab7c; --c3:#c07aa3; --c4:#6fa8bb; --c5:#d97c4d; --c6:#8b9bd4; --c7:#a89c62;
     }}
   }}
   :root[data-theme="dark"] {{
     --bg:#1a1611; --surface:#241f19; --surface-2:#1f1a15; --fg:#ece6da; --fg-dim:#a89c88;
     --border:#3a3226; --accent:#d9a441; --accent-fg:#1a1611; --shadow:0 8px 24px -12px rgba(0,0,0,.6);
-    --sea:#182428; --land:#2a2419; --land-border:#4a4130;
+    --sea:#182428;
     --c1:#d9a441; --c2:#94ab7c; --c3:#c07aa3; --c4:#6fa8bb; --c5:#d97c4d; --c6:#8b9bd4; --c7:#a89c62;
   }}
   * {{ box-sizing:border-box; }}
@@ -99,7 +98,6 @@ TEMPLATE = """<title>Pasticcerie d'Italia</title>
 <style>__MARKERCLUSTER_CSS__</style>
 <script>
 const DATA = __GEOJSON__;
-const REGIONS = __REGIONS__;
 const PALETTE = ['c1','c2','c3','c4','c5','c6','c7'];
 const catColor = {{}};
 function colorFor(cat) {{
@@ -110,23 +108,16 @@ function colorFor(cat) {{
   return catColor[cat];
 }}
 
-// Niente tile raster esterne: i confini regionali sono disegnati come
-// vettoriale (SVG) direttamente da Leaflet, cosi' la mappa funziona anche
-// offline / senza rete e resta leggera con 23k+ punti.
-const map = L.map('map', {{ preferCanvas:true, minZoom:5, maxZoom:18, attributionControl:false }}).setView([42.5, 12.5], 6);
-L.control.attribution({{ position: 'bottomright' }})
-  .addAttribution('Dati attivit\\u00e0: &copy; <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a> contributors (ODbL) &middot; Confini: openpolis/geojson-italy')
-  .addTo(map);
-const rootStyle = getComputedStyle(document.documentElement);
-const regionsLayer = L.geoJSON(REGIONS, {{
-  style: () => ({{
-    fillColor: rootStyle.getPropertyValue('--land').trim(),
-    fillOpacity: 1,
-    color: rootStyle.getPropertyValue('--land-border').trim(),
-    weight: 1
-  }})
+// Mappa reale (strade, vie, edifici) con le tile di OpenStreetMap: richiede
+// connessione internet nel browser in cui apri il file (non funziona dentro
+// l'anteprima Artifact di Claude, che per sicurezza blocca il caricamento
+// di immagini da server esterni — apri il file .html scaricato nel tuo
+// browser per vedere le strade).
+const map = L.map('map', {{ preferCanvas:true, minZoom:5, maxZoom:19 }}).setView([42.5, 12.5], 6);
+L.tileLayer('https://{{s}}.tile.openstreetmap.org/{{z}}/{{x}}/{{y}}.png', {{
+  maxZoom: 19,
+  attribution: '&copy; <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a> contributors'
 }}).addTo(map);
-map.fitBounds(regionsLayer.getBounds(), {{ padding: [10, 10] }});
 
 const clusterGroup = L.markerClusterGroup({{
   iconCreateFunction: cluster => L.divIcon({{
@@ -150,11 +141,13 @@ DATA.features.forEach(f => {{
   }});
   const nome = p.nome || '(senza nome)';
   const indirizzo = [p.indirizzo, p.cap, p.comune, p.provincia].filter(Boolean).join(', ');
+  const gmapsUrl = `https://www.google.com/maps/search/?api=1&query=${{lat}},${{lon}}`;
   marker.bindPopup(
     `<div class="popup-content"><div class="popup-cat"><span class="dot" style="background:${{color}}"></span>${{p.categoria}}</div>` +
     `<div class="popup-title">${{nome}}</div><div>${{indirizzo || 'Indirizzo non disponibile'}}</div>` +
     (p.telefono ? `<div>${{p.telefono}}</div>` : '') +
     (p.sito_web ? `<div><a href="${{p.sito_web}}" target="_blank" rel="noopener">sito web →</a></div>` : '') +
+    `<div><a href="${{gmapsUrl}}" target="_blank" rel="noopener">📍 apri in Google Maps →</a></div>` +
     `</div>`
   );
   marker._meta = {{ categoria: p.categoria, testo: (nome + ' ' + p.comune + ' ' + p.provincia).toLowerCase() }};
@@ -191,10 +184,8 @@ render();
 
 def main():
     geojson_text = GEOJSON_PATH.read_text(encoding="utf-8")
-    regions_text = REGIONS_PATH.read_text(encoding="utf-8")
     # validazione minima
     json.loads(geojson_text)
-    json.loads(regions_text)
 
     leaflet_css = Path("scripts/vendor/leaflet.css").read_text(encoding="utf-8")
     cluster_css = Path("scripts/vendor/MarkerCluster.css").read_text(
@@ -208,7 +199,6 @@ def main():
         TEMPLATE.replace("{{", "{")
         .replace("}}", "}")
         .replace("__GEOJSON__", geojson_text)
-        .replace("__REGIONS__", regions_text)
         .replace("__LEAFLET_CSS__", leaflet_css)
         .replace("__MARKERCLUSTER_CSS__", cluster_css)
     )

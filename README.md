@@ -39,12 +39,20 @@ pip install -r requirements.txt
 # 1. Scarica i dati da OpenStreetMap in tutta Italia (filtra già i confini)
 python3 scripts/fetch_pasticcerie_osm.py
 
-# 2. Genera la mappa interattiva HTML (Leaflet + clustering, basemap
-#    vettoriale incorporato: nessuna tile esterna, funziona anche offline
-#    e dentro Claude Artifacts)
+# 2. Genera la mappa interattiva HTML (Leaflet + clustering + tile reali
+#    OpenStreetMap: strade, edifici, tutto come in Google Maps/OSM)
 python3 scripts/build_map.py
 # -> scripts/out/mappa_pasticcerie.html
 ```
+
+**Apri `mappa_pasticcerie.html` direttamente nel tuo browser** (doppio clic
+sul file, non tramite l'anteprima Artifact in chat): li' hai connessione
+internet libera e vedi la mappa vera con strade e vie, zoom/pan come su
+Google Maps/OSM, cliccando su un punto puoi anche aprirlo direttamente in
+Google Maps per navigarci. L'anteprima Artifact dentro la chat di Claude
+blocca per sicurezza il caricamento di immagini da server esterni, quindi
+li' vedi solo i marker senza sfondo stradale: usa quella solo per farti
+un'idea, non come mappa di navigazione.
 
 I file generati:
 
@@ -52,18 +60,13 @@ I file generati:
   indirizzo, CAP, comune, provincia, telefono, sito web, lat/lon)
 - `data/pasticcerie_italia.geojson` — stesso elenco in formato GeoJSON
 - `scripts/out/mappa_pasticcerie.html` — mappa interattiva con filtro per
-  categoria e ricerca testuale
+  categoria, ricerca testuale e link "apri in Google Maps" per navigare
 
 ## Note sui dati
 
-- La ricerca su Overpass usa una bounding box che copre l'Italia con un
-  margine, quindi include anche attività di Francia, Svizzera, Austria,
-  Slovenia, Croazia e Corsica nelle zone di confine. `scripts/filter_to_italy.py`
-  (eseguito automaticamente da `fetch_pasticcerie_osm.py`) le scarta tenendo
-  solo i punti che ricadono entro i confini regionali italiani (con un
-  margine di ~3km per non perdere attività costiere/portuali).
-- La mappa disegna i confini regionali italiani come vettoriale SVG
-  (da [openpolis/geojson-italy](https://github.com/openpolis/geojson-italy),
-  semplificato) invece di usare tile raster esterne: le tile immagine di
-  OpenStreetMap sono bloccate dalla sandbox di Claude Artifacts, quindi con
-  quelle si vedevano solo i marker senza alcuno sfondo.
+La ricerca su Overpass usa una bounding box che copre l'Italia con un
+margine, quindi include anche attività di Francia, Svizzera, Austria,
+Slovenia, Croazia e Corsica nelle zone di confine. `scripts/filter_to_italy.py`
+(eseguito automaticamente da `fetch_pasticcerie_osm.py`) le scarta tenendo
+solo i punti che ricadono entro i confini regionali italiani (con un
+margine di ~3km per non perdere attività costiere/portuali).
