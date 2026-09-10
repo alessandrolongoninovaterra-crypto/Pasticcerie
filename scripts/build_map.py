@@ -53,6 +53,11 @@ TEMPLATE = """<title>Pasticcerie d'Italia</title>
   }}
   select:focus, input:focus {{ outline:2px solid var(--accent); outline-offset:1px; }}
   input {{ min-width:180px; flex:1; max-width:280px; }}
+  label.chk {{
+    display:inline-flex; align-items:center; gap:5px; font-size:12.5px; color:var(--fg-dim);
+    white-space:nowrap; user-select:none;
+  }}
+  label.chk input {{ min-width:0; width:auto; flex:none; accent-color:var(--accent); }}
   header .count {{
     font-size:12px; color:var(--fg-dim); font-variant-numeric:tabular-nums; white-space:nowrap; margin-left:auto;
   }}
@@ -85,7 +90,11 @@ TEMPLATE = """<title>Pasticcerie d'Italia</title>
     <h1>Pasticcerie d'Italia</h1>
     <div class="controls">
       <select id="catFilter"><option value="">Tutte le categorie</option></select>
-      <input id="searchBox" placeholder="Cerca per comune, provincia o nome..." />
+      <select id="provFilter"><option value="">Tutte le province</option></select>
+      <input id="searchBox" list="searchSuggestions" placeholder="Cerca per comune o nome..." autocomplete="off" />
+      <datalist id="searchSuggestions"></datalist>
+      <label class="chk"><input type="checkbox" id="onlyPhone" /> con telefono</label>
+      <label class="chk"><input type="checkbox" id="onlyWeb" /> con sito web</label>
     </div>
     <span class="count" id="count"></span>
   </header>
@@ -126,11 +135,16 @@ const clusterGroup = L.markerClusterGroup({{
   }})
 }});
 const categories = new Set();
+const province = new Set();
+const suggestions = new Set();
 const markers = [];
 
 DATA.features.forEach(f => {{
   const p = f.properties;
   categories.add(p.categoria);
+  if (p.provincia) province.add(p.provincia);
+  if (p.nome) suggestions.add(p.nome);
+  if (p.comune) suggestions.add(p.comune);
   const [lon, lat] = f.geometry.coordinates;
   const color = colorFor(p.categoria);
   const marker = L.marker([lat, lon], {{
@@ -150,7 +164,13 @@ DATA.features.forEach(f => {{
     `<div><a href="${{gmapsUrl}}" target="_blank" rel="noopener">📍 apri in Google Maps →</a></div>` +
     `</div>`
   );
-  marker._meta = {{ categoria: p.categoria, testo: (nome + ' ' + p.comune + ' ' + p.provincia).toLowerCase() }};
+  marker._meta = {{
+    categoria: p.categoria,
+    provincia: p.provincia || '',
+    testo: (nome + ' ' + p.comune).toLowerCase(),
+    haPhone: !!p.telefono,
+    haWeb: !!p.sito_web
+  }};
   markers.push(marker);
 }});
 
@@ -161,21 +181,48 @@ const catSelect = document.getElementById('catFilter');
   catSelect.appendChild(opt);
 }});
 
+const provSelect = document.getElementById('provFilter');
+[...province].sort().forEach(p => {{
+  const opt = document.createElement('option');
+  opt.value = p; opt.textContent = p;
+  provSelect.appendChild(opt);
+}});
+
+// Autocompletamento nativo (nomi attivita' + comuni) mentre si digita.
+const suggestionList = document.getElementById('searchSuggestions');
+const suggestionFrag = document.createDocumentFragment();
+[...suggestions].sort((a, b) => a.localeCompare(b, 'it')).forEach(s => {{
+  const opt = document.createElement('option');
+  opt.value = s;
+  suggestionFrag.appendChild(opt);
+}});
+suggestionList.appendChild(suggestionFrag);
+
+const onlyPhone = document.getElementById('onlyPhone');
+const onlyWeb = document.getElementById('onlyWeb');
+
 function render() {{
   const cat = catSelect.value;
+  const prov = provSelect.value;
   const q = document.getElementById('searchBox').value.trim().toLowerCase();
+  const needPhone = onlyPhone.checked;
+  const needWeb = onlyWeb.checked;
   clusterGroup.clearLayers();
   let shown = 0;
   markers.forEach(m => {{
-    const okCat = !cat || m._meta.categoria === cat;
-    const okQ = !q || m._meta.testo.includes(q);
-    if (okCat && okQ) {{ clusterGroup.addLayer(m); shown++; }}
+    const meta = m._meta;
+    const okCat = !cat || meta.categoria === cat;
+    const okProv = !prov || meta.provincia === prov;
+    const okQ = !q || meta.testo.includes(q);
+    const okPhone = !needPhone || meta.haPhone;
+    const okWeb = !needWeb || meta.haWeb;
+    if (okCat && okProv && okQ && okPhone && okWeb) {{ clusterGroup.addLayer(m); shown++; }}
   }});
   document.getElementById('count').textContent = shown.toLocaleString('it-IT') + ' attivit\\u00e0 trovate';
 }}
 
 map.addLayer(clusterGroup);
-catSelect.addEventListener('change', render);
+[catSelect, provSelect, onlyPhone, onlyWeb].forEach(el => el.addEventListener('change', render));
 document.getElementById('searchBox').addEventListener('input', render);
 render();
 </script>
