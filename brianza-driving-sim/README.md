@@ -149,6 +149,12 @@ colori restano quelli di OSM.
    fai l'accesso, cerca nel catalogo il *Database Geo-Topografico* e scarica il pacchetto di
    ciascun comune che ti interessa.
 2. Metti gli zip così come sono in `brianza-driving-sim/dbgt/` (la cartella è esclusa da git).
+   Va bene anche il pacchetto provinciale intero (Monza e Brianza supera 1 GB): la pipeline legge
+   l'intestazione dei file dentro lo zip ed estrae solo i livelli degli edifici. Per ottenere uno
+   zip piccolo da conservare o da inviare:
+   `python3 tools/dbgt_solo_edifici.py pacchetto.zip DBGT_solo_edifici.zip` (solo libreria standard).
+   Il pacchetto di Monza e Brianza non comprende i comuni in provincia di Como (Mariano Comense,
+   Arosio, Inverigo): lì restano gli edifici OSM, a meno di aggiungere anche il pacchetto di Como.
 3. Rigenera i dati: `tools/run_pipeline.sh` (oppure solo `build_data.py`).
 
 La pipeline estrae gli zip, riconosce i livelli dai nomi dei campi (`UN_VOL_AV` per le unità
@@ -199,6 +205,7 @@ npm run watch
 | `src/sky.js` | ciclo giorno/notte |
 | `src/main.js` | menu, HUD, telecamere, ciclo di gioco |
 | `tools/dbgt.py` | lettura dei pacchetti DBGT di Regione Lombardia |
+| `tools/dbgt_solo_edifici.py` | riduce un pacchetto DBGT ai soli livelli degli edifici |
 
 ## Licenze dei dati
 
