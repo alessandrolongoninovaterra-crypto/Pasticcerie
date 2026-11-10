@@ -33,55 +33,90 @@ export function buildCarModel(spec, opts = {}) {
   // abitacolo (solo per l'auto del giocatore)
   let interior = null, steeringWheel = null, dashCanvas = null, dashTex = null;
   if (opts.interior) {
+    // Abitacolo costruito attorno all'occhio del guidatore: quota tra linea di cintura e
+    // tetto come in un'auto vera, cosi' cielo, cruscotto e volante hanno le proporzioni giuste.
     interior = new THREE.Group();
     const W = B.widths.reduce((a, b) => Math.max(a, b), 0) * 2;
-    const seatX = W * 0.22;
-    const dashZ = B.cab[0][0] - 0.28;            // base del parabrezza
-    const dash = new THREE.Mesh(new THREE.BoxGeometry(W - 0.12, 0.28, 0.5), new THREE.MeshLambertMaterial({ color: 0x2b2d30 }));
-    dash.position.set(0, belt - 0.06, dashZ + 0.3);
+    const seatX = W * 0.22;                       // guida a sinistra (+X)
+    const [wsZ, wsY] = B.cab[0];                  // base del parabrezza
+    const eyeY = Math.min(roofY - 0.17, Math.max(belt + 0.2, belt + 0.55 * (roofY - belt)));
+    const eyeZ = wsZ - 0.95;
+    const eye = new THREE.Vector3(seatX, eyeY, eyeZ);
+    const plastic = new THREE.MeshLambertMaterial({ color: 0x2b2d30 });
+    const soft = new THREE.MeshLambertMaterial({ color: 0x3a3c40, side: THREE.DoubleSide });
+    // cruscotto: dal volante alla base del parabrezza, sommita' ~20 cm sotto l'occhio
+    const dashFace = eyeZ + 0.6;
+    const dashTop = Math.min(eyeY - 0.2, wsY + 0.04), dashD = Math.max(0.4, wsZ - dashFace);
+    const dash = new THREE.Mesh(new THREE.BoxGeometry(W - 0.1, 0.42, dashD), plastic);
+    dash.position.set(0, dashTop - 0.21, dashFace + dashD / 2);
     interior.add(dash);
+    // dove il cruscotto e' basso (furgone: posto di guida alto) il quadro sta in una palpebra
+    const binH = eyeY - 0.18 - dashTop;
+    if (binH > 0.04) {
+      const bin = new THREE.Mesh(new THREE.BoxGeometry(0.56, binH + 0.05, 0.3), plastic);
+      bin.position.set(seatX, dashTop + binH / 2 - 0.02, dashFace + 0.15);
+      interior.add(bin);
+    }
     dashCanvas = document.createElement('canvas'); dashCanvas.width = 256; dashCanvas.height = 96;
     dashTex = new THREE.CanvasTexture(dashCanvas); dashTex.colorSpace = THREE.SRGBColorSpace;
-    const cluster = new THREE.Mesh(new THREE.PlaneGeometry(0.42, 0.16), new THREE.MeshBasicMaterial({ map: dashTex, toneMapped: false }));
-    cluster.position.set(seatX, belt + 0.06, dashZ + 0.1);
-    cluster.rotation.set(-0.35, Math.PI, 0);
+    const cluster = new THREE.Mesh(new THREE.PlaneGeometry(0.4, 0.15), new THREE.MeshBasicMaterial({ map: dashTex, toneMapped: false }));
+    cluster.position.set(seatX, eyeY - 0.28, dashFace - 0.005);
+    cluster.lookAt(eye);
     interior.add(cluster);
+    // volante: la corona entra nella parte bassa dell'inquadratura
     steeringWheel = new THREE.Group();
-    steeringWheel.add(new THREE.Mesh(new THREE.TorusGeometry(0.18, 0.018, 8, 28), new THREE.MeshLambertMaterial({ color: 0x151515 })));
+    steeringWheel.add(new THREE.Mesh(new THREE.TorusGeometry(0.185, 0.02, 8, 32), new THREE.MeshLambertMaterial({ color: 0x151515 })));
     for (const a of [0, 2.1, 4.2]) {
-      const sp = new THREE.Mesh(new THREE.BoxGeometry(0.17, 0.025, 0.02), darkMat);
-      sp.position.set(Math.cos(a + Math.PI / 2) * 0.085, Math.sin(a + Math.PI / 2) * 0.085, 0);
-      sp.rotation.z = a + Math.PI / 2;
+      const sp = new THREE.Mesh(new THREE.BoxGeometry(0.17, 0.028, 0.02), darkMat);
+      sp.position.set(Math.cos(a - Math.PI / 2) * 0.085, Math.sin(a - Math.PI / 2) * 0.085, 0);
+      sp.rotation.z = a - Math.PI / 2;
       steeringWheel.add(sp);
     }
-    const hub = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.05, 0.05, 12), darkMat); hub.rotation.x = Math.PI / 2;
+    const hub = new THREE.Mesh(new THREE.CylinderGeometry(0.055, 0.055, 0.06, 12), darkMat); hub.rotation.x = Math.PI / 2;
     steeringWheel.add(hub);
     const swHolder = new THREE.Group();
-    swHolder.position.set(seatX, belt - 0.08, dashZ - 0.12);
-    swHolder.rotation.x = -0.45;
+    swHolder.position.set(seatX, eyeY - 0.34, eyeZ + 0.47);
+    swHolder.rotation.x = -0.42;
     swHolder.add(steeringWheel);
+    const column = new THREE.Mesh(new THREE.CylinderGeometry(0.035, 0.045, 0.3, 8), plastic);
+    column.rotation.x = Math.PI / 2 - 0.42; column.position.set(0, -0.06, 0.16);
+    swHolder.add(column);
     interior.add(swHolder);
-    // montanti, tetto e cofano visti da dentro
-    const frame = new THREE.MeshLambertMaterial({ color: 0x3a3c3f, side: THREE.DoubleSide });
-    const roofFront = B.cab[1] ? B.cab[1][0] : dashZ - 0.5, roofBack = B.cab[B.cab.length - 2][0];
-    for (const s of [1, -1]) {
-      const p0 = new THREE.Vector3(s * (W / 2 - 0.1), belt, B.cab[0][0] - 0.05), p1 = new THREE.Vector3(s * (W / 2 - 0.16), roofY - 0.03, roofFront);
-      const pil = new THREE.Mesh(new THREE.BoxGeometry(0.07, p0.distanceTo(p1), 0.09), frame);
+    // montanti anteriori lungo il parabrezza
+    const roofFront = B.cab[1] ? B.cab[1][0] : wsZ - 0.5, roofFrontY = B.cab[1] ? B.cab[1][1] : roofY;
+    const roofBack = B.cab[B.cab.length - 2][0];
+    for (const sg of [1, -1]) {
+      const p0 = new THREE.Vector3(sg * (W / 2 - 0.1), wsY, wsZ - 0.05), p1 = new THREE.Vector3(sg * (W / 2 - 0.16), roofFrontY - 0.03, roofFront);
+      const pil = new THREE.Mesh(new THREE.BoxGeometry(0.08, p0.distanceTo(p1), 0.1), soft);
       pil.position.copy(p0).add(p1).multiplyScalar(0.5);
       pil.lookAt(p1); pil.rotateX(Math.PI / 2);
       interior.add(pil);
+      // pannelli porta sotto la linea dei finestrini (si vedono girando lo sguardo)
+      const door = new THREE.Mesh(new THREE.PlaneGeometry(Math.max(0.6, wsZ - eyeZ + 0.6), belt - 0.3), soft);
+      door.rotation.y = Math.PI / 2;
+      door.position.set(sg * (W / 2 - 0.06), (belt + 0.3) / 2, (wsZ + eyeZ - 0.6) / 2);
+      interior.add(door);
     }
-    const roofM = new THREE.Mesh(new THREE.PlaneGeometry(W - 0.1, Math.max(0.5, roofFront - roofBack)), new THREE.MeshLambertMaterial({ color: 0x9a968e, side: THREE.DoubleSide }));
+    // cielo dell'abitacolo dal bordo alto del parabrezza in giu'
+    const roofM = new THREE.Mesh(new THREE.PlaneGeometry(W - 0.1, Math.max(0.5, roofFront - 0.12 - roofBack)), new THREE.MeshLambertMaterial({ color: 0xb4afa5, emissive: 0x302e2a, side: THREE.DoubleSide }));
     roofM.rotation.x = Math.PI / 2;
-    roofM.position.set(0, roofY - 0.05, (roofFront + roofBack) / 2);
+    roofM.position.set(0, Math.min(roofY, roofFrontY + 0.02) - 0.04, (roofFront - 0.12 + roofBack) / 2);
     interior.add(roofM);
-    const hood = new THREE.Mesh(new THREE.PlaneGeometry(W - 0.2, 1.2), new THREE.MeshLambertMaterial({ color: opts.color || spec.color }));
-    hood.rotation.x = -Math.PI / 2 + 0.08;
-    hood.position.set(0, belt - 0.12, dashZ + 1.1);
+    // specchietto retrovisore interno
+    const mirror = new THREE.Mesh(new THREE.BoxGeometry(0.15, 0.045, 0.02), new THREE.MeshLambertMaterial({ color: 0x55585c }));
+    mirror.position.set(0, roofFrontY - 0.075, roofFront - 0.02);
+    interior.add(mirror);
+    // cofano, dalla base del parabrezza al muso, nel colore della carrozzeria
+    const nose = B.profile[1] || B.profile[0];
+    const hw = W / 2 - 0.18;
+    const hg = new THREE.BufferGeometry();
+    hg.setAttribute('position', new THREE.Float32BufferAttribute([-hw, wsY - 0.02, wsZ, hw, wsY - 0.02, wsZ, hw, nose[1], nose[0], -hw, wsY - 0.02, wsZ, hw, nose[1], nose[0], -hw, nose[1], nose[0]], 3));
+    hg.computeVertexNormals();
+    const hood = new THREE.Mesh(hg, new THREE.MeshPhongMaterial({ color: opts.color || spec.color, shininess: 60, specular: 0x444444, side: THREE.DoubleSide }));
     interior.add(hood);
     interior.visible = false;
     root.add(interior);
-    root.userData.eye = new THREE.Vector3(seatX, belt + 0.34, dashZ - 0.75);
+    root.userData.eye = eye.clone();
   }
   return { root, ext, wheels, headlight: ext.userData.headlight, tailGlow: ext.userData.tailGlow, interior, steeringWheel, dashCanvas, dashTex, exterior: [ext] };
 }

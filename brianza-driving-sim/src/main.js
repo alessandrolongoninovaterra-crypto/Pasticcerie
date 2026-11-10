@@ -588,6 +588,7 @@ function updateCamera(dt, lookBack) {
   if (G.debugCam) { cam.position.set(...G.debugCam.pos); cam.lookAt(...G.debugCam.look); cam.near = 1; cam.updateProjectionMatrix(); m.interior.visible = false; for (const e of m.exterior) e.visible = true; return; }
   m.interior.visible = mode === 1;
   for (const e of m.exterior) e.visible = mode !== 1;
+  document.body.classList.toggle('cockpit', mode === 1);
   // la visuale orbitale torna dietro al veicolo dopo un paio di secondi
   o.idle += dt;
   if (o.idle > 2.2 && (f.on ? Math.abs(f.u) > 0.5 : Math.abs(v.u) > 2)) { o.yaw *= Math.exp(-dt * 2.5); o.pitch *= Math.exp(-dt * 2.5); }
@@ -613,7 +614,7 @@ function updateCamera(dt, lookBack) {
     cam.position.copy(eye.applyMatrix4(m.root.matrixWorld));
     // con il mouse ci si guarda attorno dall'abitacolo
     const ly = (lookBack ? Math.PI : 0) + o.yaw, d = 30;
-    const ahead = new THREE.Vector3(Math.sin(ly) * d, (mode === 1 ? -0.6 : -0.9) - o.pitch * d * 0.5, Math.cos(ly) * d).add(mode === 1 ? m.root.userData.eye : new THREE.Vector3(0, v.spec.H * 0.82, 0)).applyMatrix4(m.root.matrixWorld);
+    const ahead = new THREE.Vector3(Math.sin(ly) * d, (mode === 1 ? -3.2 : -0.9) - o.pitch * d * 0.5, Math.cos(ly) * d).add(mode === 1 ? m.root.userData.eye : new THREE.Vector3(0, v.spec.H * 0.82, 0)).applyMatrix4(m.root.matrixWorld);
     cam.lookAt(ahead);
     cam.near = 0.08;
     camPos.copy(cam.position);

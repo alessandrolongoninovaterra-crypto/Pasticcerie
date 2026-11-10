@@ -72,6 +72,9 @@
   #nav .eta { font-size: 12px; color: var(--muted); margin-top: 4px; }
   #toast { position: absolute; left: 50%; top: 18%; transform: translateX(-50%); padding: 12px 22px; font-size: 18px; transition: opacity .4s; opacity: 0; }
   #toast.show { opacity: 1; }
+  /* dall'abitacolo il nome della via sale in alto: in basso ci sono volante e quadro strumenti */
+  body.cockpit #road { bottom: auto; top: 96px; padding: 5px 16px; }
+  body.cockpit #road .n { font-size: 17px; }
   #flash { position: absolute; inset: 0; background: #fff; opacity: 0; pointer-events: none; }
   #flash.go { animation: flash .5s ease-out; }
   @keyframes flash { 0% { opacity: 0.85; } 100% { opacity: 0; } }
