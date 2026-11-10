@@ -103,8 +103,15 @@ segnaletica, edifici, fisica, navigatore, comportamento di pedoni e traffico) è
   - percorsi pedonali, ciclabili, sentieri e marciapiedi mappati a parte (`footway`,
     `cycleway`, `path`), piazze pedonali;
   - muri di cinta, siepi, muri di sostegno e guardrail (`barrier=*`), elettrodotti con
-    tralicci (`power=line`), piazzole di manovra, mini-rotatorie, dossi e attraversamenti rialzati.
-- **Altimetria reale** su griglia di 20 m (Terrarium/AWS, da SRTM ed EU-DEM): 160–530 m s.l.m.
+    tralicci (`power=line`), piazzole di manovra, mini-rotatorie, dossi e attraversamenti rialzati;
+  - recinzioni (`barrier=fence`: cancellata su muretto, rete, staccionata, ringhiera) e
+    **cancelli** (`barrier=gate`, `swing_gate`, `sliding_gate`, `lift_gate`, `chain`) orientati
+    sulla via che li attraversa, con il varco nel muro o nella recinzione. I cancelli dei passi
+    carrai, delle strade private e dei campi sono chiusi (non si passa e il navigatore li evita);
+    sbarre e cancelli privati sulle strade pubbliche si aprono da soli quando arriva un veicolo;
+    gli altri sono aperti.
+- **Altimetria reale**: griglia di 20 m (Terrarium/AWS, da SRTM ed EU-DEM, 160–530 m s.l.m.);
+  dove c'è l'altimetria del DBGT la griglia passa a 10 m ed è corretta sui dati misurati (vedi sotto).
 - **Guida**: modello a bicicletta con pneumatici a saturazione, cerchio d'attrito,
   trasferimento di carico, curva di coppia, cambio automatico, freno motore, pendenze,
   aderenza ridotta su sterrato/erba, ESC leggero; collisioni con edifici, muri, alberi,
@@ -153,8 +160,8 @@ colori restano quelli di OSM.
      `brianza-driving-sim/dbgt/` (cartella esclusa da git): la pipeline legge l'intestazione dei
      file dentro lo zip ed estrae solo i livelli degli edifici;
    - oppure, **senza installare nulla**, apri con doppio clic `riduci-dbgt.html` (nella cartella
-     del gioco), scegli lo zip del DBGT e scarica i file ridotti con i soli edifici dell'area del
-     gioco, ognuno sotto i 28 MB. Funziona nel browser (Chrome, Edge, Firefox), senza inviare il
+     del gioco), scegli lo zip del DBGT e scarica i file ridotti con edifici e altimetria dell'area
+     del gioco, ognuno sotto i 28 MB. Funziona nel browser (Chrome, Edge, Firefox), senza inviare il
      file da nessuna parte; anche il pacchetto provinciale da oltre 1 GB va bene;
    - oppure fai la stessa riduzione da riga di comando, se hai Python:
      `python3 tools/dbgt_solo_edifici.py pacchetto.zip DBGT_MB` (su Windows `py` al posto di
@@ -190,6 +197,26 @@ più volumi in quel comune, per evitare edifici doppi.
 Controlli di qualità applicati ai dati: le porzioni di tipo 08 senza altezza (piccole e quasi mai
 corrispondenti a edifici reali) vengono scartate; le altezze non plausibili per l'impronta (per
 esempio 212 m su 13 m²) vengono considerate mancanti e stimate dalla tipologia.
+
+### Altimetria dal DBGT
+
+Il DBGT contiene anche l'altimetria rilevata: punti quotati (`PT_QUO`), curve di livello
+(`CV_LIV`), assi stradali con la quota (`EL_STR`) e la quota del piede di ogni edificio (la Z delle
+unità volumetriche). La pagina `riduci-dbgt.html` e `tools/dbgt_solo_edifici.py` li conservano
+insieme agli edifici (i punti quotati in gronda, `PT_QUO_SED = 0302`, vengono scartati perché non
+sono il terreno). Se ci sono, la pipeline:
+
+1. porta la griglia del terreno da 20 a 10 m e la corregge sui punti misurati (convoluzione
+   normalizzata: prima su ~40 m, poi ripetuta su ~14 m); lontano dai dati resta il modello satellitare;
+2. dà ai nodi delle strade OSM a raso la quota dell'asse DBGT più vicino e parallelo e porta il
+   terreno sotto la strada a quella quota (trincee, rilevati, rampe); ponti e gallerie sono esclusi;
+3. verifica il risultato sul 5% dei punti quotati tenuti da parte e stampa l'errore prima e dopo.
+
+A Cabiate (pacchetto comunale, unico per ora con l'altimetria) l'errore medio del terreno sui punti
+di verifica passa da 5,1 m a 1,0 m (95% dei punti: da 14,4 a 3,4 m). Le curve di livello
+concordano con i punti quotati (scarto mediano 2 cm): l'errore era del modello satellitare,
+troppo liscio nelle valli e sui pendii. Per avere l'altimetria anche altrove basta ripassare i
+pacchetti provinciali nella pagina `riduci-dbgt.html` aggiornata e sostituire i file in `dbgt/`.
 
 **Licenza:** il Geoportale pubblica i dati con licenze diverse per prodotto (CC-BY 4.0, IODL 2.0
 o altre): controlla quella indicata nella pagina di download del DBGT prima di distribuire il gioco.
@@ -233,7 +260,8 @@ npm run watch
 | `src/sky.js` | ciclo giorno/notte |
 | `src/main.js` | menu, HUD, telecamere, ciclo di gioco |
 | `tools/dbgt.py` | lettura dei pacchetti DBGT di Regione Lombardia |
-| `tools/dbgt_solo_edifici.py` | riduce un pacchetto DBGT a file compatti (< 28 MB) con i soli edifici dell'area |
+| `tools/dbgt_solo_edifici.py` | riduce un pacchetto DBGT a file compatti (< 28 MB) con edifici e altimetria dell'area |
+| `src/gates.js` | cancelli, sbarre e recinzioni |
 
 ## Licenze dei dati
 

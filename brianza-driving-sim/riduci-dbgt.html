@@ -27,7 +27,8 @@
   <h1>Riduci il pacchetto DBGT</h1>
   <p>Questa pagina prende il pacchetto DBGT di Regione Lombardia scaricato dal Geoportale (va bene
   anche quello provinciale da oltre 1 GB, senza estrarlo) e crea uno o più file piccoli con i soli
-  edifici dell'area del gioco, ognuno sotto i 28 MB. Tutto avviene nel tuo browser: il file non
+  edifici e l'altimetria (punti quotati, curve di livello, quote delle strade) dell'area del gioco,
+  ognuno sotto i 28 MB. Tutto avviene nel tuo browser: il file non
   viene inviato da nessuna parte.</p>
   <div class="box">
     <label class="pick" for="file">Scegli lo zip (o il .gpkg) del DBGT…</label>
@@ -139,8 +140,13 @@ function layerKind(names) {
   names = names.map((n) => n.toLowerCase());
   if (names.some((n) => n.endsWith('un_vol_av'))) return 'vol';
   if (names.some((n) => n.startsWith('cr_edf') || n.endsWith('edifc_uso'))) return 'body';
+  if (names.some((n) => n.endsWith('pt_quo_q'))) return 'quo';
+  if (names.some((n) => n.endsWith('cv_liv_q'))) return 'cv';
+  if (names.some((n) => n.endsWith('el_str_sed'))) return 'str';
   return null;
 }
+const WANTED = new Set(['vol', 'quo', 'cv', 'str']);
+const KIND_NAME = { vol: 'unità volumetriche', quo: 'punti quotati', cv: 'curve di livello', str: 'assi stradali con quota' };
 function readDbf(b) {
   const nrec = u32(b, 4), hlen = u16(b, 8), rlen = u16(b, 10), fields = [];
   for (let i = 32; i + 32 <= hlen && b[i] !== 0x0d; i += 32) fields.push([latin1.decode(b.subarray(i, i + 11)).replace(/\0.*$/s, '').trim().toLowerCase(), b[i + 16]]);
@@ -155,29 +161,34 @@ function readDbf(b) {
   }
   return out;
 }
+// geometrie di uno shapefile: [bbox, [parte piatta x,y,z,...]] (z = NaN se il file non ha quote)
 function* readShp(buf) {
   const dv = new DataView(buf.buffer, buf.byteOffset, buf.byteLength);
   let o = 100;
   while (o + 8 <= buf.length) {
     const clen = dv.getInt32(o + 4, false) * 2, c = o + 8;
     const st = clen >= 4 ? dv.getInt32(c, true) : 0;
-    if ((st === 5 || st === 15 || st === 25) && clen >= 44) {
+    if ([3, 5, 13, 15, 23, 25].includes(st) && clen >= 44) {
       const bb = [dv.getFloat64(c + 4, true), dv.getFloat64(c + 12, true), dv.getFloat64(c + 20, true), dv.getFloat64(c + 28, true)];
       const np = dv.getInt32(c + 36, true), npt = dv.getInt32(c + 40, true);
       const parts = []; for (let k = 0; k < np; k++) parts.push(dv.getInt32(c + 44 + 4 * k, true)); parts.push(npt);
-      const p0 = c + 44 + 4 * np, rings = [];
+      const p0 = c + 44 + 4 * np, zOff = (st === 13 || st === 15) ? p0 + 16 * npt + 16 : 0, rings = [];
       for (let k = 0; k < np; k++) {
         const ring = [];
-        for (let j = parts[k]; j < parts[k + 1]; j++) ring.push(dv.getFloat64(p0 + 16 * j, true), dv.getFloat64(p0 + 16 * j + 8, true));
+        for (let j = parts[k]; j < parts[k + 1]; j++) ring.push(dv.getFloat64(p0 + 16 * j, true), dv.getFloat64(p0 + 16 * j + 8, true), zOff ? dv.getFloat64(zOff + 8 * j, true) : NaN);
         rings.push(ring);
       }
       yield [bb, rings];
+    } else if ((st === 1 || st === 11 || st === 21) && clen >= 20) {
+      const x = dv.getFloat64(c + 4, true), y = dv.getFloat64(c + 12, true), z = st === 11 ? dv.getFloat64(c + 20, true) : NaN;
+      yield [[x, y, x, y], [[x, y, z]]];
     } else yield null;
     o = c + clen;
   }
 }
 const pick = (rec, suffix) => { for (const k in rec) if (k.endsWith(suffix)) return rec[k]; return ''; };
-const attrsOf = (kind, rec) => (kind === 'vol' ? [pick(rec, 'un_vol_av'), pick(rec, 'un_vol_por'), pick(rec, 'un_vol_ex')] : [pick(rec, 'edifc_uso'), pick(rec, 'cr_edf_ct')]);
+const ATTRS = { vol: ['un_vol_av', 'un_vol_por', 'un_vol_ex'], quo: ['pt_quo_sed'], cv: ['cv_liv_q', 'cv_liv_ty'], str: ['el_str_sed', 'el_str_liv', 'el_str_ty'], body: ['edifc_uso', 'cr_edf_ct'] };
+const attrsOf = (kind, rec) => ATTRS[kind].map((suf) => pick(rec, suf));
 
 // ------------------------------------------------------------------ ritaglio nelle coordinate del livello
 function tmForward(lat, lon, a, f, lon0, k0, fe) {
@@ -309,8 +320,9 @@ function sqlColumns(sql) {
     .map((s) => { const m = s.match(/^(\[[^\]]+\]|"[^"]+"|`[^`]+`|\S+)/); return m[1].replace(/^[\["`]|[\]"`]$/g, ''); });
 }
 
-// geometria GeoPackage -> poligoni [[x0,y0,x1,y1,...] anello esterno, ...]
-function gpkgPolys(b) {
+// geometria GeoPackage -> parti piatte [x,y,z,...]: anello esterno per i poligoni, tratto per le
+// linee, un punto per i punti (z = NaN se la geometria non ha quote)
+function gpkgParts(b) {
   const env = (b[3] >> 1) & 7;
   const dv = new DataView(b.buffer, b.byteOffset, b.byteLength);
   const out = [];
@@ -324,16 +336,19 @@ function gpkgPolys(b) {
     if (dim === 2 || dim === 3) hm = true;
     const nd = 2 + hz + hm;
     o += 5;
+    const coords = (o, n) => { const r = []; for (let i = 0; i < n; i++) r.push(dv.getFloat64(o + 8 * nd * i, le), dv.getFloat64(o + 8 * nd * i + 8, le), hz ? dv.getFloat64(o + 8 * nd * i + 16, le) : NaN); return r; };
+    if (base === 1) { out.push(coords(o, 1)); return o + 8 * nd; }
+    if (base === 2) { const n = dv.getUint32(o, le); o += 4; out.push(coords(o, n)); return o + 8 * nd * n; }
     if (base === 3) {
       const nr = dv.getUint32(o, le); o += 4;
       for (let r = 0; r < nr; r++) {
         const n = dv.getUint32(o, le); o += 4;
-        if (r === 0) { const ring = []; for (let i = 0; i < n; i++) ring.push(dv.getFloat64(o + 8 * nd * i, le), dv.getFloat64(o + 8 * nd * i + 8, le)); out.push(ring); }
+        if (r === 0) out.push(coords(o, n));
         o += 8 * nd * n;
       }
       return o;
     }
-    if (base === 6) { const n = dv.getUint32(o, le); o += 4; for (let i = 0; i < n; i++) o = geom(o); return o; }
+    if (base >= 4 && base <= 7) { const n = dv.getUint32(o, le); o += 4; for (let i = 0; i < n; i++) o = geom(o); return o; }
     throw new Error('geometria non gestita ' + t);
   };
   geom(8 + [0, 32, 48, 48, 64][env]);
@@ -357,10 +372,11 @@ async function gpkgLayers(blob, tag, found) {
     await db.scan(t.root, (rowid, v) => geomCol.set(v[c.indexOf('table_name')], { col: v[c.indexOf('column_name')], srs: v[c.indexOf('srs_id')] }));
   }
   for (const [name, t] of tables) {
-    if (layerKind(t.cols) !== 'vol') continue;
+    const kind = layerKind(t.cols);
+    if (!WANTED.has(kind)) continue;
     const g = geomCol.get(name) || { col: t.cols.find((c) => /shape|geom/i.test(c)), srs: null };
-    found.push({ base: name, kind: 'vol', gpkg: { db, t, geomIdx: t.cols.indexOf(g.col) }, prj: (g.srs != null && srs.get(g.srs)) || '' });
-    log(`Trovato: ${tag ? tag + ' › ' : ''}${name} (unità volumetriche, GeoPackage)`);
+    found.push({ base: name, kind, gpkg: { db, t, geomIdx: t.cols.indexOf(g.col) }, prj: (g.srs != null && srs.get(g.srs)) || '' });
+    log(`Trovato: ${tag ? tag + ' › ' : ''}${name} (${KIND_NAME[kind]}, GeoPackage)`);
   }
 }
 
@@ -376,7 +392,7 @@ async function findLayers(blob, tag, found, depth = 0) {
     if (!parts.dbf || !parts.shp) continue;
     const head = await entryPrefix(parts.dbf, 8192);
     const kind = layerKind(dbfFieldNames(head));
-    if (kind === 'vol') { found.push({ base, kind, parts }); log(`Trovato: ${tag ? tag + ' › ' : ''}${base} (unità volumetriche)`); }
+    if (WANTED.has(kind)) { found.push({ base, kind, parts }); log(`Trovato: ${tag ? tag + ' › ' : ''}${base} (${KIND_NAME[kind]})`); }
   }
   for (const en of ents) {
     if (/\.gpkg$/i.test(en.name)) {
@@ -400,16 +416,15 @@ async function gzipJson(obj) {
 async function eachRecord(L, cb) {
   if (L.gpkg) {
     const { db, t, geomIdx } = L.gpkg, c = t.cols.map((s) => s.toLowerCase());
-    const idx = (suf) => c.findIndex((n) => n.endsWith(suf));
-    const iAv = idx('un_vol_av'), iPor = idx('un_vol_por'), iEx = idx('un_vol_ex');
+    const ids = ATTRS[L.kind].map((suf) => c.findIndex((n) => n.endsWith(suf)));
     let n = 0;
     await db.scan(t.root, (rowid, v) => {
       const g = v[geomIdx];
       if (!(g instanceof Uint8Array) || g.length < 13) return;
-      let polys;
-      try { polys = gpkgPolys(g); } catch (e) { return; }
-      const a = [v[iAv] == null ? '' : String(v[iAv]), v[iPor] == null ? '' : String(v[iPor]).trim(), v[iEx] == null ? '' : String(v[iEx]).trim()];
-      for (const ring of polys) cb(a, [ring]);
+      let parts;
+      try { parts = gpkgParts(g); } catch (e) { return; }
+      const a = ids.map((i) => (i < 0 || v[i] == null ? '' : String(v[i]).trim()));
+      for (const part of parts) cb(a, [part]);
       n++;
     });
     return n;
@@ -437,7 +452,7 @@ $('file').addEventListener('change', async (ev) => {
     const found = [];
     if (/\.gpkg$/i.test(file.name)) await gpkgLayers(file, '', found);
     else await findLayers(file, '', found);
-    if (!found.length) { log('Nessun livello di edifici trovato. Mandami uno screenshot di questi messaggi.', 'err'); return; }
+    if (!found.length) { log('Nessun livello di edifici o di altimetria trovato. Mandami uno screenshot di questi messaggi.', 'err'); return; }
     const layers = [];
     let kept = 0, total = 0;
     for (let li = 0; li < found.length; li++) {
@@ -447,19 +462,36 @@ $('file').addEventListener('change', async (ev) => {
       const rect = clipRect(prj, bbox);
       const out = [];
       let seen = 0;
+      let qbuf = [];   // punti quotati raccolti a blocchi
+      const enc3 = (pts) => { const f = []; let px = 0, py = 0, pz = 0; for (let j = 0; j < pts.length; j += 3) { const qx = Math.round(pts[j] * 10), qy = Math.round(pts[j + 1] * 10), qz = Math.round(pts[j + 2] * 100); f.push(qx - px, qy - py, qz - pz); px = qx; py = qy; pz = qz; } return f; };
       await eachRecord(L, (a, rings) => {
         seen++;
         let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
-        for (const ring of rings) for (let j = 0; j < ring.length; j += 2) { if (ring[j] < x0) x0 = ring[j]; if (ring[j] > x1) x1 = ring[j]; if (ring[j + 1] < y0) y0 = ring[j + 1]; if (ring[j + 1] > y1) y1 = ring[j + 1]; }
+        for (const ring of rings) for (let j = 0; j < ring.length; j += 3) { if (ring[j] < x0) x0 = ring[j]; if (ring[j] > x1) x1 = ring[j]; if (ring[j + 1] < y0) y0 = ring[j + 1]; if (ring[j + 1] > y1) y1 = ring[j + 1]; }
         if (rect && (x1 < rect[0] || x0 > rect[2] || y1 < rect[1] || y0 > rect[3])) return;
-        out.push({ a, r: rings.map((ring) => {
+        if (L.kind === 'quo') {          // solo punti a terra: le quote in gronda (0302) non servono
+          if (a[0] === '0302') return;
+          for (const r of rings) for (let j = 0; j < r.length; j += 3) if (Number.isFinite(r[j + 2])) qbuf.push(r[j], r[j + 1], r[j + 2]);
+          if (qbuf.length >= 12000) { out.push({ p: enc3(qbuf) }); qbuf = []; }
+          return;
+        }
+        if (L.kind === 'cv' || L.kind === 'str') {   // linee con quota
+          const r = rings.filter((ring) => ring.length >= 6 && ring.every((v, j) => j % 3 !== 2 || Number.isFinite(v)));
+          if (r.length) out.push({ a, r: r.map(enc3) });
+          return;
+        }
+        const rec = { a, r: rings.map((ring) => {
           const flat = []; let px = 0, py = 0;
-          for (let j = 0; j < ring.length; j += 2) { const qx = Math.round(ring[j] * 10), qy = Math.round(ring[j + 1] * 10); flat.push(qx - px, qy - py); px = qx; py = qy; }
+          for (let j = 0; j < ring.length; j += 3) { const qx = Math.round(ring[j] * 10), qy = Math.round(ring[j + 1] * 10); flat.push(qx - px, qy - py); px = qx; py = qy; }
           return flat;
-        }) });
+        }) };
+        const z = rings.length && rings[0].length > 2 ? rings[0][2] : NaN;   // quota del piede dell'edificio
+        if (Number.isFinite(z) && z > 1) rec.z = Math.round(z * 100);
+        out.push(rec);
       });
+      if (qbuf.length) out.push({ p: enc3(qbuf) });
       total += seen; kept += out.length;
-      log(`  ${out.length.toLocaleString('it')} di ${seen.toLocaleString('it')} volumi nell'area`);
+      log(`  ${KIND_NAME[L.kind]}: ${out.length.toLocaleString('it')} oggetti nell'area su ${seen.toLocaleString('it')}`);
       layers.push({ kind: L.kind, prj, recs: out });
       progress((li + 1) / found.length * 0.8);
     }
@@ -475,7 +507,7 @@ $('file').addEventListener('change', async (ev) => {
       cur = []; curSize = 0;
     };
     for (const L of layers) for (const rec of L.recs) {
-      const est = 6 + rec.r.reduce((s, r) => s + r.length, 0) * 1.6;
+      const est = 6 + (rec.p ? rec.p.length : rec.r.reduce((s, r) => s + r.length, 0)) * 1.6;
       if (cur.length && (curSize + est > LIMIT * 0.9 || curPrj !== L.prj)) await flush();
       curPrj = L.prj; cur.push([L.kind, rec]); curSize += est;
     }
@@ -490,7 +522,7 @@ $('file').addEventListener('change', async (ev) => {
       $('out').appendChild(a);
     });
     if (!files.length) log('Nessun edificio nell\'area del gioco in questo pacchetto.', 'err');
-    else log(`Fatto: ${kept.toLocaleString('it')} volumi su ${total.toLocaleString('it')}, ${files.length} file. Scaricali con i pulsanti verdi.`);
+    else log(`Fatto: ${kept.toLocaleString('it')} oggetti su ${total.toLocaleString('it')}, ${files.length} file. Scaricali con i pulsanti verdi.`);
     if (files.some((b) => b.size > 30e6)) log('Attenzione: un file supera 30 MB', 'err');
   } catch (e) {
     log('Errore: ' + e.message, 'err');

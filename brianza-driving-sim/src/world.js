@@ -154,7 +154,7 @@ export class World {
       const p = this.meta.proj;
       const x0 = p.xmin + t.i * 1000, z0 = p.zmin + t.j * 1000;
       const add = (name, obj) => { t.parts[name] = obj; if (obj) this.root.add(obj); };
-      if (!('terrain' in t.parts)) { add('terrain', this.terrain.buildChunk(x0, z0, 1000, 20, this.terrainMat)); continue; }
+      if (!('terrain' in t.parts)) { add('terrain', this.terrain.buildChunk(x0, z0, 1000, Math.max(5, this.terrain.step), this.terrainMat)); continue; }
       if (!('roads' in t.parts)) { add('roads', this.roads.buildTile(t.key)); continue; }
       if (!('signs' in t.parts)) {
         const s = this.signage.build(t.key, t.data);

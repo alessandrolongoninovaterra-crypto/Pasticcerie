@@ -86,13 +86,17 @@ export class Terrain {
   }
 
   // mesh di una tessera di terreno (dimensione size, origine x0,z0) con passo step
+  // (drop > 0: terreno lontano, sempre sotto quello vicino: si prende il minimo attorno al vertice,
+  //  cosi' non spunta nelle trincee e nelle valli strette)
   buildChunk(x0, z0, size, step, material, drop = 0) {
     const n = Math.round(size / step) + 1;
     const pos = new Float32Array(n * n * 3), uv = new Float32Array(n * n * 2);
     const W = this.proj.xmax - this.proj.xmin, H = this.proj.zmax - this.proj.zmin;
     for (let j = 0; j < n; j++) for (let i = 0; i < n; i++) {
       const x = x0 + i * step, z = z0 + j * step, k = j * n + i;
-      pos[k * 3] = x; pos[k * 3 + 1] = this.height(x, z) - drop; pos[k * 3 + 2] = z;
+      let y = this.height(x, z);
+      if (drop > 0) for (let a = -2; a <= 2; a++) for (let b = -2; b <= 2; b++) y = Math.min(y, this.height(x + a * step / 2, z + b * step / 2));
+      pos[k * 3] = x; pos[k * 3 + 1] = y - drop; pos[k * 3 + 2] = z;
       uv[k * 2] = (x - this.proj.xmin) / W; uv[k * 2 + 1] = 1 - (z - this.proj.zmin) / H;
     }
     const idx = new Uint32Array((n - 1) * (n - 1) * 6);

@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
 """Riduce un pacchetto DBGT di Regione Lombardia (anche quello provinciale da oltre 1 GB) a uno o
-piu' file compatti con i soli edifici dell'area del gioco, ognuno sotto i 28 MB.
+piu' file compatti con i soli edifici e l'altimetria dell'area del gioco, ognuno sotto i 28 MB.
 
 Uso:  python3 tools/dbgt_solo_edifici.py <pacchetto.zip o cartella> [nome_uscita] [--tutto]
 
-  * tiene solo i livelli degli edifici (unita' volumetriche e corpi edificati);
+  * tiene solo gli edifici (unita' volumetriche con la quota del piede) e l'altimetria
+    (punti quotati a terra, curve di livello, assi stradali con la quota);
   * ritaglia sull'area del gioco letta da data/meta.js (con --tutto non ritaglia);
   * conserva solo i campi che servono (altezza, tipo di porzione/estrusione, uso);
   * scrive file <nome_uscita>_N.dbgt.json.gz da mettere in brianza-driving-sim/dbgt/ o da inviare.
@@ -15,7 +16,7 @@ import base64, gzip, json, math, os, re, sys, tempfile
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
-from dbgt import iter_layers  # noqa: E402  (solo libreria standard)
+from dbgt import iter_layers, ALTI_KINDS  # noqa: E402  (solo libreria standard)
 
 LIMIT = float(os.environ.get('BDS_DBGT_LIMIT_MB', 28)) * 1024 * 1024
 args = [a for a in sys.argv[1:] if not a.startswith('--')]
@@ -88,25 +89,48 @@ work = tempfile.mkdtemp(prefix='dbgt_ed_')
 
 layers = []   # (tipo, prj, [record compatti])
 kept = total = 0
+def delta(pts, scale):
+    flat, prev = [], [0] * len(scale)
+    for p in pts:
+        for k, sc in enumerate(scale):
+            q = int(round(p[k] * sc))
+            flat.append(q - prev[k]); prev[k] = q
+    return flat
+
+
+NAMES = {'vol': 'unita volumetriche', 'body': 'corpi edificati', 'quo': 'punti quotati',
+         'cv': 'curve di livello', 'str': 'assi stradali'}
 for kind, prj, recs, _src in iter_layers(folder, work):
     rect = clip_rect(prj, bbox)
-    out, seen = [], 0
+    out, seen, qbuf = [], 0, []
     for attrs, rings in recs:
         seen += 1
         xs = [p[0] for r in rings for p in r]; ys = [p[1] for r in rings for p in r]
         if not xs or (rect and (max(xs) < rect[0] or min(xs) > rect[2] or max(ys) < rect[1] or min(ys) > rect[3])):
             continue
-        enc = []
-        for ring in rings:
-            flat, px, py = [], 0, 0
-            for x, y in ring:
-                qx, qy = int(round(x * 10)), int(round(y * 10))
-                flat += [qx - px, qy - py]
-                px, py = qx, qy
-            enc.append(flat)
-        out.append({'a': [str(a) for a in attrs], 'r': enc})
+        if kind == 'quo':        # punti a terra: le quote in gronda (0302) non servono
+            if attrs and str(attrs[0]).strip() == '0302':
+                continue
+            qbuf += [p for r in rings for p in r if p[2] is not None]
+            if len(qbuf) >= 4000:
+                out.append({'p': delta(qbuf, (10, 10, 100))}); qbuf = []
+            continue
+        if kind in ALTI_KINDS:   # linee con quota: terne (dm, dm, cm)
+            enc = [delta(r, (10, 10, 100)) for r in rings if all(p[2] is not None for p in r)]
+            if enc:
+                out.append({'a': [str(a) for a in attrs], 'r': enc})
+            continue
+        if kind == 'vol':
+            rec = {'a': [str(a) for a in attrs[:3]], 'r': [delta(r, (10, 10)) for r in rings]}
+            if len(attrs) > 3 and str(attrs[3]).strip():
+                rec['z'] = int(round(float(attrs[3]) * 100))
+        else:
+            rec = {'a': [str(a) for a in attrs], 'r': [delta(r, (10, 10)) for r in rings]}
+        out.append(rec)
+    if qbuf:
+        out.append({'p': delta(qbuf, (10, 10, 100))})
     total += seen; kept += len(out)
-    print('  %s: %d di %d oggetti nell\'area' % ('unita volumetriche' if kind == 'vol' else 'corpi edificati', len(out), seen))
+    print('  %s: %d di %d oggetti nell\'area' % (NAMES.get(kind, kind), len(out), seen))
     layers.append((kind, prj, out))
 
 # scrittura in parti sotto il limite
@@ -128,7 +152,7 @@ def flush():
 
 for kind, prj, recs in layers:
     for rec in recs:
-        est = 6 + sum(len(r) for r in rec['r']) * 1.6      # byte compressi stimati
+        est = 6 + (len(rec['p']) if 'p' in rec else sum(len(r) for r in rec['r'])) * 1.6      # byte compressi stimati
         if cur_size + est > LIMIT * 0.9 or (cur and next(iter(cur))[1] != prj):
             flush()
         cur.setdefault((kind, prj), []).append(rec)
@@ -136,6 +160,6 @@ for kind, prj, recs in layers:
 flush()
 for f in files:
     print('%s  %.1f MB' % (f, os.path.getsize(f) / 1e6))
-print('Edifici tenuti: %d su %d. Metti i file in brianza-driving-sim/dbgt/ oppure inviali.' % (kept, total))
+print('Oggetti tenuti: %d su %d. Metti i file in brianza-driving-sim/dbgt/ oppure inviali.' % (kept, total))
 if any(os.path.getsize(f) > 30e6 for f in files):
     print('ATTENZIONE: un file supera 30 MB')

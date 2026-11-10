@@ -354,6 +354,13 @@ def split_at_gates(pts_ll):
     return [c for c in pieces if len(c) >= 2]
 
 
+def seg_cells_g(a, b, cell):
+    x0, x1 = sorted((a[0], b[0])); z0, z1 = sorted((a[1], b[1]))
+    for i in range(int(math.floor(x0 / cell)), int(math.floor(x1 / cell)) + 1):
+        for j in range(int(math.floor(z0 / cell)), int(math.floor(z1 / cell)) + 1):
+            yield (i, j)
+
+
 def xy(loc):
     return P.fwd(loc.lat, loc.lon)
 
@@ -654,6 +661,7 @@ print('oggetti', n_obj, 'vie', len(road_ways), 'nodi strada', len(node_xy), 'edi
 # nei comuni coperti le forme OSM vengono sostituite dalle "unita' volumetriche" del DBGT,
 # con la loro altezza misurata. Tipologia, nome e colori restano quelli di OSM (per sovrapposizione).
 dbgt_comuni = []
+alti = {'pts': [], 'roads': []}   # altimetria del DBGT (punti a terra, assi stradali con quota)
 DBGT_DIR = os.environ.get('BDS_DBGT') or CFG.get('dbgt_dir') or ''
 if DBGT_DIR and not os.path.isabs(DBGT_DIR):
     DBGT_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', DBGT_DIR)
@@ -664,7 +672,9 @@ if DBGT_DIR and os.path.isdir(DBGT_DIR):
     from shapely.prepared import prep as _prep
     from shapely.strtree import STRtree as _Tree
     from dbgt import load_dbgt
-    vols, bodies, dinfo = load_dbgt(DBGT_DIR, os.path.join(height_dir, 'dbgt_extract'), P.fwd, bbox)
+    vols, bodies, dinfo, alti = load_dbgt(DBGT_DIR, os.path.join(height_dir, 'dbgt_extract'), P.fwd, bbox)
+    # la quota del piede di ogni edificio e' un punto del terreno in piu'
+    alti['bld'] = [centroid(v['ring']) + (v['z0'],) for v in vols if v.get('z0')]
     print('DBGT: unita volumetriche', len(vols), 'corpi edificati', len(bodies), dict(dinfo.most_common(15)))
     if vols:
         # controllo di qualita' sui dati:
@@ -803,6 +813,197 @@ if DBGT_DIR and os.path.isdir(DBGT_DIR):
 elif DBGT_DIR:
     print('DBGT: cartella non trovata', DBGT_DIR)
 
+# cancelli: [tipo, x, z, direzione dell'apertura (decimi di grado), larghezza (dm), stato]
+# tipo 0 battente, 1 scorrevole, 2 sbarra, 3 cancelletto pedonale, 4 catena
+# stato 0 aperto, 1 chiuso (ostacolo), 2 automatico (si apre quando arriva un veicolo)
+gates_out = []
+
+for r, g in gate_nodes.items():
+    c = gate_ctx.get(r)
+    if not c:
+        continue
+    kind, acc = g['k'], g['acc'] or c['acc']
+    if c['prio'] == 2:   # su una strada o un sentiero: il cancello attraversa la via
+        sx, sz = -c['dz'], c['dx']
+        wd = g['w'] or min(8, c['w'])
+        if kind == 0 and c['foot'] and wd < 2.2:
+            kind = 3
+        if kind == 2:
+            state = 2
+        elif c['drive']:
+            state = 2 if acc == 1 else 0
+        elif c['foot']:
+            state = 1 if acc == 1 else 0
+        else:
+            state = 0 if acc == -1 else 1
+    else:                # solo su una recinzione: il cancello sta lungo la recinzione
+        sx, sz = c['dx'], c['dz']
+        wd = g['w'] or (1.1 if kind == 3 else 3.4)
+        state = 0 if acc == -1 else 1
+    if state == 1 and c['prio'] == 2 and r not in node_tags:
+        node_tags[r] = (14, 0)       # il navigatore non ci passa
+    gates_out.append((kind, g['x'], g['z'], sx, sz, wd, state))
+for kind, a, b, acc in gate_lines:
+    gates_out.append((kind, (a[0] + b[0]) / 2, (a[1] + b[1]) / 2, b[0] - a[0], b[1] - a[1], math.dist(a, b),
+             2 if kind == 2 else (0 if acc == -1 else 1)))
+
+
+# ------------------------------------------------------------------ altimetria di dettaglio dal DBGT
+# Se i pacchetti DBGT contengono l'altimetria (punti quotati a terra, curve di livello, quota del
+# piede degli edifici, assi stradali con la quota) il modello del terreno passa a una griglia piu'
+# fitta e viene corretto sui dati misurati; le strade seguono il loro profilo reale (trincee,
+# rilevati, rampe). Dove il DBGT non c'e' resta il modello satellitare.
+HEIGHT_CHANGED = False
+
+
+def _box(a, r, axis):
+    """media mobile di raggio r lungo un asse (bordi a zero: si usa su numeratore e denominatore)"""
+    a = np.moveaxis(a, axis, 0)
+    c = np.cumsum(np.pad(a, [(r + 1, r)] + [(0, 0)] * (a.ndim - 1)), axis=0)
+    return np.moveaxis((c[2 * r + 1:] - c[:-2 * r - 1]) / (2 * r + 1), 0, axis)
+
+
+def _smooth(a, r):
+    for _ in range(3):   # tre passate di media mobile ~ gaussiana
+        a = _box(_box(a, r, 0), r, 1)
+    return a
+
+
+def _bilin(G, x0, z0, step, xs, zs):
+    gx = np.clip((xs - x0) / step, 0, G.shape[1] - 1.001); gz = np.clip((zs - z0) / step, 0, G.shape[0] - 1.001)
+    ix = gx.astype(int); iz = gz.astype(int); fx = gx - ix; fz = gz - iz
+    return (G[iz, ix] * (1 - fx) * (1 - fz) + G[iz, ix + 1] * fx * (1 - fz) + G[iz + 1, ix] * (1 - fx) * fz + G[iz + 1, ix + 1] * fx * fz)
+
+
+if alti['pts'] or alti['roads']:
+    from PIL import Image as _Img, ImageDraw as _Draw
+    STEP2 = float(CFG.get('height_grid_dbgt_m', 10))
+    f = HMETA['step'] / STEP2
+    nx2 = int(round((HMETA['nx'] - 1) * f)) + 1; nz2 = int(round((HMETA['nz'] - 1) * f)) + 1
+    x0g, z0g = HMETA['x0'], HMETA['z0']
+    gxs = x0g + np.arange(nx2) * STEP2; gzs = z0g + np.arange(nz2) * STEP2
+    GX, GZ = np.meshgrid(gxs, gzs)
+    G = _bilin(HGRID, x0g, z0g, HMETA['step'], GX.ravel(), GZ.ravel()).reshape(nz2, nx2).astype(np.float64)
+    del GX, GZ
+    # maschera di ponti e gallerie (li' l'asse stradale non e' il terreno)
+    mimg = _Img.new('L', (nx2, nz2), 0); md = _Draw.Draw(mimg)
+    for w in road_ways:
+        if w['flags'] & (F_BRIDGE | F_TUNNEL) or w['layer'] != 0:
+            pts = [((node_xy[r][0] - x0g) / STEP2, (node_xy[r][1] - z0g) / STEP2) for r in w['ids']]
+            md.line(pts, fill=255, width=max(2, int(round(((w['width'] or 7.0) + 14) / STEP2))))
+    for rl in rails:
+        if rl['b'] or rl['t']:
+            md.line([((x - x0g) / STEP2, (z - z0g) / STEP2) for x, z in rl['p']], fill=255, width=3)
+    MASK = np.asarray(mimg) > 0
+    del mimg, md
+
+    def masked(xs, zs):
+        ix = np.clip(np.round((xs - x0g) / STEP2).astype(int), 0, nx2 - 1); iz = np.clip(np.round((zs - z0g) / STEP2).astype(int), 0, nz2 - 1)
+        return MASK[iz, ix]
+    # campioni: punti a terra, piedi degli edifici, assi stradali a raso (ogni 5 m)
+    rs = []
+    for line in alti['roads']:
+        for (ax, az, ah), (bx, bz, bh) in zip(line, line[1:]):
+            n = max(1, int(math.dist((ax, az), (bx, bz)) // 5))
+            for k in range(n):
+                t_ = k / n
+                rs.append((ax + (bx - ax) * t_, az + (bz - az) * t_, ah + (bh - ah) * t_))
+        rs.append(line[-1])
+    P_ = np.array(alti['pts'], np.float64).reshape(-1, 3)
+    B_ = np.array(alti.get('bld', []), np.float64).reshape(-1, 3)
+    R_ = np.array(rs, np.float64).reshape(-1, 3)
+    if len(R_):
+        R_ = R_[~masked(R_[:, 0], R_[:, 1])]
+    rng = np.random.default_rng(7)
+    hold = rng.random(len(P_)) < 0.05          # 5% dei punti tenuti da parte per la verifica
+    S = np.vstack([P_[~hold], B_, R_]); W_ = np.concatenate([np.full((~hold).sum(), 1.0), np.full(len(B_), 1.0), np.full(len(R_), 1.5)])
+    inside_ = (S[:, 0] > gxs[0]) & (S[:, 0] < gxs[-1]) & (S[:, 1] > gzs[0]) & (S[:, 1] < gzs[-1])
+    S, W_ = S[inside_], W_[inside_]
+    base_err = P_[hold, 2] - _bilin(G, x0g, z0g, STEP2, P_[hold, 0], P_[hold, 1])
+    r0 = S[:, 2] - _bilin(G, x0g, z0g, STEP2, S[:, 0], S[:, 1])
+    ok = np.abs(r0) < 40                       # errori grossolani
+    S, W_ = S[ok], W_[ok]
+    print('altimetria DBGT: campioni', len(S), '(punti %d, edifici %d, strade %d)' % ((~hold).sum(), len(B_), len(R_)))
+    gx = (S[:, 0] - x0g) / STEP2; gz = (S[:, 1] - z0g) / STEP2
+    ix = np.clip(gx.astype(int), 0, nx2 - 2); iz = np.clip(gz.astype(int), 0, nz2 - 2); fx = gx - ix; fz = gz - iz
+    corners = [(0, 0, (1 - fx) * (1 - fz)), (0, 1, fx * (1 - fz)), (1, 0, (1 - fx) * fz), (1, 1, fx * fz)]
+    for rad, eps in ((4, 0.02), (1, 0.05), (1, 0.05), (1, 0.05)):   # correzione larga (~40 m), poi fine (~14 m) ripetuta
+        res = S[:, 2] - _bilin(G, x0g, z0g, STEP2, S[:, 0], S[:, 1])
+        num = np.zeros_like(G); den = np.zeros_like(G)
+        for di, dj, wc in corners:
+            np.add.at(num, (iz + di, ix + dj), W_ * wc * res)
+            np.add.at(den, (iz + di, ix + dj), W_ * wc)
+        num = _smooth(num, rad); den = _smooth(den, rad)
+        G += num / (den + eps)
+    after = P_[hold, 2] - _bilin(G, x0g, z0g, STEP2, P_[hold, 0], P_[hold, 1])
+    cov = np.abs(base_err) < 1e9
+    if hold.sum():
+        print('altimetria DBGT: errore sui punti di verifica (%d): prima media %.2f m, 95%% %.2f m; dopo media %.2f m, 95%% %.2f m'
+              % (hold.sum(), np.mean(np.abs(base_err)), np.percentile(np.abs(base_err), 95), np.mean(np.abs(after)), np.percentile(np.abs(after), 95)))
+    # profilo delle strade a raso: quota dei nodi OSM dall'asse DBGT piu' vicino e parallelo
+    seg = defaultdict(list)
+    for line in alti['roads']:
+        for a_, b_ in zip(line, line[1:]):
+            if masked(np.array([(a_[0] + b_[0]) / 2]), np.array([(a_[1] + b_[1]) / 2]))[0]:
+                continue
+            for c in seg_cells_g(a_, b_, 25.0):
+                seg[c].append((a_, b_))
+    node_h = {}
+    for w in road_ways:
+        if w['flags'] & (F_BRIDGE | F_TUNNEL) or w['layer'] != 0:
+            continue
+        ids = w['ids']
+        lim = max(5.0, (w['width'] or 7.0) / 2 + 2.5)
+        for k, r in enumerate(ids):
+            px, pz = node_xy[r]
+            qa = node_xy[ids[max(0, k - 1)]]; qb = node_xy[ids[min(len(ids) - 1, k + 1)]]
+            dx, dz = qb[0] - qa[0], qb[1] - qa[1]; L = math.hypot(dx, dz) or 1; dx /= L; dz /= L
+            best = None
+            for (a_, b_) in seg.get((int(px // 25), int(pz // 25)), ()):
+                sx, sz = b_[0] - a_[0], b_[1] - a_[1]; sl = math.hypot(sx, sz)
+                if sl < 0.01 or abs((sx * dx + sz * dz) / sl) < 0.75:
+                    continue
+                t_ = max(0.0, min(1.0, ((px - a_[0]) * sx + (pz - a_[1]) * sz) / (sl * sl)))
+                d = math.hypot(a_[0] + sx * t_ - px, a_[1] + sz * t_ - pz)
+                if d < lim and (best is None or d < best[0]):
+                    best = (d, a_[2] + (b_[2] - a_[2]) * t_)
+            if best:
+                node_h.setdefault(r, []).append(best[1])
+    node_h = {r: sum(v) / len(v) for r, v in node_h.items()}
+    # scavo/riporto: le celle sotto la strada prendono la quota della strada
+    smp = []
+    for w in road_ways:
+        if w['flags'] & (F_BRIDGE | F_TUNNEL) or w['layer'] != 0 or w['cls'] > 9:
+            continue
+        rad_ = max(4.0, (w['width'] or 7.0) / 2 + 2.0)
+        for a_, b_ in zip(w['ids'], w['ids'][1:]):
+            if a_ not in node_h or b_ not in node_h:
+                continue
+            (ax, az), (bx, bz) = node_xy[a_], node_xy[b_]
+            n = max(1, int(math.dist((ax, az), (bx, bz)) // 2.5))
+            for k in range(n + 1):
+                t_ = k / n
+                smp.append((ax + (bx - ax) * t_, az + (bz - az) * t_, node_h[a_] + (node_h[b_] - node_h[a_]) * t_, rad_))
+    if smp:
+        A_ = np.array(smp)
+        tsum = np.zeros_like(G); wsum = np.zeros_like(G)
+        ci = np.round((A_[:, 0] - x0g) / STEP2).astype(int); cj = np.round((A_[:, 1] - z0g) / STEP2).astype(int)
+        for di in (-1, 0, 1):
+            for dj in (-1, 0, 1):
+                ii = np.clip(ci + di, 0, nx2 - 1); jj = np.clip(cj + dj, 0, nz2 - 1)
+                d = np.hypot(gxs[ii] - A_[:, 0], gzs[jj] - A_[:, 1])
+                m = d < A_[:, 3]
+                wgt = 1.0 / (d[m] ** 2 + 1.0)
+                np.add.at(tsum, (jj[m], ii[m]), wgt * A_[m, 2]); np.add.at(wsum, (jj[m], ii[m]), wgt)
+        sel = wsum > 0
+        moved = np.abs(G[sel] - tsum[sel] / wsum[sel])
+        G[sel] = tsum[sel] / wsum[sel]
+        print('altimetria DBGT: nodi strada con quota reale', len(node_h), '- celle sotto le strade', int(sel.sum()),
+              'spostate in media di %.2f m (max %.1f)' % (moved.mean(), moved.max()))
+    HMETA = {'nx': nx2, 'nz': nz2, 'step': STEP2, 'x0': x0g, 'z0': z0g, 'scale': 0.1}
+    HGRID = G.astype(np.float32)
+    HEIGHT_CHANGED = True
+
 # ------------------------------------------------------------------ rete stradale: nodi, semplificazione
 use_count = defaultdict(int)
 for w in road_ways:
@@ -925,40 +1126,6 @@ for w in road_ways:
         a, b = ids[k], ids[k + 1]
         d = math.dist(node_xy[a], node_xy[b])
         adj[a].append((b, d)); adj[b].append((a, d))
-# cancelli: [tipo, x, z, direzione dell'apertura (decimi di grado), larghezza (dm), stato]
-# tipo 0 battente, 1 scorrevole, 2 sbarra, 3 cancelletto pedonale, 4 catena
-# stato 0 aperto, 1 chiuso (ostacolo), 2 automatico (si apre quando arriva un veicolo)
-gates_out = []
-
-for r, g in gate_nodes.items():
-    c = gate_ctx.get(r)
-    if not c:
-        continue
-    kind, acc = g['k'], g['acc'] or c['acc']
-    if c['prio'] == 2:   # su una strada o un sentiero: il cancello attraversa la via
-        sx, sz = -c['dz'], c['dx']
-        wd = g['w'] or min(8, c['w'])
-        if kind == 0 and c['foot'] and wd < 2.2:
-            kind = 3
-        if kind == 2:
-            state = 2
-        elif c['drive']:
-            state = 2 if acc == 1 else 0
-        elif c['foot']:
-            state = 1 if acc == 1 else 0
-        else:
-            state = 0 if acc == -1 else 1
-    else:                # solo su una recinzione: il cancello sta lungo la recinzione
-        sx, sz = c['dx'], c['dz']
-        wd = g['w'] or (1.1 if kind == 3 else 3.4)
-        state = 0 if acc == -1 else 1
-    if state == 1 and c['prio'] == 2 and r not in node_tags:
-        node_tags[r] = (14, 0)       # il navigatore non ci passa
-    gates_out.append((kind, g['x'], g['z'], sx, sz, wd, state))
-for kind, a, b, acc in gate_lines:
-    gates_out.append((kind, (a[0] + b[0]) / 2, (a[1] + b[1]) / 2, b[0] - a[0], b[1] - a[1], math.dist(a, b),
-             2 if kind == 2 else (0 if acc == -1 else 1)))
-
 import heapq
 heap = [(-v, r) for r, v in dh.items() if v > 0]
 heapq.heapify(heap)
@@ -1389,6 +1556,9 @@ for (i, j), tdata in tiles.items():
 print('tessere', len(tile_keys), 'byte', total)
 
 # ------------------------------------------------------------------ meta
+if HEIGHT_CHANGED:
+    qh = np.clip(np.round(HGRID * 10), 0, 65535).astype('<u2')
+    print('height.js (griglia %g m)' % HMETA['step'], write_js(os.path.join(OUT, 'height.js'), 'height', raw=qh.tobytes()))
 lm_seen = set()
 lm_out = []
 for lm in landmarks:
