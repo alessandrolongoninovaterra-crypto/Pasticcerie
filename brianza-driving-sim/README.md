@@ -176,7 +176,15 @@ i pacchetti dei comuni vicini non lasciano buchi ai confini. I crediti compaiono
 
 I volumi contenuti per oltre l'80% in un volume più alto (porzioni interne) vengono scartati.
 Nel repository sono conservati solo i file ridotti `dbgt/*.dbgt.json.gz` (gli zip originali sono
-esclusi da git). Comuni già importati: **Cabiate**.
+esclusi da git). Comuni già importati: tutta la parte della **provincia di Monza e Brianza** dentro l'area del
+gioco (34 comuni, tra cui Giussano, Seregno, Meda, Desio, Lissone, Carate, Besana, Verano,
+Briosco, Albiate, Renate, Veduggio, Monza) e **Cabiate**: circa 182.000 volumi al posto di
+78.800 edifici OSM. Restano con gli edifici OSM i comuni in provincia di Como (Mariano Comense,
+Arosio, Inverigo) e Lecco.
+
+Controlli di qualità applicati ai dati: le porzioni di tipo 08 senza altezza (piccole e quasi mai
+corrispondenti a edifici reali) vengono scartate; le altezze non plausibili per l'impronta (per
+esempio 212 m su 13 m²) vengono considerate mancanti e stimate dalla tipologia.
 
 **Licenza:** il Geoportale pubblica i dati con licenze diverse per prodotto (CC-BY 4.0, IODL 2.0
 o altre): controlla quella indicata nella pagina di download del DBGT prima di distribuire il gioco.

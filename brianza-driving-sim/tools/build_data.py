@@ -583,6 +583,24 @@ if DBGT_DIR and os.path.isdir(DBGT_DIR):
     vols, bodies, dinfo = load_dbgt(DBGT_DIR, os.path.join(height_dir, 'dbgt_extract'), P.fwd, bbox)
     print('DBGT: unita volumetriche', len(vols), 'corpi edificati', len(bodies), dict(dinfo.most_common(15)))
     if vols:
+        # controllo di qualita' sui dati:
+        #  - porzioni di tipo 08 senza altezza: piccole e quasi mai corrispondenti a edifici OSM,
+        #    non sono volumi fuori terra -> scartate
+        #  - altezze non plausibili per l'impronta (es. 212 m su 13 m2: comignoli/antenne o
+        #    errori) -> trattate come mancanti e stimate dalla tipologia
+        n_08 = n_bad_h = 0
+        clean = []
+        for v in vols:
+            if v['por'] == '08' and v['h'] <= 0:
+                n_08 += 1
+                continue
+            a = abs(ring_area(v['ring']))
+            if v['h'] > 150 or v['h'] > max(30.0, 12 * math.sqrt(max(a, 0.0))):
+                v['h'] = 0.0
+                n_bad_h += 1
+            clean.append(v)
+        vols = clean
+        print('DBGT: scartate porzioni 08 senza altezza', n_08, '- altezze non plausibili stimate', n_bad_h)
         # volumi contenuti per oltre l'80% in un volume piu' alto (porzioni interne): invisibili
         vg = []
         for v in vols:
