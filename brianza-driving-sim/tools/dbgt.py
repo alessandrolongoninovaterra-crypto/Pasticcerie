@@ -264,7 +264,7 @@ def iter_layers(folder, work):
                         continue
                     for ring in polys:          # un record per poligono, con il solo anello esterno
                         yield _attrs(kind, rec), [ring]
-            yield kind, wkt, gen()
+            yield kind, wkt, gen(), os.path.basename(gp)
     for shp in shps:
         recs = read_dbf(os.path.splitext(shp)[0] + '.dbf')
         kind = layer_kind(list(recs[0].keys()) if recs and recs[0] else [])
@@ -272,7 +272,7 @@ def iter_layers(folder, work):
             continue
         geoms = read_shp(shp)
         print('  lettura', os.path.basename(shp), len(geoms), 'oggetti')
-        yield kind, read_prj(shp), ((_attrs(kind, r), g[1]) for r, g in zip(recs, geoms) if r and g)
+        yield kind, read_prj(shp), ((_attrs(kind, r), g[1]) for r, g in zip(recs, geoms) if r and g), os.path.basename(shp)
     for cp in compact:
         d = json.loads(gzip.decompress(open(cp, 'rb').read()))
         for lay in d['layers']:
@@ -289,7 +289,7 @@ def iter_layers(folder, work):
                             pts.append((x / 10, y / 10))
                         rings.append(pts)
                     yield rec['a'], rings
-            yield lay['kind'], d.get('prj', ''), gen()
+            yield lay['kind'], d.get('prj', ''), gen(), os.path.basename(cp)
 
 
 def load_dbgt(folder, work, fwd, bbox):
@@ -306,7 +306,7 @@ def load_dbgt(folder, work, fwd, bbox):
     s, w, n, e = bbox
     vols, bodies = [], []
     info = Counter()
-    for kind, wkt, recs in iter_layers(folder, work):
+    for kind, wkt, recs, src in iter_layers(folder, work):
         try:
             crs = CRS.from_wkt(wkt) if wkt else CRS.from_epsg(32632)  # standard attuale: UTM 32N
         except Exception:
@@ -327,7 +327,7 @@ def load_dbgt(folder, work, fwd, bbox):
                     continue
                 ring = [fwd(la, lo) for lo, la in lonlat]
                 if kind == 'vol':
-                    vols.append({'ring': ring, 'h': _num(attrs[0]), 'por': str(attrs[1]), 'ex': str(attrs[2])})
+                    vols.append({'ring': ring, 'h': _num(attrs[0]), 'por': str(attrs[1]), 'ex': str(attrs[2]), 'src': src})
                     info['por:' + str(attrs[1] or '-')] += 1
                 else:
                     bodies.append({'ring': ring, 'uso': str(attrs[0]), 'cat': str(attrs[1])})

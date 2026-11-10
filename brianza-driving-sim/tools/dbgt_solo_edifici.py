@@ -88,7 +88,7 @@ work = tempfile.mkdtemp(prefix='dbgt_ed_')
 
 layers = []   # (tipo, prj, [record compatti])
 kept = total = 0
-for kind, prj, recs in iter_layers(folder, work):
+for kind, prj, recs, _src in iter_layers(folder, work):
     rect = clip_rect(prj, bbox)
     out, seen = [], 0
     for attrs, rings in recs:

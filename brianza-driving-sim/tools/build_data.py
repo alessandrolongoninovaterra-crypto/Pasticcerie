@@ -601,6 +601,42 @@ if DBGT_DIR and os.path.isdir(DBGT_DIR):
             clean.append(v)
         vols = clean
         print('DBGT: scartate porzioni 08 senza altezza', n_08, '- altezze non plausibili stimate', n_bad_h)
+        cpolys = []
+        for c in comuni:
+            try:
+                g = unary_union([_SP(r) for r in c['rings'] if len(r) >= 4]).buffer(0)
+                if not g.is_empty:
+                    cpolys.append((c['n'], g))
+            except Exception:
+                pass
+        ctree = _Tree([g for _, g in cpolys])
+        # comune di ogni volume
+        vcom = []
+        for v in vols:
+            pt = _Pt(*centroid(v['ring']))
+            ci = -1
+            for i in ctree.query(pt):
+                if cpolys[i][1].contains(pt):
+                    ci = i
+                    break
+            vcom.append(ci)
+        # piu' file possono coprire lo stesso comune (pacchetto comunale e provinciale, edizioni
+        # diverse): per ogni comune si usa un solo file, quello con piu' volumi (il piu' dettagliato)
+        per = Counter((ci, v['src']) for ci, v in zip(vcom, vols) if ci >= 0)
+        best = {}
+        for (ci, src), k in per.items():
+            if k > best.get(ci, ('', -1))[1]:
+                best[ci] = (src, k)
+        dup = sum(1 for ci, v in zip(vcom, vols) if ci >= 0 and v['src'] != best[ci][0])
+        if dup:
+            for ci in sorted(best):
+                others = [(s_, k) for (c_, s_), k in per.items() if c_ == ci and s_ != best[ci][0] and k >= 30]
+                if others:
+                    print('  %s: uso %s (%d volumi), scarto %s' % (cpolys[ci][0], best[ci][0], best[ci][1], ', '.join('%s (%d)' % o for o in others)))
+            keep = [i for i, (ci, v) in enumerate(zip(vcom, vols)) if ci < 0 or v['src'] == best[ci][0]]
+            vols = [vols[i] for i in keep]
+            vcom = [vcom[i] for i in keep]
+            print('DBGT: volumi di altri file nello stesso comune scartati', dup)
         # volumi contenuti per oltre l'80% in un volume piu' alto (porzioni interne): invisibili
         vg = []
         for v in vols:
@@ -619,22 +655,8 @@ if DBGT_DIR and os.path.isdir(DBGT_DIR):
         if drop:
             print('DBGT: volumi interni a volumi piu alti scartati', len(drop))
             vols = [v for i, v in enumerate(vols) if i not in drop]
-        cpolys = []
-        for c in comuni:
-            try:
-                g = unary_union([_SP(r) for r in c['rings'] if len(r) >= 4]).buffer(0)
-                if not g.is_empty:
-                    cpolys.append((c['n'], g))
-            except Exception:
-                pass
-        ctree = _Tree([g for _, g in cpolys])
-        cnt = Counter()
-        for v in vols:
-            pt = _Pt(*centroid(v['ring']))
-            for i in ctree.query(pt):
-                if cpolys[i][1].contains(pt):
-                    cnt[i] += 1
-                    break
+            vcom = [c_ for i, c_ in enumerate(vcom) if i not in drop]
+        cnt = Counter(ci for ci in vcom if ci >= 0)
         # un comune e' "coperto" se la maggior parte dei suoi edifici OSM trova un volume DBGT:
         # cosi' i pochi volumi di confine dei comuni vicini non cancellano gli edifici OSM.
         vtree = _Tree([_SP(v['ring']) for v in vols if len(v['ring']) >= 4])

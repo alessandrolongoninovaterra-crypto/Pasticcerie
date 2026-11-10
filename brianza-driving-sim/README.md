@@ -176,11 +176,16 @@ i pacchetti dei comuni vicini non lasciano buchi ai confini. I crediti compaiono
 
 I volumi contenuti per oltre l'80% in un volume più alto (porzioni interne) vengono scartati.
 Nel repository sono conservati solo i file ridotti `dbgt/*.dbgt.json.gz` (gli zip originali sono
-esclusi da git). Comuni già importati: tutta la parte della **provincia di Monza e Brianza** dentro l'area del
-gioco (34 comuni, tra cui Giussano, Seregno, Meda, Desio, Lissone, Carate, Besana, Verano,
-Briosco, Albiate, Renate, Veduggio, Monza) e **Cabiate**: circa 182.000 volumi al posto di
-78.800 edifici OSM. Restano con gli edifici OSM i comuni in provincia di Como (Mariano Comense,
-Arosio, Inverigo) e Lecco.
+esclusi da git). Comuni già importati: tutta la parte delle **province di Monza e Brianza e di Como**
+dentro l'area del gioco (57 comuni, tra cui Giussano, Seregno, Meda, Desio, Lissone, Carate, Besana,
+Verano, Briosco, Albiate, Renate, Veduggio, Monza, Mariano Comense, Arosio, Inverigo, Cabiate):
+circa 240.000 volumi al posto di 101.000 edifici OSM. Restano con gli edifici OSM i comuni in
+provincia di Lecco e quelli coperti solo in parte dall'area del gioco o dal pacchetto (Como, Casatenovo,
+Paderno Dugnano).
+
+Quando lo stesso comune compare in più pacchetti (per esempio Cabiate nel pacchetto comunale e in
+quello provinciale di Como, di aggiornamento diverso) si usa un solo pacchetto per comune, quello con
+più volumi in quel comune, per evitare edifici doppi.
 
 Controlli di qualità applicati ai dati: le porzioni di tipo 08 senza altezza (piccole e quasi mai
 corrispondenti a edifici reali) vengono scartate; le altezze non plausibili per l'impronta (per
