@@ -152,7 +152,11 @@ colori restano quelli di OSM.
    - metti gli zip così come sono (anche il pacchetto provinciale da oltre 1 GB) in
      `brianza-driving-sim/dbgt/` (cartella esclusa da git): la pipeline legge l'intestazione dei
      file dentro lo zip ed estrae solo i livelli degli edifici;
-   - oppure riducili prima a file compatti con i soli edifici dell'area del gioco:
+   - oppure, **senza installare nulla**, apri con doppio clic `riduci-dbgt.html` (nella cartella
+     del gioco), scegli lo zip del DBGT e scarica i file ridotti con i soli edifici dell'area del
+     gioco, ognuno sotto i 28 MB. Funziona nel browser (Chrome, Edge, Firefox), senza inviare il
+     file da nessuna parte; anche il pacchetto provinciale da oltre 1 GB va bene;
+   - oppure fai la stessa riduzione da riga di comando, se hai Python:
      `python3 tools/dbgt_solo_edifici.py pacchetto.zip DBGT_MB` (su Windows `py` al posto di
      `python3`). Usa solo la libreria standard di Python, ritaglia sull'area del gioco e scrive
      uno o più file `DBGT_MB_N.dbgt.json.gz` sotto i 28 MB ciascuno. Con i ~110.000 edifici

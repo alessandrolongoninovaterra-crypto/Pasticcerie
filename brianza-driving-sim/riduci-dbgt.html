@@ -1,0 +1,309 @@
+<!doctype html>
+<html lang="it">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Riduci DBGT</title>
+<style>
+  :root { --bg: #0f1418; --panel: #172028; --text: #eef2f5; --muted: #9fb0bd; --accent: #2f8cff; --ok: #36c275; --bad: #ff6a5a; }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text); font: 15px/1.5 "Segoe UI", Roboto, Arial, sans-serif; }
+  main { max-width: 760px; margin: 0 auto; padding: 28px 16px 48px; }
+  h1 { font-size: 24px; margin: 0 0 6px; }
+  p { color: var(--muted); margin: 6px 0 14px; }
+  .box { background: var(--panel); border: 1px solid #263340; border-radius: 12px; padding: 18px; margin: 16px 0; }
+  label.pick { display: inline-block; background: var(--accent); color: #fff; padding: 11px 18px; border-radius: 8px; cursor: pointer; font-weight: 600; }
+  input[type=file] { display: none; }
+  #log { font: 13px/1.55 Consolas, monospace; white-space: pre-wrap; color: #cfe1ee; max-height: 340px; overflow: auto; }
+  .bar { height: 8px; background: #22303b; border-radius: 4px; overflow: hidden; margin-top: 12px; }
+  .bar div { height: 100%; width: 0; background: var(--accent); transition: width .2s; }
+  a.dl { display: inline-block; margin: 8px 10px 0 0; background: var(--ok); color: #06210f; padding: 9px 14px; border-radius: 8px; font-weight: 700; text-decoration: none; }
+  .err { color: var(--bad); }
+  label.opt { display: flex; gap: 8px; align-items: center; color: var(--muted); margin-top: 12px; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Riduci il pacchetto DBGT</h1>
+  <p>Questa pagina prende il pacchetto DBGT di Regione Lombardia scaricato dal Geoportale (va bene
+  anche quello provinciale da oltre 1 GB, senza estrarlo) e crea uno o più file piccoli con i soli
+  edifici dell'area del gioco, ognuno sotto i 28 MB. Tutto avviene nel tuo browser: il file non
+  viene inviato da nessuna parte.</p>
+  <div class="box">
+    <label class="pick" for="file">Scegli lo zip del DBGT…</label>
+    <input type="file" id="file" accept=".zip">
+    <label class="opt"><input type="checkbox" id="all"> Non ritagliare sull'area del gioco (file più grandi)</label>
+    <div class="bar"><div id="bar"></div></div>
+  </div>
+  <div class="box"><div id="log">In attesa del file…</div><div id="out"></div></div>
+  <p>Usa Chrome, Edge o Firefox aggiornati. I file prodotti (<code>*.dbgt.json.gz</code>) vanno
+  messi nella cartella <code>dbgt</code> del gioco oppure inviati per l'importazione.</p>
+</main>
+<script>
+'use strict';
+const $ = (id) => document.getElementById(id);
+const LIMIT = 28 * 1024 * 1024;
+const logEl = $('log');
+const log = (s, cls) => { const d = document.createElement('div'); d.textContent = s; if (cls) d.className = cls; logEl.appendChild(d); logEl.scrollTop = 1e9; };
+const progress = (f) => { $('bar').style.width = Math.round(f * 100) + '%'; };
+
+// ------------------------------------------------------------------ area del gioco (data/meta.js)
+let BBOX = null;
+window.BDS_DATA = async (key, fmt, b64) => {
+  if (key !== 'meta') return;
+  try {
+    const bin = Uint8Array.from(atob(b64), (c) => c.charCodeAt(0));
+    const txt = await new Response(new Blob([bin]).stream().pipeThrough(new DecompressionStream('gzip'))).text();
+    BBOX = JSON.parse(txt).proj.bbox;
+  } catch (e) { /* senza area: nessun ritaglio */ }
+};
+const metaScript = document.createElement('script');
+metaScript.src = 'data/meta.js';
+document.head.appendChild(metaScript);
+
+// ------------------------------------------------------------------ lettura degli zip (anche >4 GB, anche annidati)
+async function readBytes(blob, start, len) { return new Uint8Array(await blob.slice(start, start + len).arrayBuffer()); }
+const u16 = (b, o) => b[o] | (b[o + 1] << 8);
+const u32 = (b, o) => (b[o] | (b[o + 1] << 8) | (b[o + 2] << 16) | (b[o + 3] << 24)) >>> 0;
+const u64 = (b, o) => u32(b, o) + u32(b, o + 4) * 4294967296;
+const latin1 = new TextDecoder('latin1'), utf8 = new TextDecoder('utf-8');
+
+async function zipEntries(blob) {
+  const tailLen = Math.min(blob.size, 65557);
+  const tail = await readBytes(blob, blob.size - tailLen, tailLen);
+  let e = -1;
+  for (let i = tail.length - 22; i >= 0; i--) if (u32(tail, i) === 0x06054b50) { e = i; break; }
+  if (e < 0) throw new Error('non è uno zip valido');
+  let count = u16(tail, e + 10), cdSize = u32(tail, e + 12), cdOff = u32(tail, e + 16);
+  if (cdOff === 0xffffffff || count === 0xffff) { // zip64
+    const loc = e - 20;
+    if (loc >= 0 && u32(tail, loc) === 0x07064b50) {
+      const z64 = await readBytes(blob, u64(tail, loc + 8), 56);
+      count = u64(z64, 32); cdSize = u64(z64, 40); cdOff = u64(z64, 48);
+    }
+  }
+  const cd = await readBytes(blob, cdOff, cdSize);
+  const out = [];
+  for (let o = 0, k = 0; k < count && o + 46 <= cd.length; k++) {
+    if (u32(cd, o) !== 0x02014b50) break;
+    const flags = u16(cd, o + 8), method = u16(cd, o + 10);
+    let csize = u32(cd, o + 20), usize = u32(cd, o + 24), lho = u32(cd, o + 42);
+    const nlen = u16(cd, o + 28), xlen = u16(cd, o + 30), clen = u16(cd, o + 32);
+    const nameB = cd.subarray(o + 46, o + 46 + nlen);
+    const name = (flags & 0x800 ? utf8 : latin1).decode(nameB);
+    let x = o + 46 + nlen;
+    const xe = x + xlen;
+    while (x + 4 <= xe) { // campo extra zip64
+      const id = u16(cd, x), sz = u16(cd, x + 2);
+      if (id === 1) {
+        let p = x + 4;
+        if (usize === 0xffffffff) { usize = u64(cd, p); p += 8; }
+        if (csize === 0xffffffff) { csize = u64(cd, p); p += 8; }
+        if (lho === 0xffffffff) { lho = u64(cd, p); p += 8; }
+      }
+      x += 4 + sz;
+    }
+    out.push({ name, method, csize, usize, lho, blob });
+    o = xe + clen;
+  }
+  return out;
+}
+
+async function entryStream(ent) {
+  const lh = await readBytes(ent.blob, ent.lho, 30);
+  const start = ent.lho + 30 + u16(lh, 26) + u16(lh, 28);
+  const raw = ent.blob.slice(start, start + ent.csize).stream();
+  if (ent.method === 0) return raw;
+  if (ent.method === 8) return raw.pipeThrough(new DecompressionStream('deflate-raw'));
+  throw new Error('compressione non supportata (' + ent.method + ') in ' + ent.name);
+}
+async function entryBytes(ent) { return new Uint8Array(await new Response(await entryStream(ent)).arrayBuffer()); }
+async function entryBlob(ent) { return await new Response(await entryStream(ent)).blob(); }
+async function entryPrefix(ent, n) {
+  const reader = (await entryStream(ent)).getReader();
+  const parts = []; let got = 0;
+  while (got < n) { const { value, done } = await reader.read(); if (done) break; parts.push(value); got += value.length; }
+  reader.cancel().catch(() => {});
+  const out = new Uint8Array(got); let o = 0;
+  for (const p of parts) { out.set(p, o); o += p.length; }
+  return out;
+}
+
+// ------------------------------------------------------------------ shapefile / dbf
+function dbfFieldNames(b) {
+  const hlen = u16(b, 8), out = [];
+  for (let i = 32; i + 32 <= Math.min(hlen, b.length) && b[i] !== 0x0d; i += 32) out.push(latin1.decode(b.subarray(i, i + 11)).replace(/\0.*$/s, '').trim());
+  return out;
+}
+function layerKind(names) {
+  names = names.map((n) => n.toLowerCase());
+  if (names.some((n) => n.endsWith('un_vol_av'))) return 'vol';
+  if (names.some((n) => n.startsWith('cr_edf') || n.endsWith('edifc_uso'))) return 'body';
+  return null;
+}
+function readDbf(b) {
+  const nrec = u32(b, 4), hlen = u16(b, 8), rlen = u16(b, 10), fields = [];
+  for (let i = 32; i + 32 <= hlen && b[i] !== 0x0d; i += 32) fields.push([latin1.decode(b.subarray(i, i + 11)).replace(/\0.*$/s, '').trim().toLowerCase(), b[i + 16]]);
+  const out = new Array(nrec);
+  for (let r = 0; r < nrec; r++) {
+    const o = hlen + r * rlen;
+    if (o + rlen > b.length) { out.length = r; break; }
+    if (b[o] === 0x2a) { out[r] = null; continue; }
+    const rec = {}; let p = o + 1;
+    for (const [name, len] of fields) { rec[name] = latin1.decode(b.subarray(p, p + len)).trim(); p += len; }
+    out[r] = rec;
+  }
+  return out;
+}
+function* readShp(buf) {
+  const dv = new DataView(buf.buffer, buf.byteOffset, buf.byteLength);
+  let o = 100;
+  while (o + 8 <= buf.length) {
+    const clen = dv.getInt32(o + 4, false) * 2, c = o + 8;
+    const st = clen >= 4 ? dv.getInt32(c, true) : 0;
+    if ((st === 5 || st === 15 || st === 25) && clen >= 44) {
+      const bb = [dv.getFloat64(c + 4, true), dv.getFloat64(c + 12, true), dv.getFloat64(c + 20, true), dv.getFloat64(c + 28, true)];
+      const np = dv.getInt32(c + 36, true), npt = dv.getInt32(c + 40, true);
+      const parts = []; for (let k = 0; k < np; k++) parts.push(dv.getInt32(c + 44 + 4 * k, true)); parts.push(npt);
+      const p0 = c + 44 + 4 * np, rings = [];
+      for (let k = 0; k < np; k++) {
+        const ring = [];
+        for (let j = parts[k]; j < parts[k + 1]; j++) ring.push(dv.getFloat64(p0 + 16 * j, true), dv.getFloat64(p0 + 16 * j + 8, true));
+        rings.push(ring);
+      }
+      yield [bb, rings];
+    } else yield null;
+    o = c + clen;
+  }
+}
+const pick = (rec, suffix) => { for (const k in rec) if (k.endsWith(suffix)) return rec[k]; return ''; };
+const attrsOf = (kind, rec) => (kind === 'vol' ? [pick(rec, 'un_vol_av'), pick(rec, 'un_vol_por'), pick(rec, 'un_vol_ex')] : [pick(rec, 'edifc_uso'), pick(rec, 'cr_edf_ct')]);
+
+// ------------------------------------------------------------------ ritaglio nelle coordinate del livello
+function tmForward(lat, lon, a, f, lon0, k0, fe) {
+  const e2 = f * (2 - f), ep2 = e2 / (1 - e2), phi = lat * Math.PI / 180, lam = (lon - lon0) * Math.PI / 180;
+  const N = a / Math.sqrt(1 - e2 * Math.sin(phi) ** 2), T = Math.tan(phi) ** 2, C = ep2 * Math.cos(phi) ** 2, A = lam * Math.cos(phi);
+  const M = a * ((1 - e2 / 4 - 3 * e2 ** 2 / 64 - 5 * e2 ** 3 / 256) * phi - (3 * e2 / 8 + 3 * e2 ** 2 / 32 + 45 * e2 ** 3 / 1024) * Math.sin(2 * phi)
+    + (15 * e2 ** 2 / 256 + 45 * e2 ** 3 / 1024) * Math.sin(4 * phi) - (35 * e2 ** 3 / 3072) * Math.sin(6 * phi));
+  const x = fe + k0 * N * (A + (1 - T + C) * A ** 3 / 6 + (5 - 18 * T + T * T + 72 * C - 58 * ep2) * A ** 5 / 120);
+  const y = k0 * (M + N * Math.tan(phi) * (A * A / 2 + (5 - T + 9 * C + 4 * C * C) * A ** 4 / 24 + (61 - 58 * T + T * T + 600 * C - 330 * ep2) * A ** 6 / 720));
+  return [x, y];
+}
+function clipRect(prj, bbox) {
+  if (!bbox) return null;
+  const [s, w, n, e] = bbox, t = prj.toLowerCase();
+  let proj, margin;
+  if (/gauss|monte_mario|monte mario/.test(t)) {
+    const east = /zone_2|east|fuso_e/.test(t);
+    proj = (la, lo) => tmForward(la, lo, 6378388, 1 / 297, east ? 15 : 9, 0.9996, east ? 2520000 : 1500000); margin = 400;
+  } else if (!t || /utm|transverse_mercator/.test(t)) {
+    const m = t.match(/utm[^0-9]{0,12}(3[23])/), zone = m ? +m[1] : 32;
+    proj = (la, lo) => tmForward(la, lo, 6378137, 1 / 298.257222101, zone * 6 - 183, 0.9996, 500000); margin = 150;
+  } else { log('Sistema di riferimento non riconosciuto: nessun ritaglio'); return null; }
+  const P = [[s, w], [s, e], [n, w], [n, e]].map(([la, lo]) => proj(la, lo));
+  return [Math.min(...P.map((p) => p[0])) - margin, Math.min(...P.map((p) => p[1])) - margin, Math.max(...P.map((p) => p[0])) + margin, Math.max(...P.map((p) => p[1])) + margin];
+}
+
+// ------------------------------------------------------------------ ricerca dei livelli degli edifici
+async function findLayers(blob, tag, found, depth = 0) {
+  const ents = await zipEntries(blob);
+  const byBase = new Map();
+  for (const en of ents) {
+    const m = en.name.match(/^(.*)\.(shp|shx|dbf|prj|cpg)$/i);
+    if (m) { const k = m[1]; if (!byBase.has(k)) byBase.set(k, {}); byBase.get(k)[m[2].toLowerCase()] = en; }
+  }
+  for (const [base, parts] of byBase) {
+    if (!parts.dbf || !parts.shp) continue;
+    const head = await entryPrefix(parts.dbf, 8192);
+    const kind = layerKind(dbfFieldNames(head));
+    if (kind) { found.push({ base, kind, parts }); log(`Trovato: ${tag ? tag + ' › ' : ''}${base} (${kind === 'vol' ? 'unità volumetriche' : 'corpi edificati'})`); }
+  }
+  for (const en of ents) {
+    if (!/\.zip$/i.test(en.name) || depth > 3) continue;
+    log(`Apro lo zip interno ${en.name} (${(en.usize / 1e6).toFixed(0)} MB)…`);
+    try { await findLayers(await entryBlob(en), en.name, found, depth + 1); } catch (e) { log('  ' + e.message, 'err'); }
+  }
+}
+
+async function gzipJson(obj) {
+  const blob = new Blob([JSON.stringify(obj)]);
+  return await new Response(blob.stream().pipeThrough(new CompressionStream('gzip'))).blob();
+}
+
+$('file').addEventListener('change', async (ev) => {
+  const file = ev.target.files[0];
+  if (!file) return;
+  logEl.textContent = ''; $('out').textContent = ''; progress(0);
+  const clip = !$('all').checked;
+  const bbox = clip ? BBOX : null;
+  log(`File: ${file.name} (${(file.size / 1e6).toFixed(0)} MB)`);
+  log(bbox ? `Area del gioco: lat ${bbox[0]}–${bbox[2]}, lon ${bbox[1]}–${bbox[3]}` : (clip ? 'Area del gioco non trovata (data/meta.js): nessun ritaglio' : 'Nessun ritaglio'));
+  try {
+    const found = [];
+    await findLayers(file, '', found);
+    if (!found.length) { log('Nessun livello di edifici trovato in questo zip. Mandami l\'elenco delle cartelle che contiene.', 'err'); return; }
+    const layers = [];
+    let kept = 0, total = 0;
+    for (let li = 0; li < found.length; li++) {
+      const L = found[li];
+      log(`Leggo ${L.base}…`);
+      const prj = L.parts.prj ? latin1.decode(await entryBytes(L.parts.prj)) : '';
+      const rect = clipRect(prj, bbox);
+      const recs = readDbf(await entryBytes(L.parts.dbf));
+      const shp = await entryBytes(L.parts.shp);
+      const out = [];
+      let i = 0;
+      for (const g of readShp(shp)) {
+        const r = recs[i++];
+        if (!r || !g) continue;
+        total++;
+        const bb = g[0];
+        if (rect && (bb[2] < rect[0] || bb[0] > rect[2] || bb[3] < rect[1] || bb[1] > rect[3])) continue;
+        const rings = g[1].map((ring) => {
+          const flat = []; let px = 0, py = 0;
+          for (let j = 0; j < ring.length; j += 2) { const qx = Math.round(ring[j] * 10), qy = Math.round(ring[j + 1] * 10); flat.push(qx - px, qy - py); px = qx; py = qy; }
+          return flat;
+        });
+        out.push({ a: attrsOf(L.kind, r), r: rings });
+      }
+      kept += out.length;
+      log(`  ${out.length.toLocaleString('it')} di ${recs.length.toLocaleString('it')} oggetti nell'area`);
+      layers.push({ kind: L.kind, prj, recs: out });
+      progress((li + 1) / found.length * 0.8);
+    }
+    // parti sotto il limite
+    const files = [];
+    let cur = [], curSize = 0, curPrj = null;
+    const flush = async () => {
+      if (!cur.length) return;
+      const byKind = {};
+      for (const [kind, rec] of cur) (byKind[kind] = byKind[kind] || []).push(rec);
+      const payload = { v: 1, source: 'DBGT Regione Lombardia', prj: curPrj || '', layers: Object.entries(byKind).map(([kind, recs]) => ({ kind, recs })) };
+      files.push(await gzipJson(payload));
+      cur = []; curSize = 0;
+    };
+    for (const L of layers) for (const rec of L.recs) {
+      const est = 6 + rec.r.reduce((s, r) => s + r.length, 0) * 1.6;
+      if (cur.length && (curSize + est > LIMIT * 0.9 || curPrj !== L.prj)) await flush();
+      curPrj = L.prj; cur.push([L.kind, rec]); curSize += est;
+    }
+    await flush();
+    progress(1);
+    const stem = file.name.replace(/\.zip$/i, '').replace(/[^A-Za-z0-9_-]+/g, '_').slice(0, 40);
+    const base = /^dbgt/i.test(stem) ? stem : 'DBGT_' + stem;
+    files.forEach((b, k) => {
+      const a = document.createElement('a');
+      a.className = 'dl'; a.href = URL.createObjectURL(b); a.download = `${base}_${k + 1}.dbgt.json.gz`;
+      a.textContent = `⬇ ${a.download} (${(b.size / 1e6).toFixed(1)} MB)`;
+      $('out').appendChild(a);
+    });
+    log(`Fatto: ${kept.toLocaleString('it')} edifici su ${total.toLocaleString('it')}, ${files.length} file. Scaricali con i pulsanti verdi.`);
+    if (files.some((b) => b.size > 30e6)) log('Attenzione: un file supera 30 MB', 'err');
+  } catch (e) {
+    log('Errore: ' + e.message, 'err');
+    console.error(e);
+  }
+});
+</script>
+</body>
+</html>
