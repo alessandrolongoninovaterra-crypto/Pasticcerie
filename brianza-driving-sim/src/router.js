@@ -1,4 +1,4 @@
-import { F, CLS } from './roads.js';
+import { F, CLS, NT } from './roads.js';
 
 // Navigatore: A* sulla rete stradale reale (sensi unici rispettati) e
 // generazione delle indicazioni di svolta in italiano.
@@ -38,6 +38,7 @@ export class Router {
       if (w.cls === CLS.TRACK) pen = 3;
       for (let k = 0; k < w.nodes.length - 1; k++) {
         const a = w.nodes[k], b = w.nodes[k + 1];
+        if (R.ntag[a] === NT.GATE || R.ntag[b] === NT.GATE) continue;   // cancello chiuso
         const len = w.cum[k + 1] - w.cum[k];
         const cost = len / v * pen;
         edges.push(a, b, cost, wi, k);

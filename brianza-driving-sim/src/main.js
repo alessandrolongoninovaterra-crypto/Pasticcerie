@@ -684,6 +684,9 @@ function loop(now) {
   if (f.on) onRoad.push([f.x, f.z]);
   G.traffic.obstacles = onRoad;
   G.traffic.update(dt, { x: v.x, z: v.z, h: v.h, u: v.u, wi: v.surface && v.surface.road ? v.surface.road.wi : -1 }, now / 1000);
+  const movers = [{ x: v.x, z: v.z }];
+  for (const c of G.traffic.cars) if (Math.abs(c.x - p.x) < 300 && Math.abs(c.z - p.z) < 300) movers.push(c);
+  G.world.gates.update(dt, movers);
   G.peds.drawPlayer(f.on, f.x, f.y, f.z, f.h, f.gait, f.u, dt);
   // modello del giocatore
   const m = G.carModel;

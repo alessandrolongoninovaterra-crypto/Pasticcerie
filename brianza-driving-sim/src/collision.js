@@ -26,8 +26,10 @@ export class Collision {
       minx = Math.min(minx, ring[i]); maxx = Math.max(maxx, ring[i]);
       minz = Math.min(minz, ring[i + 1]); maxz = Math.max(maxz, ring[i + 1]);
     }
-    if (maxx - minx < 1.5 && maxz - minz < 1.5) return;
-    this._add(tile, { ring, minx, minz, maxx, maxz });
+    if (maxx - minx < 1.5 && maxz - minz < 1.5) return null;
+    const o = { ring, tile, minx, minz, maxx, maxz };
+    this._add(tile, o);
+    return o;
   }
 
   addCircle(tile, x, z, r) { const o = { x, z, r, tile, minx: x - r, minz: z - r, maxx: x + r, maxz: z + r }; this._add(tile, o); return o; }

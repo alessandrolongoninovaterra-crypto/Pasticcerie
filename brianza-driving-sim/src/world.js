@@ -5,6 +5,7 @@ import { BuildingFactory } from './buildings.js';
 import { Vegetation } from './vegetation.js';
 import { Signage } from './signs.js';
 import { Collision } from './collision.js';
+import { Gates } from './gates.js';
 import { makeBollards, makeBins, makeBenches, makeHydrants, makeBikeRacks, makeFountains } from './vendor/city/streetprops.js';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 
@@ -16,6 +17,7 @@ export class World {
   constructor(scene, meta, terrain, roads, settings) {
     this.scene = scene; this.meta = meta; this.terrain = terrain; this.roads = roads; this.settings = settings;
     this.collision = new Collision();
+    this.gates = new Gates(roads, terrain, this.collision);
     this.tiles = new Map();
     this.queue = [];
     this.detail = noiseTexture(256);
@@ -172,6 +174,7 @@ export class World {
         for (const o of [pa, ba, pw, st]) if (o) g.add(o);
         add('paths', g.children.length ? g : null); continue;
       }
+      if (!('gates' in t.parts)) { add('gates', this.gates.build(t.key, t.data)); continue; }
       if (!('props' in t.parts)) {
         add('props', this.buildProps(t));
         if (this.traffic) this.traffic.computeParkSpots(t.key, t.data);
@@ -190,7 +193,7 @@ export class World {
 
   progress() {
     let done = 0, total = 0;
-    for (const t of this.tiles.values()) { total += 8; done += Object.keys(t.parts).length; }
+    for (const t of this.tiles.values()) { total += 9; done += Object.keys(t.parts).length; }
     return total ? done / total : 0;
   }
 

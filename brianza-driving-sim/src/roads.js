@@ -1,10 +1,11 @@
 import * as THREE from 'three';
 import { GeoBuilder, canvasTexture } from './geo.js';
+import { buildFence, fenceMaterials } from './gates.js';
 
 // Classi stradali (come tools/build_data.py)
 export const CLS = { MOTORWAY: 0, TRUNK: 1, PRIMARY: 2, SECONDARY: 3, TERTIARY: 4, UNCLASSIFIED: 5, RESIDENTIAL: 6, LIVING: 7, SERVICE: 8, TRACK: 9, PEDESTRIAN: 10 };
 export const F = { ONEWAY: 1, ROUNDABOUT: 2, BRIDGE: 4, TUNNEL: 8, LINK: 16, PRIVATE: 32, UNPAVED: 64, NOCAR: 128, OVERPASS: 256, AISLE: 512 };
-export const NT = { SIGNALS: 1, STOP: 2, GIVE_WAY: 3, CROSSING: 4, MINI_RB: 5, LEVEL_CROSSING: 6, BUMP: 7, CROSSING_SIGNALS: 10, TABLE: 11, TURNING: 12, JUNCTION: 13 };
+export const NT = { GATE: 14, SIGNALS: 1, STOP: 2, GIVE_WAY: 3, CROSSING: 4, MINI_RB: 5, LEVEL_CROSSING: 6, BUMP: 7, CROSSING_SIGNALS: 10, TABLE: 11, TURNING: 12, JUNCTION: 13 };
 export const CLASS_NAMES = ['Autostrada', 'Superstrada', 'Strada principale', 'Strada secondaria', 'Strada terziaria', 'Strada locale', 'Strada residenziale', 'Zona residenziale', 'Strada di servizio', 'Strada sterrata', 'Area pedonale'];
 
 const LIFT = 0.18;          // sollevamento della carreggiata sul terreno (m)
@@ -1047,12 +1048,22 @@ export class RoadNetwork {
   // muri di cinta, siepi, muri di sostegno e guardrail mappati in OSM
   buildBarriers(tile, collision, tileKey) {
     if (!tile || !tile.ba || !tile.ba.length) return null;
-    const T = this.terrain, g = new GeoBuilder(true, false);
+    const T = this.terrain, g = new GeoBuilder(true, false), gs = new GeoBuilder(true, false), gg = new GeoBuilder(true, true);
     const STY = [{ c: [0.72, 0.68, 0.6], th: 0.3 }, { c: [0.2, 0.36, 0.14], th: 0.9 }, { c: [0.56, 0.54, 0.5], th: 0.5 }, { c: [0.75, 0.77, 0.8], th: 0.08 }];
     for (const rec of tile.ba) {
       const st = STY[rec[0]], H = rec[1] / 10;
       const pts = []; let x = 0, z = 0;
       for (let i = 2; i < rec.length; i += 2) { x += rec[i]; z += rec[i + 1]; pts.push([x / 10, z / 10]); }
+      if (rec[0] >= 4) {   // recinzioni: cancellata, rete, staccionata, ringhiera
+        buildFence(gs, gg, pts, rec[0], H, T, rec[2] + rec[3] * 31);
+        if (collision && rec[0] !== 7) for (let i = 0; i < pts.length - 1; i++) {
+          const [ax, az] = pts[i], [bx, bz] = pts[i + 1], L = Math.hypot(bx - ax, bz - az);
+          if (L < 1.5) continue;
+          const ex = -(bz - az) / L * 0.3, ez = (bx - ax) / L * 0.3;
+          collision.addPolygon(tileKey, Float32Array.from([ax - ex, az - ez, bx - ex, bz - ez, bx + ex, bz + ez, ax + ex, az + ez]));
+        }
+        continue;
+      }
       for (let i = 0; i < pts.length - 1; i++) {
         const [ax, az] = pts[i], [bx, bz] = pts[i + 1];
         const L = Math.hypot(bx - ax, bz - az);
@@ -1080,6 +1091,14 @@ export class RoadNetwork {
         }
       }
     }
-    return g.empty ? null : g.mesh(this.materials().barrier, true);
+    const grp = new THREE.Group();
+    if (!g.empty) grp.add(g.mesh(this.materials().barrier, true));
+    if (!gs.empty) grp.add(gs.mesh(fenceMaterials().solid, true));
+    if (!gg.empty) {
+      const m = gg.mesh(fenceMaterials().grille, true);
+      m.customDepthMaterial = new THREE.MeshDepthMaterial({ depthPacking: THREE.RGBADepthPacking, map: fenceMaterials().grille.map, alphaTest: 0.45, side: THREE.DoubleSide });
+      grp.add(m);
+    }
+    return grp.children.length ? grp : null;
   }
 }

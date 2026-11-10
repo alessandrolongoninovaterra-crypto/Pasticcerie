@@ -14,7 +14,7 @@ Produce in data/:
 Uso: python3 build_data.py <estratto.osm.pbf> <bbox.json> <height_dir> <out_data_dir>
 """
 import io, json, math, os, sys, base64
-from collections import defaultdict
+from collections import Counter, defaultdict
 import numpy as np
 import osmium
 from PIL import Image, ImageDraw
@@ -215,7 +215,10 @@ names = StrTable()
 junctions = {}        # osm id -> (nome, ref) degli svincoli
 points = []           # elementi puntuali: (tipo, x, z, testo)
 paths = []            # percorsi pedonali/ciclabili: (tipo, larghezza, punti)
-barriers = []         # muri, siepi, guardrail: (tipo, altezza, punti)
+barriers = []         # muri, siepi, guardrail, recinzioni: (tipo, altezza, punti)
+gate_nodes = {}       # osm id -> dict del cancello (nodi barrier=gate/lift_gate/...)
+gate_ctx = {}         # osm id -> contesto dalla via che lo contiene
+gate_lines = []       # cancelli mappati come linea (barrier=gate su una via)
 power_lines = []
 parkings = []         # aree amenity=parking
 spaces = []           # singoli stalli amenity=parking_space
@@ -289,6 +292,68 @@ def landmark_code(tags):
     return 0
 
 
+GATE_KIND = {'gate': 0, 'swing_gate': 0, 'hampshire_gate': 0, 'wicket_gate': 3, 'kissing_gate': 3,
+             'sliding_gate': 1, 'lift_gate': 2, 'chain': 4}
+GATE_W = {'service': 3.6, 'track': 3.2, 'footway': 1.3, 'path': 1.3, 'cycleway': 2.2, 'bridleway': 2,
+          'pedestrian': 3.5, 'steps': 1.4, 'living_street': 5, 'residential': 6, 'unclassified': 6}
+
+
+def gate_access(t):
+    """1 = chiuso/privato, -1 = esplicitamente aperto, 0 = non indicato"""
+    a = t.get('access') or t.get('motor_vehicle') or t.get('vehicle')
+    if t.get('locked') == 'yes' or a in ('private', 'no'):
+        return 1
+    if t.get('locked') == 'no' or a in ('yes', 'permissive', 'destination', 'customers', 'public'):
+        return -1
+    return 0
+
+
+def gate_context(r, t, pts_ll, i):
+    """Direzione e tipo della via che passa per il cancello (le strade hanno la precedenza sulle recinzioni)."""
+    hw = t.get('highway')
+    if not hw and not t.get('barrier'):
+        return
+    prio = 2 if hw else 1
+    old = gate_ctx.get(r)
+    if old and old['prio'] >= prio:
+        return
+    a = pts_ll[max(0, i - 1)][1]; b = pts_ll[min(len(pts_ll) - 1, i + 1)][1]
+    ax, az = P.fwd(a.lat, a.lon); bx, bz = P.fwd(b.lat, b.lon)
+    if math.hypot(bx - ax, bz - az) < 0.05:
+        return
+    ctx = {'prio': prio, 'dx': bx - ax, 'dz': bz - az, 'hw': hw or '', 'acc': gate_access(t),
+           'w': parse_float(t.get('width')) or GATE_W.get(hw, 7 if hw else 3.2),
+           'drive': bool(hw) and hw in ROAD_CLASS and hw not in ('track', 'pedestrian') and t.get('service') not in (
+               'driveway', 'parking_aisle') and gate_access(t) < 1,
+           'foot': hw in ('footway', 'path', 'cycleway', 'steps', 'bridleway')}
+    gate_ctx[r] = ctx
+
+
+def split_at_gates(pts_ll):
+    """Spezza muri e recinzioni in corrispondenza dei cancelli lasciando il varco."""
+    pts = [(r, P.fwd(l.lat, l.lon)) for r, l in pts_ll]
+    pieces, cur = [], []
+    for i, (r, p) in enumerate(pts):
+        g = gate_nodes.get(r)
+        if not g:
+            cur.append(p)
+            continue
+        half = (g['w'] or (1.1 if g['k'] == 3 else 3.4)) / 2 + 0.25
+        if cur:   # chiude il tratto prima del cancello
+            q = cur[-1]; d = math.dist(q, p)
+            if d > half:
+                cur.append((p[0] + (q[0] - p[0]) * half / d, p[1] + (q[1] - p[1]) * half / d))
+            pieces.append(cur)
+        cur = []
+        if i + 1 < len(pts):   # riapre dopo il cancello
+            q = pts[i + 1][1]; d = math.dist(q, p)
+            if d > half:
+                cur = [(p[0] + (q[0] - p[0]) * half / d, p[1] + (q[1] - p[1]) * half / d)]
+    if cur:
+        pieces.append(cur)
+    return [c for c in pieces if len(c) >= 2]
+
+
 def xy(loc):
     return P.fwd(loc.lat, loc.lon)
 
@@ -338,6 +403,9 @@ for o in fp:
             points.append((14, x, z, ''))
         elif am in ('fountain', 'drinking_water'):
             points.append((15, x, z, ''))
+        gk = GATE_KIND.get(t.get('barrier'))
+        if gk is not None:
+            gate_nodes[o.id] = {'k': gk, 'x': x, 'z': z, 'acc': gate_access(t), 'w': parse_float(t.get('width') or t.get('maxwidth'))}
         if t.get('barrier') == 'bollard':
             points.append((12, x, z, ''))
         elif t.get('emergency') == 'fire_hydrant':
@@ -360,6 +428,15 @@ for o in fp:
         if len(pts_ll) < 2:
             continue
         if not any(inside(l.lat, l.lon, 0.002) for _, l in pts_ll):
+            continue
+        if gate_nodes:
+            for gi, (r, _) in enumerate(pts_ll):
+                if r in gate_nodes:
+                    gate_context(r, t, pts_ll, gi)
+        if t.get('barrier') in GATE_KIND and len(pts_ll) <= 4:
+            gp = [P.fwd(l.lat, l.lon) for _, l in pts_ll]
+            if math.dist(gp[0], gp[-1]) < 14:
+                gate_lines.append((GATE_KIND[t['barrier']], gp[0], gp[-1], gate_access(t)))
             continue
         if hw and (hw in ROAD_CLASS or hw in LINK) and t.get('area') != 'yes':
             cls = ROAD_CLASS.get(hw, LINK.get(hw))
@@ -442,11 +519,18 @@ for o in fp:
             paths.append((kind, max(0.8, min(6, pw)), dp_simplify(pts, 0.3), 1 if t.get('bridge') and t.get('bridge') != 'no' else 0))
             continue
         br = t.get('barrier')
-        if br in ('wall', 'hedge', 'retaining_wall', 'city_wall', 'guard_rail', 'jersey_barrier'):
-            pts = dp_simplify([P.fwd(l.lat, l.lon) for _, l in pts_ll], 0.3)
-            kind = {'wall': 0, 'hedge': 1, 'retaining_wall': 2, 'city_wall': 2, 'guard_rail': 3, 'jersey_barrier': 3}[br]
-            bh = parse_float(t.get('height')) or {0: 1.9, 1: 1.5, 2: 2.2, 3: 0.8}[kind]
-            barriers.append((kind, max(0.4, min(8, bh)), pts))
+        if br in ('wall', 'hedge', 'retaining_wall', 'city_wall', 'guard_rail', 'jersey_barrier', 'fence', 'handrail'):
+            kind = {'wall': 0, 'hedge': 1, 'retaining_wall': 2, 'city_wall': 2, 'guard_rail': 3, 'jersey_barrier': 3,
+                    'handrail': 7}.get(br)
+            if br == 'fence':   # 4 cancellata su muretto, 5 rete metallica, 6 staccionata in legno
+                ft = t.get('fence_type', '')
+                kind = 5 if ft in ('chain_link', 'wire', 'barbed_wire', 'electric', 'mesh', 'metal_bars') else 6 if ft in (
+                    'wood', 'split_rail', 'pole', 'hedge_bank') else 4
+            bh = parse_float(t.get('height')) or {0: 1.9, 1: 1.5, 2: 2.2, 3: 0.8, 4: 1.7, 5: 1.8, 6: 1.2, 7: 1.0}[kind]
+            for piece in split_at_gates(pts_ll):
+                pts = dp_simplify(piece, 0.3)
+                if len(pts) >= 2:
+                    barriers.append((kind, max(0.4, min(8, bh)), pts))
             continue
         if t.get('power') == 'line':
             power_lines.append([[round(x, 1), round(z, 1)] for x, z in (P.fwd(l.lat, l.lon) for _, l in pts_ll)])
@@ -841,6 +925,40 @@ for w in road_ways:
         a, b = ids[k], ids[k + 1]
         d = math.dist(node_xy[a], node_xy[b])
         adj[a].append((b, d)); adj[b].append((a, d))
+# cancelli: [tipo, x, z, direzione dell'apertura (decimi di grado), larghezza (dm), stato]
+# tipo 0 battente, 1 scorrevole, 2 sbarra, 3 cancelletto pedonale, 4 catena
+# stato 0 aperto, 1 chiuso (ostacolo), 2 automatico (si apre quando arriva un veicolo)
+gates_out = []
+
+for r, g in gate_nodes.items():
+    c = gate_ctx.get(r)
+    if not c:
+        continue
+    kind, acc = g['k'], g['acc'] or c['acc']
+    if c['prio'] == 2:   # su una strada o un sentiero: il cancello attraversa la via
+        sx, sz = -c['dz'], c['dx']
+        wd = g['w'] or min(8, c['w'])
+        if kind == 0 and c['foot'] and wd < 2.2:
+            kind = 3
+        if kind == 2:
+            state = 2
+        elif c['drive']:
+            state = 2 if acc == 1 else 0
+        elif c['foot']:
+            state = 1 if acc == 1 else 0
+        else:
+            state = 0 if acc == -1 else 1
+    else:                # solo su una recinzione: il cancello sta lungo la recinzione
+        sx, sz = c['dx'], c['dz']
+        wd = g['w'] or (1.1 if kind == 3 else 3.4)
+        state = 0 if acc == -1 else 1
+    if state == 1 and c['prio'] == 2 and r not in node_tags:
+        node_tags[r] = (14, 0)       # il navigatore non ci passa
+    gates_out.append((kind, g['x'], g['z'], sx, sz, wd, state))
+for kind, a, b, acc in gate_lines:
+    gates_out.append((kind, (a[0] + b[0]) / 2, (a[1] + b[1]) / 2, b[0] - a[0], b[1] - a[1], math.dist(a, b),
+             2 if kind == 2 else (0 if acc == -1 else 1)))
+
 import heapq
 heap = [(-v, r) for r, v in dh.items() if v > 0]
 heapq.heapify(heap)
@@ -1194,7 +1312,7 @@ img.resize((LW // 4, LH // 4)).save(os.path.join(height_dir, 'landcover_preview.
 print('landcover', LW, LH, os.path.getsize(lcjs))
 
 # ------------------------------------------------------------------ tessere edifici + alberi
-tiles = defaultdict(lambda: {'b': [], 'tr': [], 'rows': [], 'pa': [], 'ba': [], 'pt': [], 'pk': []})
+tiles = defaultdict(lambda: {'b': [], 'tr': [], 'rows': [], 'pa': [], 'ba': [], 'pt': [], 'pk': [], 'gt': []})
 TX = int(math.ceil((P.xmax - P.xmin) / TILE)); TZ = int(math.ceil((P.zmax - P.zmin) / TILE))
 
 
@@ -1234,6 +1352,22 @@ for x, z, hd, wd, ln, typ in stalls:
     k = tile_of(x, z)
     if k:
         tiles[k]['pk'] += [q(x), q(z), int(round(math.degrees(hd) * 10)) % 3600, int(round(wd * 10)), int(round(ln * 10)) * 2 + typ]
+gstat = Counter()
+
+
+def add_gate(kind, x, z, sx, sz, wd, state):
+    k = tile_of(x, z)
+    if not k:
+        return
+    L = math.hypot(sx, sz) or 1
+    tiles[k]['gt'] += [kind, q(x), q(z), int(round(math.degrees(math.atan2(sx / L, sz / L)) * 10)) % 3600,
+                       int(round(max(0.9, min(9, wd)) * 10)), state]
+    gstat[(kind, state)] += 1
+
+
+for g in gates_out:
+    add_gate(*g)
+print('cancelli (tipo, stato):', dict(sorted(gstat.items())))
 for kind, x, z, text in points:
     k = tile_of(x, z)
     if k:
