@@ -5,6 +5,7 @@ import { BuildingFactory } from './buildings.js';
 import { Vegetation } from './vegetation.js';
 import { Signage } from './signs.js';
 import { Collision } from './collision.js';
+import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 
 // Gestione del mondo a tessere da 1 km: caricamento in streaming dei dati
 // (edifici), costruzione progressiva delle mesh e rilascio delle tessere lontane.
@@ -26,7 +27,7 @@ export class World {
       for (const r of c.rings) for (const p of r) { minx = Math.min(minx, p[0]); maxx = Math.max(maxx, p[0]); minz = Math.min(minz, p[1]); maxz = Math.max(maxz, p[1]); }
       return { n: c.n, rings: c.rings, minx, minz, maxx, maxz };
     });
-    this.signage = new Signage(roads, terrain, (x, z) => this.comuneAt(x, z));
+    this.signage = new Signage(roads, terrain, (x, z) => this.comuneAt(x, z), meta);
     this.signals = [];
     this.tileSet = new Set(meta.tiles.map(([i, j]) => j * 1000 + i));
     this.root = new THREE.Group();
@@ -121,6 +122,7 @@ export class World {
       const o = t.parts[k];
       if (!o) continue;
       this.root.remove(o);
+      if (o.userData.dispose) o.userData.dispose();
       o.traverse((m) => { if (m.geometry) m.geometry.dispose(); if (m.isSprite && m.material.map) { m.material.map.dispose(); m.material.dispose(); } });
     }
     this.collision.removeTile(t.key);
@@ -149,7 +151,7 @@ export class World {
       if (!('terrain' in t.parts)) { add('terrain', this.terrain.buildChunk(x0, z0, 1000, 20, this.terrainMat)); continue; }
       if (!('roads' in t.parts)) { add('roads', this.roads.buildTile(t.key)); continue; }
       if (!('signs' in t.parts)) {
-        const s = this.signage.build(t.key);
+        const s = this.signage.build(t.key, t.data);
         for (const sg of s.signals) this.signals.push({ ...sg, tile: t.key });
         add('signs', s.group); continue;
       }
@@ -158,6 +160,12 @@ export class World {
         else add('buildings', null);
         for (const rb of this.roads.roundabouts) if (this.roads.tileKey(rb.x, rb.z) === t.key) this.collision.addCircle(t.key, rb.x, rb.z, rb.r);
         continue;
+      }
+      if (!('paths' in t.parts)) {
+        const g = new THREE.Group();
+        const pa = this.roads.buildPaths(t.data), ba = this.roads.buildBarriers(t.data, this.collision, t.key), pw = this.buildPower(t);
+        for (const o of [pa, ba, pw]) if (o) g.add(o);
+        add('paths', g.children.length ? g : null); continue;
       }
       if (!('labels' in t.parts)) { add('labels', this.buildLabels(t)); continue; }
       if (t.vegWanted && !('veg' in t.parts)) { add('veg', this.vegetation.build(t.data, t.i, t.j, this.collision, t.key, this.settings.trees)); continue; }
@@ -172,8 +180,62 @@ export class World {
 
   progress() {
     let done = 0, total = 0;
-    for (const t of this.tiles.values()) { total += 6; done += Object.keys(t.parts).length; }
+    for (const t of this.tiles.values()) { total += 7; done += Object.keys(t.parts).length; }
     return total ? done / total : 0;
+  }
+
+  // elettrodotti reali (power=line): tralicci ai vertici e conduttori con catenaria
+  buildPower(t) {
+    const lines = this.meta.power || [];
+    if (!lines.length) return null;
+    const p = this.meta.proj, x0 = p.xmin + t.i * 1000, z0 = p.zmin + t.j * 1000;
+    const inTile = (q) => q[0] >= x0 && q[0] < x0 + 1000 && q[1] >= z0 && q[1] < z0 + 1000;
+    const H = 30, pos = [], tw = [];
+    const T = this.terrain;
+    for (const ln of lines) {
+      for (let i = 0; i < ln.length; i++) {
+        if (!inTile(ln[i])) continue;
+        const a = ln[i], prev = ln[i - 1] || ln[i + 1], next = ln[i + 1] || ln[i - 1];
+        let dx = next[0] - prev[0], dz = next[1] - prev[1]; const L = Math.hypot(dx, dz) || 1; dx /= L; dz /= L;
+        tw.push([a[0], T.height(a[0], a[1]), a[1], Math.atan2(dx, dz)]);
+        if (i < ln.length - 1) {
+          const b = ln[i + 1];
+          const ya = T.height(a[0], a[1]) + H, yb = T.height(b[0], b[1]) + H, span = Math.hypot(b[0] - a[0], b[1] - a[1]);
+          const rx = -(b[1] - a[1]) / (span || 1), rz = (b[0] - a[0]) / (span || 1);
+          for (const [off, dy] of [[-5, -4], [5, -4], [-3.5, 0], [3.5, 0]]) {
+            for (let s = 0; s < 8; s++) {
+              for (const tt of [s / 8, (s + 1) / 8]) {
+                const sag = Math.min(9, span * 0.03) * 4 * tt * (1 - tt);
+                pos.push(a[0] + (b[0] - a[0]) * tt + rx * off, ya + (yb - ya) * tt + dy - sag, a[1] + (b[1] - a[1]) * tt + rz * off);
+              }
+            }
+          }
+        }
+      }
+    }
+    if (!tw.length) return null;
+    const g = new THREE.Group();
+    if (pos.length) {
+      const geo = new THREE.BufferGeometry(); geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+      this.wireMat = this.wireMat || new THREE.LineBasicMaterial({ color: 0x2a2c2e });
+      g.add(new THREE.LineSegments(geo, this.wireMat));
+    }
+    if (!this.towerGeo) {
+      // traliccio schematico: quattro montanti rastremati e due mensole
+      const parts = [];
+      const leg = new THREE.CylinderGeometry(0.12, 0.2, H, 4);
+      for (const [sx, sz] of [[1, 1], [-1, 1], [1, -1], [-1, -1]]) { const l = leg.clone(); l.rotateZ(-sx * 0.08); l.rotateX(sz * 0.08); l.translate(sx * 1.6, H / 2, sz * 1.6); parts.push(l); }
+      for (const [y, wd] of [[H - 4, 11], [H, 8]]) { const arm = new THREE.BoxGeometry(wd, 0.25, 0.25); arm.translate(0, y, 0); parts.push(arm); }
+      for (let y = 5; y < H; y += 6) { const br = new THREE.BoxGeometry(3.4 - y * 0.06, 0.12, 3.4 - y * 0.06); br.translate(0, y, 0); parts.push(br); }
+      this.towerGeo = mergeGeometries(parts.map((q) => q.toNonIndexed()));
+      this.towerMat = new THREE.MeshLambertMaterial({ color: 0x8a9096 });
+    }
+    const inst = new THREE.InstancedMesh(this.towerGeo, this.towerMat, tw.length);
+    const m = new THREE.Matrix4(), q = new THREE.Quaternion(), up = new THREE.Vector3(0, 1, 0), one = new THREE.Vector3(1, 1, 1), v = new THREE.Vector3();
+    tw.forEach(([x, y, z, yaw], i) => { q.setFromAxisAngle(up, yaw); v.set(x, y - 0.5, z); m.compose(v, q, one); inst.setMatrixAt(i, m); this.collision.addCircle(t.key, x, z, 2.2); });
+    inst.computeBoundingSphere();
+    g.add(inst);
+    return g;
   }
 
   buildLabels(t) {

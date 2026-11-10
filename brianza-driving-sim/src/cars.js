@@ -11,7 +11,7 @@ export const CARS = [
   { id: 'van', name: 'Furgone 2.3', desc: 'Il furgone degli artigiani brianzoli: tanto spazio, poca fretta.', body: 'van', L: 5.4, W: 2.05, H: 2.35, wb: 3.45, color: '#f2f2f0', mass: 2150, kw: 103, nm: 330, rpmMax: 4200, gears: [4.17, 2.31, 1.48, 1.0, 0.8, 0.65], final: 3.9, drive: 'F', cda: 1.35, brake: 15000, steer: 0.6, grip: 0.92, wheelR: 0.35 },
 ];
 
-const glassMat = new THREE.MeshLambertMaterial({ color: 0x1c252c, emissive: 0x05080a });
+const glassMat = new THREE.MeshPhongMaterial({ color: 0x1c252c, emissive: 0x05080a, shininess: 120, specular: 0x888888 });
 const tireMat = new THREE.MeshLambertMaterial({ color: 0x1a1a1a });
 const rimMat = new THREE.MeshLambertMaterial({ color: 0xb8bcc0 });
 const darkMat = new THREE.MeshLambertMaterial({ color: 0x222426 });
@@ -47,7 +47,7 @@ export function buildCarModel(spec, opts = {}) {
   const root = new THREE.Group();
   const body = new THREE.Group();
   root.add(body);
-  const paint = new THREE.MeshLambertMaterial({ color: opts.color || spec.color });
+  const paint = new THREE.MeshPhongMaterial({ color: opts.color || spec.color, shininess: 80, specular: 0x555555 });
   const prof = profile(spec);
   const shell = extrude(prof.body, spec.W, paint, 0.06);
   shell.castShadow = true;

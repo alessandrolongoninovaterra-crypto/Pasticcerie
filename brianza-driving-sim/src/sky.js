@@ -8,16 +8,29 @@ export class Sky {
     this.hours = 10.5; // ora del giorno
     this.speed = 30;   // secondi di gioco per secondo reale
     this.dayOfYear = 140;
+    this.cover = 0.46; // copertura nuvolosa
     const geo = new THREE.SphereGeometry(4500, 32, 16);
-    this.uniforms = { top: { value: new THREE.Color() }, horizon: { value: new THREE.Color() }, sunDir: { value: new THREE.Vector3() }, sunCol: { value: new THREE.Color() } };
+    this.uniforms = { top: { value: new THREE.Color() }, horizon: { value: new THREE.Color() }, sunDir: { value: new THREE.Vector3() }, sunCol: { value: new THREE.Color() }, cloudCol: { value: new THREE.Color() }, time: { value: 0 }, cover: { value: 0.5 } };
     const mat = new THREE.ShaderMaterial({
       uniforms: this.uniforms, side: THREE.BackSide, depthWrite: false, fog: false,
       vertexShader: 'varying vec3 vDir; void main(){ vDir = normalize(position); vec4 p = projectionMatrix * modelViewMatrix * vec4(position,1.0); gl_Position = p.xyww; }',
-      fragmentShader: `uniform vec3 top; uniform vec3 horizon; uniform vec3 sunDir; uniform vec3 sunCol; varying vec3 vDir;
-        void main(){ float h = max(vDir.y, 0.0); vec3 c = mix(horizon, top, pow(h, 0.55));
-          if (vDir.y < 0.0) c = horizon * 0.85;
-          float s = max(dot(normalize(vDir), sunDir), 0.0);
+      fragmentShader: `uniform vec3 top; uniform vec3 horizon; uniform vec3 sunDir; uniform vec3 sunCol; uniform vec3 cloudCol; uniform float time; uniform float cover; varying vec3 vDir;
+        float hash(vec2 p){ return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
+        float noise(vec2 p){ vec2 i = floor(p), f = fract(p); f = f*f*(3.0-2.0*f);
+          return mix(mix(hash(i), hash(i+vec2(1.0,0.0)), f.x), mix(hash(i+vec2(0.0,1.0)), hash(i+vec2(1.0,1.0)), f.x), f.y); }
+        float fbm(vec2 p){ float a = 0.5, s = 0.0; for (int i = 0; i < 5; i++) { s += a * noise(p); p = p * 2.03 + 11.7; a *= 0.5; } return s; }
+        void main(){ vec3 d = normalize(vDir); float h = max(d.y, 0.0); vec3 c = mix(horizon, top, pow(h, 0.55));
+          if (d.y < 0.0) c = horizon * 0.85;
+          float s = max(dot(d, sunDir), 0.0);
           c += sunCol * (pow(s, 900.0) * 3.0 + pow(s, 12.0) * 0.25);
+          if (d.y > 0.015) {
+            // nuvole: rumore frattale proiettato su un piano alto
+            vec2 uv = d.xz / (d.y + 0.12) * 1.6 + vec2(time * 0.006, time * 0.002);
+            float n = fbm(uv);
+            float cl = smoothstep(1.0 - cover, 1.0 - cover + 0.28, n) * smoothstep(0.015, 0.16, d.y);
+            float shade = 0.72 + 0.28 * smoothstep(0.45, 0.9, fbm(uv + sunDir.xz * 0.25 + 3.1));
+            c = mix(c, cloudCol * shade + sunCol * pow(s, 6.0) * 0.25, cl * 0.9);
+          }
           gl_FragColor = vec4(c, 1.0); }`,
     });
     this.dome = new THREE.Mesh(geo, mat);
@@ -68,6 +81,9 @@ export class Sky {
     this.uniforms.horizon.value.copy(hor);
     this.uniforms.sunDir.value.copy(this.sunDir);
     this.uniforms.sunCol.value.setRGB(1, 0.85 - golden * 0.3, 0.6 - golden * 0.3).multiplyScalar(day);
+    this.uniforms.cloudCol.value.setRGB(0.07 + 0.93 * day, 0.08 + 0.9 * day - golden * 0.12, 0.11 + 0.87 * day - golden * 0.22);
+    this.uniforms.time.value += dt * Math.max(1, this.speed / 30);
+    this.uniforms.cover.value = this.cover;
     this.scene.fog.color.copy(hor);
     this.scene.fog.near = 300 + day * 200;
     this.scene.fog.far = 1500 + day * 1300;

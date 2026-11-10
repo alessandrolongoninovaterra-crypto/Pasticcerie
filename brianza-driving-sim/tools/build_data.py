@@ -156,7 +156,66 @@ NODE_TAG = {('highway', 'traffic_signals'): 1, ('highway', 'stop'): 2, ('highway
             ('traffic_calming', 'bump'): 7, ('traffic_calming', 'table'): 7, ('highway', 'speed_camera'): 8,
             ('highway', 'street_lamp'): 9}
 
+def node_code(t):
+    """(codice, direzione) dei nodi con segnaletica: direzione 1=forward 2=backward"""
+    hw = t.get('highway')
+    dv = t.get('direction') or t.get('traffic_signals:direction') or ''
+    d = 1 if dv == 'forward' else 2 if dv == 'backward' else 0
+    if hw == 'traffic_signals':
+        return 1, d
+    if hw == 'stop':
+        return 2, d
+    if hw == 'give_way':
+        return 3, d
+    if hw == 'crossing':
+        cr = t.get('crossing', ''); mk = t.get('crossing:markings', '')
+        if cr in ('unmarked', 'no', 'informal') or mk == 'no':
+            return 0, 0
+        return (10 if cr == 'traffic_signals' or t.get('crossing:signals') == 'yes' else 4), 0
+    if hw == 'mini_roundabout':
+        return 5, 0
+    if t.get('railway') == 'level_crossing':
+        return 6, 0
+    tc = t.get('traffic_calming')
+    if tc in ('bump', 'hump', 'yes', 'cushion'):
+        return 7, 0
+    if tc == 'table':
+        return 11, 0
+    if hw in ('turning_circle', 'turning_loop'):
+        return 12, 0
+    if hw == 'motorway_junction':
+        return 13, 0
+    return 0, 0
+
+
+STONE = {'sett', 'cobblestone', 'unhewn_cobblestone', 'paving_stones', 'pebblestone', 'cobblestone:flattened', 'bricks'}
+
+
+def sidewalk_code(t, rev):
+    """0 sconosciuto, 1 entrambi, 2 sinistra, 3 destra, 4 nessuno/mappato a parte"""
+    sw = t.get('sidewalk') or ''
+    yes = lambda v: v in ('yes', 'both')
+    left = sw in ('both', 'left', 'yes') or yes(t.get('sidewalk:both', '')) or yes(t.get('sidewalk:left', ''))
+    right = sw in ('both', 'right', 'yes') or yes(t.get('sidewalk:both', '')) or yes(t.get('sidewalk:right', ''))
+    if rev:
+        left, right = right, left
+    if left and right:
+        return 1
+    if left:
+        return 2
+    if right:
+        return 3
+    if sw in ('no', 'none', 'separate') or t.get('sidewalk:both') in ('no', 'separate'):
+        return 4
+    return 0
+
+
 names = StrTable()
+junctions = {}        # osm id -> (nome, ref) degli svincoli
+points = []           # elementi puntuali: (tipo, x, z, testo)
+paths = []            # percorsi pedonali/ciclabili: (tipo, larghezza, punti)
+barriers = []         # muri, siepi, guardrail: (tipo, altezza, punti)
+power_lines = []
 road_ways = []        # dict per via
 node_xy = {}          # osm id -> (x,z) per i nodi delle strade
 node_tags = {}        # osm id -> code
@@ -186,6 +245,7 @@ LC = {  # nome -> (priorita', colore RGB)
     'scrub': (7, (84, 116, 60)), 'wetland': (7, (90, 118, 90)), 'forest': (8, (54, 88, 44)), 'wood': (8, (54, 88, 44)),
     'parking': (9, (112, 112, 110)), 'water': (10, (62, 104, 142)), 'reservoir': (10, (62, 104, 142)),
     'basin': (10, (62, 104, 142)), 'riverbank': (10, (62, 104, 142)), 'bare_rock': (7, (160, 156, 146)),
+    'pedestrian': (9, (176, 168, 152)),
 }
 LC_DEFAULT = (128, 150, 84)
 WATER_RGB = (62, 104, 142)
@@ -242,11 +302,28 @@ for o in fp:
         lat, lon = o.location.lat, o.location.lon
         if not inside(lat, lon) or not len(t):
             continue
-        for k in ('highway', 'railway', 'traffic_calming'):
-            v = t.get(k)
-            if v and (k, v) in NODE_TAG:
-                node_tags[o.id] = NODE_TAG[(k, v)]
+        code, ndir = node_code(t)
+        if code:
+            node_tags[o.id] = (code, ndir)
+            if code == 13:
+                junctions[o.id] = (t.get('name', ''), t.get('ref', ''))
         x, z = P.fwd(lat, lon)
+        hw = t.get('highway')
+        ts = t.get('traffic_sign', '')
+        if hw == 'bus_stop':
+            points.append((1, x, z, t.get('name', '')))
+        elif hw == 'street_lamp':
+            points.append((2, x, z, ''))
+        elif hw == 'speed_camera':
+            points.append((4, x, z, t.get('maxspeed', '')))
+        elif 'city_limit' in ts and t.get('name'):
+            points.append((3, x, z, t['name']))
+        elif ts == 'maxspeed' and parse_speed(t.get('maxspeed')):
+            points.append((7, x, z, str(parse_speed(t.get('maxspeed')))))
+        elif hw == 'traffic_mirror':
+            points.append((8, x, z, ''))
+        if t.get('amenity') == 'fuel':
+            points.append((5, x, z, t.get('brand') or t.get('name') or ''))
         if t.get('natural') == 'tree':
             trees_pt.append((x, z))
         pl = t.get('place')
@@ -302,12 +379,56 @@ for o in fp:
                     node_xy[r] = P.fwd(l.lat, l.lon)
             if rev:
                 ids.reverse()
+            oneway_f = bool(flags & F_ONEWAY)
+            if oneway_f:
+                tf = (t.get('turn:lanes:backward') if rev else None) or t.get('turn:lanes') or t.get('turn:lanes:forward') or ''
+                tb = ''
+            else:
+                tf = t.get('turn:lanes:forward') or ''
+                tb = t.get('turn:lanes:backward') or ''
+            dest = t.get('destination') or t.get('destination:forward') or ''
+            if dest and t.get('destination:ref'):
+                dest = t.get('destination:ref') + '|' + dest
+            surf_c = 1 if surf in STONE else 0
+            lit_c = 0 if not t.get('lit') else (2 if t.get('lit') == 'no' else 1)
+            lf, lb = int(parse_float(t.get('lanes:forward'))), int(parse_float(t.get('lanes:backward')))
+            if rev:
+                lf, lb = lb, lf
             road_ways.append({
+                'surf': surf_c, 'sw': sidewalk_code(t, rev), 'lit': lit_c, 'lf': lf, 'lb': lb, 'tf': tf, 'tb': tb, 'dest': dest,
                 'ids': ids, 'name': t.get('name', ''), 'ref': t.get('ref', ''), 'cls': cls, 'flags': flags,
                 'lanes': int(parse_float(t.get('lanes'))), 'speed': parse_speed(t.get('maxspeed')),
                 'layer': int(parse_float(t.get('layer'))) if t.get('layer') else (1 if flags & F_BRIDGE else (-1 if flags & F_TUNNEL else 0)),
                 'width': parse_float(t.get('width')), 'osm': o.id,
             })
+            continue
+        if hw in ('footway', 'cycleway', 'path', 'steps', 'bridleway') and t.get('area') != 'yes':
+            if t.get('footway') == 'crossing' or t.get('tunnel') in ('yes', 'building_passage') or t.get('indoor') == 'yes':
+                continue
+            pts = [P.fwd(l.lat, l.lon) for _, l in pts_ll]
+            psurf = t.get('surface', '')
+            if hw == 'cycleway':
+                kind = 1
+            elif hw == 'steps':
+                kind = 3
+            elif t.get('footway') == 'sidewalk':
+                kind = 4
+            elif hw in ('path', 'bridleway') and psurf not in ('asphalt', 'paved', 'paving_stones', 'concrete', 'sett'):
+                kind = 2
+            else:
+                kind = 0
+            pw = parse_float(t.get('width')) or {0: 1.8, 1: 2.4, 2: 1.2, 3: 1.8, 4: 1.6}[kind]
+            paths.append((kind, max(0.8, min(6, pw)), dp_simplify(pts, 0.3), 1 if t.get('bridge') and t.get('bridge') != 'no' else 0))
+            continue
+        br = t.get('barrier')
+        if br in ('wall', 'hedge', 'retaining_wall', 'city_wall', 'guard_rail', 'jersey_barrier'):
+            pts = dp_simplify([P.fwd(l.lat, l.lon) for _, l in pts_ll], 0.3)
+            kind = {'wall': 0, 'hedge': 1, 'retaining_wall': 2, 'city_wall': 2, 'guard_rail': 3, 'jersey_barrier': 3}[br]
+            bh = parse_float(t.get('height')) or {0: 1.9, 1: 1.5, 2: 2.2, 3: 0.8}[kind]
+            barriers.append((kind, max(0.4, min(8, bh)), pts))
+            continue
+        if t.get('power') == 'line':
+            power_lines.append([[round(x, 1), round(z, 1)] for x, z in (P.fwd(l.lat, l.lon) for _, l in pts_ll)])
             continue
         rw = t.get('railway')
         if rw in ('rail', 'light_rail', 'narrow_gauge') and t.get('service') not in ('yard', 'siding', 'spur', 'crossover'):
@@ -329,8 +450,6 @@ for o in fp:
             continue
         if t.get('natural') == 'tree_row':
             tree_rows.append([(round(x, 1), round(z, 1)) for x, z in (P.fwd(l.lat, l.lon) for _, l in pts_ll)])
-            continue
-        if t.get('barrier') == 'hedge' and not o.is_closed():
             continue
         continue
 
@@ -394,8 +513,11 @@ for o in fp:
             cx, cz = centroid(outers[0])
             landmarks.append([code, round(cx, 1), round(cz, 1), t['name'], ''])
 
+        if t.get('amenity') == 'fuel':
+            cx, cz = centroid(outers[0])
+            points.append((5, cx, cz, t.get('brand') or t.get('name') or ''))
         kind = None
-        for k in ('natural', 'landuse', 'leisure', 'amenity', 'water', 'waterway'):
+        for k in ('natural', 'landuse', 'leisure', 'amenity', 'water', 'waterway', 'highway'):
             v = t.get(k)
             if v in LC:
                 kind = v
@@ -564,11 +686,15 @@ for r in node_list:
 ways_flat = []
 for w in road_ways:
     ways_flat.append([names(w['name']), names(w['ref']), w['cls'], w['flags'] | (256 if w.get('over') else 0),
-                      w['lanes'], w['speed'], w['layer'], int(round(w['width'] * 10))] + w['n'])
+                      w['lanes'], w['speed'], w['layer'], int(round(w['width'] * 10)),
+                      w['surf'], w['sw'], w['lit'], w['lf'], w['lb'], names(w['tf']), names(w['tb']), names(w['dest'])] + w['n'])
 ntags = []
-for r, code in node_tags.items():
+mj = []
+for r, (code, ndir) in node_tags.items():
     if r in node_index:
-        ntags += [node_index[r], code]
+        ntags += [node_index[r], code, ndir]
+        if code == 13 and r in junctions:
+            mj += [node_index[r], names(junctions[r][0]), names(junctions[r][1])]
 dh_flat = []
 for r, v in dh.items():
     if v > 0.05 and r in node_index:
@@ -576,7 +702,7 @@ for r, v in dh.items():
 
 sz = write_js(os.path.join(OUT, 'roads.js'), 'roads', {
     'names': names.list, 'nodes': nodes_flat, 'ways': ways_flat, 'ntags': ntags, 'dh': dh_flat,
-    'rails': rails})
+    'rails': rails, 'mj': mj, 'wayHead': 16})
 print('roads.js', sz, 'nodi', len(node_list))
 
 # ------------------------------------------------------------------ copertura del suolo (immagine)
@@ -612,6 +738,20 @@ for pr, col, outers, inners in landcover_polys:
         if len(r) >= 3:
             md.polygon([(a - x0, b - y0) for a, b in to_px(r)], fill=0)
     img.paste(Image.new('RGB', mask.size, col), (x0, y0), mask)
+# aree edificate non mappate come landuse: attorno agli edifici reali il terreno
+# "non classificato" diventa tessuto urbano (serve anche a marciapiedi e lampioni)
+mask = Image.new('L', (LW, LH), 0)
+md = ImageDraw.Draw(mask)
+bw = max(3, int(round(46 / MPP)))
+for b in buildings:
+    pp = to_px(b['r'])
+    md.polygon(pp, fill=255)
+    md.line(pp + [pp[0]], fill=255, width=bw)
+arr = np.array(img)
+isdef = np.all(arr == np.array(LC_DEFAULT, np.uint8), axis=2)
+arr[isdef & (np.asarray(mask) > 0)] = LC['residential'][1]
+img = Image.fromarray(arr)
+del arr, mask
 d = ImageDraw.Draw(img)
 for col, width, pts in lc_lines:
     d.line(to_px(pts), fill=col, width=max(1, int(round(width / MPP))))
@@ -625,7 +765,7 @@ img.resize((LW // 4, LH // 4)).save(os.path.join(height_dir, 'landcover_preview.
 print('landcover', LW, LH, os.path.getsize(lcjs))
 
 # ------------------------------------------------------------------ tessere edifici + alberi
-tiles = defaultdict(lambda: {'b': [], 'tr': [], 'rows': []})
+tiles = defaultdict(lambda: {'b': [], 'tr': [], 'rows': [], 'pa': [], 'ba': [], 'pt': []})
 TX = int(math.ceil((P.xmax - P.xmin) / TILE)); TZ = int(math.ceil((P.zmax - P.zmin) / TILE))
 
 
@@ -653,13 +793,29 @@ for row in tree_rows:
     k = tile_of(*row[0])
     if k:
         tiles[k]['rows'].append(enc_ring(row))
+for kind, pw, pts, brg in paths:
+    k = tile_of(*pts[len(pts) // 2])
+    if k and len(pts) >= 2:
+        tiles[k]['pa'].append([kind, int(pw * 10), brg] + enc_ring(pts))
+for kind, bh, pts in barriers:
+    k = tile_of(*pts[len(pts) // 2])
+    if k and len(pts) >= 2:
+        tiles[k]['ba'].append([kind, int(bh * 10)] + enc_ring(pts))
+for kind, x, z, text in points:
+    k = tile_of(x, z)
+    if k:
+        tiles[k]['pt'].append([kind, q(x), q(z), bnames(text)])
 tile_keys = []
 total = 0
 for (i, j), tdata in tiles.items():
-    used = set()
+    # tabella stringhe locale alla tessera
+    local = StrTable()
     for rec in tdata['b']:
-        used.update(rec[5:8])
-    tdata['s'] = bnames.list  # tabella condivisa (piccola)
+        for c in (5, 6, 7):
+            rec[c] = local(bnames.list[rec[c]])
+    for rec in tdata['pt']:
+        rec[3] = local(bnames.list[rec[3]])
+    tdata['s'] = local.list
     key = 't_%d_%d' % (i, j)
     total += write_js(os.path.join(OUT, 'tiles', key + '.js'), key, tdata)
     tile_keys.append([i, j, len(tdata['b'])])
@@ -679,7 +835,7 @@ meta = {
     'proj': P.meta(), 'height': HMETA, 'tile': TILE, 'tilesX': TX, 'tilesZ': TZ, 'tiles': tile_keys,
     'landcover': {'w': LW, 'h': LH, 'mpp': MPP, 'palette': {k: v[1] for k, v in LC.items()}, 'default': LC_DEFAULT},
     'comuni': comuni, 'featured': config_comuni, 'places': places, 'landmarks': lm_out, 'waters': waters,
-    'rivers': rivers,
+    'rivers': rivers, 'power': power_lines,
     'source': 'Dati (c) OpenStreetMap contributors, ODbL. Altimetria: Terrarium tiles (Mapzen / AWS Open Data).',
 }
 print('meta.js', write_js(os.path.join(OUT, 'meta.js'), 'meta', meta), 'landmarks', len(lm_out), 'places', len(places))

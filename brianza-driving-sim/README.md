@@ -60,24 +60,48 @@ scegli gli assi di sterzo/acceleratore/freno (vengono mostrati in tempo reale).
   (o stimata per tipologia), 149 cavalcavia ricostruiti con rampe al 6%, rotatorie con
   isola centrale, ferrovie, laghi (Alserio, Pusiano, Montorfano), fiumi (Lambro, Seveso…),
   boschi/prati/campi/aree urbane dalla copertura del suolo, 1.339 punti di interesse.
+- **Strade aderenti a OpenStreetMap**:
+  - curve morbide: spline che passa esattamente per i nodi OSM, usata anche da fisica,
+    traffico e navigatore;
+  - larghezza e corsie dai tag `width`, `lanes`, `lanes:forward/backward`;
+  - frecce di corsia da `turn:lanes`; pavé/porfido da `surface`; sterrati;
+  - marciapiedi da `sidewalk=*` (o stimati nelle aree edificate), interrotti agli incroci;
+  - percorsi pedonali, ciclabili, sentieri e marciapiedi mappati a parte (`footway`,
+    `cycleway`, `path`), piazze pedonali;
+  - muri di cinta, siepi, muri di sostegno e guardrail (`barrier=*`), elettrodotti con
+    tralicci (`power=line`), piazzole di manovra, mini-rotatorie, dossi e attraversamenti rialzati.
 - **Altimetria reale** su griglia di 20 m (Terrarium/AWS, da SRTM ed EU-DEM): 160–530 m s.l.m.
 - **Guida**: modello a bicicletta con pneumatici a saturazione, cerchio d'attrito,
   trasferimento di carico, curva di coppia, cambio automatico, freno motore, pendenze,
-  aderenza ridotta su sterrato/erba, ESC leggero; collisioni con edifici, alberi,
+  aderenza ridotta su sterrato/erba, ESC leggero; collisioni con edifici, muri, alberi,
   isole delle rotatorie e veicoli. Visuale esterna e abitacolo con volante e quadro strumenti.
-- **Segnaletica italiana**: linee di margine e mezzeria (tratteggio urbano/extraurbano),
-  corsie, strisce pedonali zebrate, linee di arresto, semafori funzionanti, STOP, dare
-  precedenza, cartelli dei limiti, cartelli di **inizio/fine centro abitato** ai confini
-  comunali reali, lampioni, guardrail sulla SS36.
-- **Ambiente**: edifici con intonaci lombardi, persiane, tetti in coppi a padiglione,
-  capannoni industriali; alberi da OSM e dai boschi reali; ciclo giorno/notte con sole
-  calcolato per la latitudine della Brianza, stelle, finestre illuminate, fari.
+- **Segnaletica italiana dai dati OSM**:
+  - orizzontale: margini, mezzeria (continua vicino agli incroci, doppia a 4 corsie),
+    corsie, strisce zebrate (`highway=crossing`, non quelle `unmarked`), linee di arresto,
+    scritta STOP, triangoli di precedenza, frecce;
+  - semafori funzionanti, STOP e dare precedenza nel verso indicato dal tag `direction`;
+  - rotatorie: dare precedenza + segnale di rotatoria a ogni ingresso;
+  - senso unico all'ingresso e senso vietato all'uscita delle vie `oneway`;
+  - attraversamento pedonale, dosso, passaggio a livello con sbarre, autovelox;
+  - limiti di velocità dove `maxspeed` cambia;
+  - **targhe con il nome della via** a ogni incrocio;
+  - inizio/fine centro abitato: dai nodi `traffic_sign=city_limit` e ai confini comunali reali;
+  - tabelle di direzione agli svincoli dal tag `destination`; identificazione strada (SP/SS) da `ref`;
+  - frecce di direzione alle uscite delle rotatorie: indicano il primo comune o la prima
+    località che si raggiunge davvero seguendo quella strada (calcolato sulla rete);
+  - fermate bus con pensilina e nome, distributori, lampioni (`lit=yes`, `highway=street_lamp`).
+- **Ambiente**: edifici con intonaci lombardi, persiane, tetti in coppi con gronda
+  (a capanna, a padiglione, a falde su piante irregolari), comignoli, capannoni; alberi
+  da OSM e dai boschi reali (latifoglie, conifere, filari); cielo con nuvole, ciclo
+  giorno/notte con sole calcolato per la latitudine della Brianza, stelle, finestre
+  illuminate, aloni di luce dei lampioni, fari.
 - **Traffico AI** sulla rete reale: rispetta sensi unici, limiti, semafori e distanze (IDM).
 - **Interfaccia**: minimappa stile navigatore orientata con la marcia, tachimetro e
   contagiri, nome della via e del comune/frazione, coordinate GPS e quota, limite
   di velocità (reale o indicativo), indicazioni di svolta e rotatorie con distanza ed ETA.
 - **Prestazioni**: tessere di 1 km caricate/scaricate in streaming attorno all'auto,
-  geometrie unite per materiale, alberi e lampioni instanziati, tre livelli di qualità.
+  geometrie unite per materiale, atlanti di texture per i cartelli, alberi e lampioni
+  instanziati, tre livelli di qualità.
 
 ## Ampliare la mappa (fase 4)
 
@@ -104,9 +128,9 @@ npm run watch
 |---|---|
 | `src/data.js` | caricamento dati compressi (funziona anche da file://), proiezione |
 | `src/terrain.js` | altimetria, copertura del suolo, mesh del terreno |
-| `src/roads.js` | rete stradale, indice spaziale, quote/ponti, mesh e segnaletica orizzontale |
+| `src/roads.js` | rete stradale, curve, corsie, quote/ponti, marciapiedi, segnaletica orizzontale, percorsi, muri |
 | `src/buildings.js` | edifici estrusi, facciate, tetti |
-| `src/signs.js` | semafori, cartelli, lampioni |
+| `src/signs.js` | atlante dei segnali italiani, semafori, cartelli da OSM, indicazioni, lampioni |
 | `src/vegetation.js` | alberi |
 | `src/vehicle.js` / `src/cars.js` | fisica e modelli delle auto |
 | `src/traffic.js` | traffico AI |

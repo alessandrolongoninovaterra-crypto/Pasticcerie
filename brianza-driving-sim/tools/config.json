@@ -11,6 +11,6 @@
   "source_pbf": "lombardia.osm.pbf",
   "source_pbf_url": "https://download.openstreetmap.fr/extracts/europe/italy/lombardia.osm.pbf",
   "height_grid_m": 20,
-  "landcover_m_per_px": 6,
+  "landcover_m_per_px": 4,
   "tile_m": 1000
 }

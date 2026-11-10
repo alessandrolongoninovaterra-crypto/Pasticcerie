@@ -142,7 +142,8 @@ function spawnPoint(id) {
     const a = w.nodes[k], b = w.nodes[k + 1];
     let h = Math.atan2(R.nx[b] - R.nx[a], R.nz[b] - R.nz[a]);
     if (preferSouth && !w.oneway && Math.cos(h) < 0) h += Math.PI;
-    const off = w.oneway ? 0 : w.width / 4; // corsia di destra
+    const fwd = Math.cos(h - Math.atan2(R.nx[b] - R.nx[a], R.nz[b] - R.nz[a])) > 0;
+    const off = R.laneCenter(w, fwd ? 1 : -1); // corsia di marcia
     return { x: x - Math.cos(h) * off, z: z + Math.sin(h) * off, h };
   };
   if (id === 'picked' && G.pickedStart) {

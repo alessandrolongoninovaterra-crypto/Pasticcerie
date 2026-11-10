@@ -65,7 +65,7 @@ export class BuildingFactory {
       res: new THREE.MeshLambertMaterial({ map: t.res, vertexColors: true, emissiveMap: t.emiR, emissive: 0xffffff, emissiveIntensity: 0 }),
       ind: new THREE.MeshLambertMaterial({ map: t.ind, vertexColors: true, emissiveMap: t.emiI, emissive: 0xffffff, emissiveIntensity: 0 }),
       plain: new THREE.MeshLambertMaterial({ map: t.plain, vertexColors: true }),
-      roof: new THREE.MeshLambertMaterial({ vertexColors: true }),
+      roof: new THREE.MeshLambertMaterial({ vertexColors: true, side: THREE.DoubleSide }),
     };
   }
 
@@ -146,11 +146,11 @@ export class BuildingFactory {
       }
       // tetto
       let rc;
-      const pitched = (kind === 1 || kind === 2 || kind === 5 || kind === 9 || (kind === 7 && area < 900) || (type === 0 && area < 700)) && roofShape !== 1;
+      const pitched = (kind === 1 || (kind === 2 && (area < 1400 || levels <= 4)) || kind === 5 || kind === 9 || (kind === 7 && area < 900) || (kind === 6 && area > 18)) && roofShape !== 1;
       if (roofTag && /^#?[0-9a-f]{6}$|^[a-z]+$/i.test(roofTag)) { try { rc = new THREE.Color(roofTag); } catch (e) { rc = null; } }
       if (!rc) rc = new THREE.Color(pitched ? ROOF_TILE[Math.floor(rnd * ROOF_TILE.length)] : ROOF_FLAT[Math.floor(rnd * ROOF_FLAT.length)]);
       rc.convertSRGBToLinear();
-      this.roof(roof, ring, n, eave, pitched, rc, area, kind);
+      this.roof(roof, ring, n, eave, pitched, rc, area, kind, col, rnd2);
       if (collision) collision.addPolygon(tileKey, Float32Array.from(ring));
       if (name && (kind === 5 || kind === 8 || type === 7)) labels.push({ name, x: cx, z: cz, y: eave + 4 });
     }
@@ -160,59 +160,100 @@ export class BuildingFactory {
     return { group, labels };
   }
 
-  roof(g, ring, n, eave, pitched, rc, area, kind) {
+  // anello spostato di d verso l'interno (d<0: verso l'esterno); null se degenera
+  offsetRing(ring, n, d) {
+    const out = new Array(n * 2);
+    for (let i = 0; i < n; i++) {
+      const p = (i + n - 1) % n, q = (i + 1) % n;
+      let ax = ring[i * 2] - ring[p * 2], az = ring[i * 2 + 1] - ring[p * 2 + 1], bx = ring[q * 2] - ring[i * 2], bz = ring[q * 2 + 1] - ring[i * 2 + 1];
+      const la = Math.hypot(ax, az) || 1, lb = Math.hypot(bx, bz) || 1;
+      ax /= la; az /= la; bx /= lb; bz /= lb;
+      // normali interne dei due lati (anello antiorario nel piano x,z)
+      const n1x = -az, n1z = ax, n2x = -bz, n2z = bx;
+      const k = Math.max(0.35, 1 + n1x * n2x + n1z * n2z);
+      out[i * 2] = ring[i * 2] + d * (n1x + n2x) / k;
+      out[i * 2 + 1] = ring[i * 2 + 1] + d * (n1z + n2z) / k;
+    }
+    if (d > 0) {
+      // valido se l'area resta positiva e i lati non si invertono
+      let area = 0;
+      for (let i = 0; i < n; i++) {
+        const j = (i + 1) % n;
+        area += out[i * 2] * out[j * 2 + 1] - out[j * 2] * out[i * 2 + 1];
+        const ex = ring[j * 2] - ring[i * 2], ez = ring[j * 2 + 1] - ring[i * 2 + 1], fx = out[j * 2] - out[i * 2], fz = out[j * 2 + 1] - out[i * 2 + 1];
+        if (ex * fx + ez * fz <= 0) return null;
+      }
+      if (area <= 0) return null;
+    }
+    return out;
+  }
+
+  roof(g, ring, n, eave, pitched, rc, area, kind, wallCol, rnd) {
     const addTri = (p, q, r, c = rc) => {
-      // orienta verso l'alto
-      const ux = q[0] - p[0], uy = q[1] - p[1], uz = q[2] - p[2], vx = r[0] - p[0], vy = r[1] - p[1], vz = r[2] - p[2];
+      const ux = q[0] - p[0], uz = q[2] - p[2], vx = r[0] - p[0], vz = r[2] - p[2];
       const ny = uz * vx - ux * vz;
       const a = g.v(p[0], p[1], p[2], c.r, c.g, c.b), b = g.v(q[0], q[1], q[2], c.r, c.g, c.b), d = g.v(r[0], r[1], r[2], c.r, c.g, c.b);
       if (ny >= 0) g.tri(a, b, d); else g.tri(a, d, b);
     };
+    const quad = (a, b, c, d, col) => { addTri(a, b, c, col); addTri(a, c, d, col); };
+    const dark = rc.clone().multiplyScalar(0.84), light = rc.clone().multiplyScalar(1.06);
+    const OVER = 0.45; // sporto di gronda
+    const chimney = (x, z, y) => {
+      if (rnd > 0.55) return;
+      const s = 0.3, h = 1.1, c = wallCol.clone().multiplyScalar(0.9), P = [[x - s, z - s], [x + s, z - s], [x + s, z + s], [x - s, z + s]];
+      for (let i = 0; i < 4; i++) { const [ax, az] = P[i], [bx, bz] = P[(i + 1) % 4]; quad([ax, y - 0.6, az], [bx, y - 0.6, bz], [bx, y + h, bz], [ax, y + h, az], c); }
+      quad([P[0][0], y + h, P[0][1]], [P[1][0], y + h, P[1][1]], [P[2][0], y + h, P[2][1]], [P[3][0], y + h, P[3][1]], dark);
+    };
     if (pitched && n === 4 && area < 2500) {
+      // pianta rettangolare: tetto a due falde (capanna) o a padiglione
       const P = [0, 1, 2, 3].map((i) => [ring[i * 2], ring[i * 2 + 1]]);
       const e0 = Math.hypot(P[1][0] - P[0][0], P[1][1] - P[0][1]), e1 = Math.hypot(P[2][0] - P[1][0], P[2][1] - P[1][1]);
-      let Q = P;
-      if (e1 > e0) Q = [P[1], P[2], P[3], P[0]];
+      const Q = e1 > e0 ? [P[1], P[2], P[3], P[0]] : P;
       const L = Math.max(e0, e1), S = Math.min(e0, e1);
       const cx = (Q[0][0] + Q[1][0] + Q[2][0] + Q[3][0]) / 4, cz = (Q[0][1] + Q[1][1] + Q[2][1] + Q[3][1]) / 4;
       const ux = ((Q[1][0] - Q[0][0]) + (Q[2][0] - Q[3][0])) / 2 / L, uz = ((Q[1][1] - Q[0][1]) + (Q[2][1] - Q[3][1])) / 2 / L;
-      const rh = Math.max(0, L / 2 - S / 2);
       const hh = Math.min(S * 0.27, 5);
+      const ex = this.offsetRing(Q.flat(), 4, -OVER);
+      const c = [0, 1, 2, 3].map((i) => [ex[i * 2], eave - OVER * 0.5, ex[i * 2 + 1]]);
+      const gable = rnd > 0.4;
+      const rh = gable ? L / 2 + OVER : Math.max(0, L / 2 - S / 2);
       const r0 = [cx - ux * rh, eave + hh, cz - uz * rh], r1 = [cx + ux * rh, eave + hh, cz + uz * rh];
-      const c = Q.map((p) => [p[0], eave, p[1]]);
-      const dark = rc.clone().multiplyScalar(0.82);
-      addTri(c[0], c[1], r1); addTri(c[0], r1, r0);
-      addTri(c[2], c[3], r0); addTri(c[2], r0, r1);
-      addTri(c[1], c[2], r1, dark); addTri(c[3], c[0], r0, dark);
+      quad(c[0], c[1], r1, r0, light); quad(c[2], c[3], r0, r1, rc);
+      if (gable) {
+        // timpani in muratura
+        const w = [0, 1, 2, 3].map((i) => [Q[i][0], eave, Q[i][1]]);
+        addTri(w[1], w[2], [cx + ux * L / 2, eave + hh, cz + uz * L / 2], wallCol);
+        addTri(w[3], w[0], [cx - ux * L / 2, eave + hh, cz - uz * L / 2], wallCol);
+      } else { addTri(c[1], c[2], r1, dark); addTri(c[3], c[0], r0, dark); }
+      chimney(cx + ux * L * 0.2, cz + uz * L * 0.2, eave + hh);
       return;
     }
-    // convesso e piccolo: tetto a padiglione con colmo centrale
-    let convex = n <= 10;
-    if (convex) {
-      let sgn = 0;
-      for (let i = 0; i < n && convex; i++) {
-        const a = i, b = (i + 1) % n, c = (i + 2) % n;
-        const cr = (ring[b * 2] - ring[a * 2]) * (ring[c * 2 + 1] - ring[b * 2 + 1]) - (ring[b * 2 + 1] - ring[a * 2 + 1]) * (ring[c * 2] - ring[b * 2]);
-        if (Math.abs(cr) < 1e-6) continue;
-        if (sgn === 0) sgn = Math.sign(cr); else if (Math.sign(cr) !== sgn) convex = false;
+    if (pitched && area < 6000 && n <= 60) {
+      // pianta qualsiasi: falde inclinate lungo il perimetro e colmo piano
+      let d = Math.max(1.2, Math.min(4.2, Math.sqrt(area) * 0.2));
+      let inner = this.offsetRing(ring, n, d);
+      if (!inner) { d *= 0.5; inner = this.offsetRing(ring, n, d); }
+      if (inner) {
+        const outer = this.offsetRing(ring, n, -OVER);
+        const top = eave + d * 0.5;
+        for (let i = 0; i < n; i++) {
+          const j = (i + 1) % n;
+          quad([outer[i * 2], eave - OVER * 0.4, outer[i * 2 + 1]], [outer[j * 2], eave - OVER * 0.4, outer[j * 2 + 1]], [inner[j * 2], top, inner[j * 2 + 1]], [inner[i * 2], top, inner[i * 2 + 1]], i % 2 ? rc : dark);
+        }
+        const pts = [];
+        for (let i = 0; i < n; i++) pts.push(new THREE.Vector2(inner[i * 2], inner[i * 2 + 1]));
+        let tris = [];
+        try { tris = THREE.ShapeUtils.triangulateShape(pts, []); } catch (e) { tris = []; }
+        for (const [a, b, c] of tris) addTri([pts[a].x, top, pts[a].y], [pts[b].x, top, pts[b].y], [pts[c].x, top, pts[c].y], light);
+        if (kind === 1 || kind === 2) chimney(inner[0] * 0.5 + inner[2] * 0.5, inner[1] * 0.5 + inner[3] * 0.5, top);
+        return;
       }
     }
-    if (pitched && convex && area < 900) {
-      let cx = 0, cz = 0;
-      for (let i = 0; i < n; i++) { cx += ring[i * 2]; cz += ring[i * 2 + 1]; }
-      cx /= n; cz /= n;
-      const apex = [cx, eave + Math.min(4, Math.sqrt(area) * 0.22), cz];
-      for (let i = 0; i < n; i++) {
-        const j = (i + 1) % n;
-        addTri([ring[i * 2], eave, ring[i * 2 + 1]], [ring[j * 2], eave, ring[j * 2 + 1]], apex, i % 2 ? rc : rc.clone().multiplyScalar(0.88));
-      }
-      return;
-    }
-    // tetto piano
+    // tetto piano con bordo (capannoni, palazzi)
     const pts = [];
     for (let i = 0; i < n; i++) pts.push(new THREE.Vector2(ring[i * 2], ring[i * 2 + 1]));
     let tris;
     try { tris = THREE.ShapeUtils.triangulateShape(pts, []); } catch (e) { return; }
-    for (const [a, b, c] of tris) addTri([pts[a].x, eave, pts[a].y], [pts[b].x, eave, pts[b].y], [pts[c].x, eave, pts[c].y]);
+    for (const [a, b, c] of tris) addTri([pts[a].x, eave - 0.25, pts[a].y], [pts[b].x, eave - 0.25, pts[b].y], [pts[c].x, eave - 0.25, pts[c].y]);
   }
 }

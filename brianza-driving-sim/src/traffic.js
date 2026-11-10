@@ -40,7 +40,14 @@ export class Traffic {
     this.world = world; this.R = world.roads;
     this.cars = [];
     this.target = 35;
-    this.bodyMat = new THREE.MeshLambertMaterial({ vertexColors: true });
+    this.bodyMat = new THREE.MeshPhongMaterial({ vertexColors: true, shininess: 70, specular: 0x444444 });
+    // fascio dei fari a terra (solo di notte)
+    const bc = document.createElement('canvas'); bc.width = 32; bc.height = 64;
+    const bx = bc.getContext('2d'), bg = bx.createRadialGradient(16, 60, 2, 16, 40, 44);
+    bg.addColorStop(0, 'rgba(255,240,200,0.9)'); bg.addColorStop(0.5, 'rgba(255,235,190,0.28)'); bg.addColorStop(1, 'rgba(255,230,180,0)');
+    bx.fillStyle = bg; bx.fillRect(0, 0, 32, 64);
+    this.beamMat = new THREE.MeshBasicMaterial({ map: new THREE.CanvasTexture(bc), transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, opacity: 0, fog: false, polygonOffset: true, polygonOffsetFactor: -6, polygonOffsetUnits: -12 });
+    this.beamGeo = new THREE.PlaneGeometry(5, 16); this.beamGeo.rotateX(-Math.PI / 2); this.beamGeo.rotateY(Math.PI); this.beamGeo.translate(0, 0.12, 9.5);
     this.lightMat = new THREE.MeshBasicMaterial({ vertexColors: true });
     this.lightMat.color.setScalar(0.35);
     this.variants = [];
@@ -55,7 +62,7 @@ export class Traffic {
     this.time = 0;
   }
 
-  setNight(f) { this.lightMat.color.setScalar(0.35 + f * 0.65); }
+  setNight(f) { this.lightMat.color.setScalar(0.35 + f * 0.65); this.beamMat.opacity = Math.max(0, f - 0.3) * 0.8; this.beamMat.visible = f > 0.31; }
 
   clear() { for (const c of this.cars) this.group.remove(c.mesh); this.cars = []; }
 
@@ -79,7 +86,7 @@ export class Traffic {
       const v = this.variants[Math.floor(Math.random() * this.variants.length)];
       const mesh = new THREE.Group();
       const body = new THREE.Mesh(v.body, this.bodyMat); body.castShadow = true;
-      mesh.add(body, new THREE.Mesh(v.lights, this.lightMat));
+      mesh.add(body, new THREE.Mesh(v.lights, this.lightMat), new THREE.Mesh(this.beamGeo, this.beamMat));
       const car = { wi: nr.wi, k: nr.k, dir, s, speed: Math.min(w.limit, 50) / 3.6 * 0.7, mesh, spec: v.spec, x: nr.px, z: nr.pz, y: 0, h: 0,
         mood: 0.86 + Math.random() * 0.2, next: null, bumped: 0, stuck: 0 };
       this.chooseNext(car);
@@ -131,7 +138,7 @@ export class Traffic {
     const L = Math.hypot(bx - ax, bz - az) || 0.01;
     const f = Math.min(1, c.s / L);
     const dx = (bx - ax) / L, dz = (bz - az) / L;
-    const lane = w.oneway ? (w.lanes >= 2 ? w.width / 4 - 0.2 : 0) : w.width / 4;
+    const lane = R.laneCenter(w, c.dir);
     const x = ax + dx * c.s - dz * lane, z = az + dz * c.s + dx * lane;
     const t = c.dir > 0 ? f : 1 - f;
     c.y = R.heightOn(c.wi, c.k, t, x, z);
