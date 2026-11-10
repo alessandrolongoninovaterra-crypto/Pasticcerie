@@ -1,0 +1,563 @@
+import * as THREE from 'three';
+import { loadData, Projection } from './data.js';
+import { Terrain } from './terrain.js';
+import { RoadNetwork, CLS, F } from './roads.js';
+import { World } from './world.js';
+import { Sky } from './sky.js';
+import { CARS, buildCarModel, drawCluster } from './cars.js';
+import { Vehicle } from './vehicle.js';
+import { Input } from './input.js';
+import { Traffic } from './traffic.js';
+import { Router, routeProgress } from './router.js';
+import { Maps } from './maps.js';
+import { EngineAudio } from './audio.js';
+
+const $ = (id) => document.getElementById(id);
+const QUALITY = {
+  low: { viewTiles: 1, shadows: false, pixelRatio: 1, trees: 0.5 },
+  mid: { viewTiles: 2, shadows: true, pixelRatio: 1.25, trees: 0.8 },
+  high: { viewTiles: 3, shadows: true, pixelRatio: 2, trees: 1 },
+};
+
+const G = { started: false, paused: false, mapOpen: false, camMode: 0, route: null, dest: null, voice: true, carIdx: 0 };
+window.BDS = G; // utile per il debug dalla console
+
+async function boot() {
+  const setLoad = (f, msg) => { $('loadbar').style.width = (f * 100).toFixed(0) + '%'; if (msg) $('loadmsg').textContent = msg; };
+  setLoad(0.05, 'Caricamento della cartografia reale…');
+  let done = 0;
+  const step = (p) => p.then((r) => { done++; setLoad(0.05 + done / 4 * 0.6); return r; });
+  const [meta, roadsData, heightBuf, lcImg] = await Promise.all([
+    step(loadData('meta', 'data/meta.js')), step(loadData('roads', 'data/roads.js')),
+    step(loadData('height', 'data/height.js')), step(loadData('landcover', 'data/landcover.js')),
+  ]);
+  setLoad(0.7, 'Costruzione della rete stradale (' + roadsData.ways.length.toLocaleString('it') + ' vie OSM)…');
+  await new Promise((r) => setTimeout(r, 20));
+  G.meta = meta;
+  G.proj = new Projection(meta.proj);
+  G.terrain = new Terrain(meta, heightBuf, lcImg);
+  G.roads = new RoadNetwork(roadsData, G.terrain, meta);
+  setLoad(0.9, 'Preparazione del navigatore…');
+  await new Promise((r) => setTimeout(r, 20));
+  G.router = new Router(G.roads);
+  setLoad(1, 'Pronto');
+  $('loading').classList.add('hidden');
+  setupMenu();
+}
+
+// ------------------------------------------------------------------ menu
+function findStreet(name, comune) {
+  const R = G.roads, arr = R.streets.get(name) || [];
+  let best = null;
+  for (const s of arr) {
+    const c = G.world.comuneAt(s.x, s.z);
+    if (comune && c !== comune) continue;
+    if (!best || s.len > best.len) best = s;
+  }
+  return best;
+}
+
+// Partenza predefinita: Via Arturo Toscanini 22A, Giussano. Il civico non e'
+// mappato in OSM: si parte a meta' della via reale. Per un punto esatto:
+// index.html?lat=45.6829&lon=9.2116 oppure window.BDS_START = { lat, lon } in index.html.
+const HOME = { label: 'Giussano – Via Arturo Toscanini 22A (casa)', street: 'Via Arturo Toscanini', comune: 'Giussano', frac: 0.5 };
+
+function homeSpawn() {
+  const qs = new URLSearchParams(location.search);
+  const cfg = window.BDS_START || {};
+  const lat = +(qs.get('lat') || cfg.lat || 0), lon = +(qs.get('lon') || cfg.lon || 0);
+  if (lat && lon) { G.pickedStart = G.proj.fromLatLon(lat, lon); return 'picked'; }
+  return null;
+}
+
+function startOptions() {
+  const meta = G.meta, opts = [];
+  opts.push({ id: 'casa', label: HOME.label });
+  opts.push({ id: 'viamilano', label: 'Giussano – Via Milano' });
+  for (const c of meta.featured) opts.push({ id: 'comune:' + c, label: c + ' – centro' });
+  const others = meta.comuni.map((c) => c.n).filter((n) => !meta.featured.includes(n)).sort();
+  for (const c of others) opts.push({ id: 'comune:' + c, label: c + ' (fuori area principale)' });
+  return opts;
+}
+
+function setupMenu() {
+  const menu = $('menu');
+  menu.classList.remove('hidden');
+  const carsEl = $('cars');
+  carsEl.innerHTML = '';
+  CARS.forEach((c, i) => {
+    const d = document.createElement('div');
+    d.className = 'car panel' + (i === G.carIdx ? ' sel' : '');
+    d.innerHTML = `<div class="sw" style="background:${c.color}"></div><b>${c.name}</b><small>${c.desc}</small>
+      <div class="spec"><span>${Math.round(c.kw * 1.36)} CV</span><span>${c.mass} kg</span><span>${c.gears.length} marce aut.</span><span>${{ F: 'Anteriore', R: 'Posteriore', A: '4x4' }[c.drive]}</span></div>`;
+    d.onclick = () => { G.carIdx = i; [...carsEl.children].forEach((e, j) => e.classList.toggle('sel', j === i)); };
+    carsEl.appendChild(d);
+  });
+  const sel = $('start');
+  sel.innerHTML = '';
+  for (const o of startOptions()) { const op = document.createElement('option'); op.value = o.id; op.textContent = o.label; sel.appendChild(op); }
+  if (G.pickedStart) { const op = document.createElement('option'); op.value = 'picked'; op.textContent = 'Punto scelto sulla mappa'; sel.prepend(op); sel.value = 'picked'; }
+  $('go').onclick = () => startGame();
+  $('pickstart').onclick = () => { ensureGame(); openMap('start'); };
+}
+
+// ------------------------------------------------------------------ gioco
+function ensureGame() {
+  if (G.renderer) return;
+  const canvas = $('game');
+  const q = QUALITY[$('quality').value] || QUALITY.mid;
+  G.settings = { ...q };
+  const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: 'high-performance' });
+  renderer.setPixelRatio(Math.min(devicePixelRatio, q.pixelRatio));
+  renderer.setSize(innerWidth, innerHeight);
+  renderer.shadowMap.enabled = q.shadows;
+  renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+  G.renderer = renderer;
+  const scene = new THREE.Scene();
+  G.scene = scene;
+  G.camera = new THREE.PerspectiveCamera(62, innerWidth / innerHeight, 0.5, 5000);
+  G.sky = new Sky(scene, G.meta.proj.lat0);
+  G.world = new World(scene, G.meta, G.terrain, G.roads, G.settings);
+  G.traffic = new Traffic(G.world);
+  G.world.traffic = G.traffic;
+  scene.add(G.traffic.group);
+  G.maps = new Maps(G.world, G.meta);
+  G.input = new Input();
+  G.audio = new EngineAudio();
+  addEventListener('resize', () => {
+    renderer.setSize(innerWidth, innerHeight);
+    G.camera.aspect = innerWidth / innerHeight; G.camera.updateProjectionMatrix();
+    if (G.mapOpen) { G.maps.resizeBig(); G.mapDirty = true; }
+  });
+  setupMapUI();
+  setupPauseUI();
+  requestAnimationFrame(loop);
+}
+
+function spawnPoint(id) {
+  const R = G.roads, W = G.world;
+  const along = (wi, frac, preferSouth = false) => {
+    const w = R.ways[wi];
+    const [x, z, k] = R.pointAt(w, w.len * frac);
+    const a = w.nodes[k], b = w.nodes[k + 1];
+    let h = Math.atan2(R.nx[b] - R.nx[a], R.nz[b] - R.nz[a]);
+    if (preferSouth && !w.oneway && Math.cos(h) < 0) h += Math.PI;
+    const off = w.oneway ? 0 : w.width / 4; // corsia di destra
+    return { x: x - Math.cos(h) * off, z: z + Math.sin(h) * off, h };
+  };
+  if (id === 'picked' && G.pickedStart) {
+    const nr = R.nearest(G.pickedStart[0], G.pickedStart[1], 300, (w) => w.drivable && w.cls <= CLS.SERVICE);
+    if (nr) return along(nr.wi, (R.ways[nr.wi].cum[nr.k] + (R.ways[nr.wi].cum[nr.k + 1] - R.ways[nr.wi].cum[nr.k]) * nr.t) / R.ways[nr.wi].len);
+  }
+  if (id === 'casa') {
+    if (homeSpawn() === 'picked') return spawnPoint('picked');
+    // tratto carrabile piu' lungo di Via Arturo Toscanini dentro Giussano
+    let best = -1;
+    R.ways.forEach((w, wi) => {
+      if (w.name !== HOME.street || !w.drivable || w.cls > CLS.RESIDENTIAL) return;
+      const [mx, mz] = R.pointAt(w, w.len / 2);
+      if (W.comuneAt(mx, mz) !== HOME.comune) return;
+      if (best < 0 || w.len > R.ways[best].len) best = wi;
+    });
+    if (best >= 0) return along(best, HOME.frac);
+    id = 'comune:Giussano';
+  }
+  if (id === 'viamilano') {
+    const s = findStreet('Via Milano', 'Giussano');
+    if (s) return along(s.wi, 0.35, true);
+    id = 'comune:Giussano';
+  }
+  if (id.startsWith('comune:')) {
+    const name = id.slice(7);
+    const pl = G.meta.places.find((p) => p.n === name && (p.t === 'town' || p.t === 'city' || p.t === 'village'));
+    let x, z;
+    if (pl) { x = pl.x; z = pl.z; } else {
+      const c = G.maps.comuni.find((c) => c.n === name);
+      [x, z] = c && c.label ? c.label : [0, 0];
+    }
+    const nr = R.nearest(x, z, 400, (w) => w.drivable && w.cls <= CLS.RESIDENTIAL && w.cls >= CLS.SECONDARY);
+    if (nr) {
+      const w = R.ways[nr.wi];
+      return along(nr.wi, (w.cum[nr.k] + (w.cum[nr.k + 1] - w.cum[nr.k]) * nr.t) / w.len);
+    }
+    return { x, z, h: 0 };
+  }
+  return { x: 0, z: 0, h: 0 };
+}
+
+function makePlayer() {
+  if (G.carModel) { G.scene.remove(G.carModel.root); G.scene.remove(G.headlights); }
+  const spec = CARS[G.carIdx];
+  G.vehicle = new Vehicle(spec, G.world);
+  G.carModel = buildCarModel(spec, { interior: true });
+  G.scene.add(G.carModel.root);
+  // fari
+  const hl = new THREE.Group();
+  for (const s of [1, -1]) {
+    const L = new THREE.SpotLight(0xfff1d6, 0, 90, 0.5, 0.45, 1.2);
+    L.position.set(s * (spec.W / 2 - 0.3), 0.7, spec.L / 2);
+    L.target.position.set(s * 1.5, -1.5, spec.L / 2 + 30);
+    hl.add(L, L.target);
+  }
+  G.headlights = hl;
+  G.carModel.root.add(hl);
+  G.lightsOn = false;
+}
+
+function startGame() {
+  G.audio && G.audio.start();
+  ensureGame();
+  G.settings.viewTiles = (QUALITY[$('quality').value] || QUALITY.mid).viewTiles;
+  G.traffic.target = +$('traffic').value;
+  $('ptraffic').value = $('traffic').value;
+  G.sky.hours = +$('tod').value;
+  makePlayer();
+  const sp = spawnPoint($('start').value);
+  G.vehicle.place(sp.x, sp.z, sp.h);
+  G.traffic.clear();
+  G.camInit = true;
+  $('menu').classList.add('hidden');
+  $('hud').classList.remove('hidden');
+  G.started = true; G.paused = false;
+  G.loadingWorld = true;
+  showToast('Caricamento della zona…', 1500);
+  G.audio.start();
+}
+
+function respawnOnRoad() {
+  const v = G.vehicle, R = G.roads;
+  const nr = R.nearest(v.x, v.z, 300, (w) => w.drivable && w.cls <= CLS.SERVICE);
+  if (!nr) return;
+  const w = R.ways[nr.wi], a = w.nodes[nr.k], b = w.nodes[nr.k + 1];
+  let h = Math.atan2(R.nx[b] - R.nx[a], R.nz[b] - R.nz[a]);
+  if (!w.oneway && Math.cos(h - v.h) < 0) h += Math.PI;
+  v.place(nr.px, nr.pz, h);
+  showToast('Rimesso in strada', 1200);
+}
+
+// ------------------------------------------------------------------ HUD
+let toastT = 0;
+function showToast(msg, ms = 2500) { const t = $('toast'); t.textContent = msg; t.classList.add('show'); toastT = performance.now() + ms; }
+
+function speak(text) {
+  if (!G.voice || !window.speechSynthesis) return;
+  try { const u = new SpeechSynthesisUtterance(text); u.lang = 'it-IT'; u.rate = 1.05; speechSynthesis.cancel(); speechSynthesis.speak(u); } catch (e) { /* nessuna voce */ }
+}
+
+const ARROWS = { left: '↰', right: '↱', 'slight-left': '↖', 'slight-right': '↗', straight: '⬆', uturn: '↶', roundabout: '⟳', arrive: '🏁' };
+function fmtDist(m) { return m >= 1000 ? (m / 1000).toFixed(m >= 10000 ? 0 : 1).replace('.', ',') + ' km' : (Math.round(m / 10) * 10) + ' m'; }
+
+function updateNav(dt) {
+  const v = G.vehicle;
+  if (!G.route) { $('nav').classList.add('hidden'); return; }
+  const r = G.route;
+  const pr = routeProgress(r, v.x, v.z);
+  if (pr.off > 40) {
+    G.offT = (G.offT || 0) + dt;
+    if (G.offT > 2.5) { G.offT = 0; recalcRoute(true); return; }
+  } else G.offT = 0;
+  const remain = r.length - pr.s;
+  if (remain < 25) {
+    showToast('🏁 Sei arrivato a destinazione!', 4000); speak('Sei arrivato a destinazione');
+    G.route = null; G.dest = null; $('nav').classList.add('hidden'); return;
+  }
+  const next = r.steps.find((s) => s.d > pr.s + 2) || r.steps[r.steps.length - 1];
+  const d = Math.max(0, next.d - pr.s);
+  $('nav').classList.remove('hidden');
+  $('navarrow').textContent = next.type === 'roundabout' ? next.exit + '⟳' : ARROWS[next.type] || '⬆';
+  $('navarrow').style.fontSize = next.type === 'roundabout' ? '28px' : '44px';
+  $('navd').textContent = fmtDist(d);
+  $('navt').textContent = next.text;
+  const avg = Math.max(8, r.length / Math.max(1, r.time));
+  $('naveta').textContent = `Destinazione: ${fmtDist(remain)} · circa ${Math.max(1, Math.round(remain / avg / 60))} min`;
+  // annunci vocali
+  if (G.lastStep !== next) { G.lastStep = next; G.announced = 0; }
+  if (G.announced === 0 && d < 400 && d > 120) { G.announced = 1; speak(`Tra ${fmtDist(d).replace(',', ' virgola ')}, ${next.text}`); }
+  if (G.announced <= 1 && d < 70) { G.announced = 2; speak(next.text); }
+}
+
+function recalcRoute(silent) {
+  if (!G.dest) return;
+  const v = G.vehicle;
+  const r = G.router.route(v.x, v.z, v.h, G.dest[0], G.dest[1]);
+  G.route = r;
+  if (!r) { showToast('Nessun percorso trovato verso la destinazione'); return; }
+  G.lastStep = null;
+  if (!silent) { showToast(`Percorso calcolato: ${fmtDist(r.length)}`); speak('Percorso calcolato. ' + (r.steps[0] ? r.steps[0].text : '')); }
+  else speak('Ricalcolo del percorso');
+}
+
+let hudT = 0, fpsN = 0, fpsT = performance.now();
+function updateHUD(dt) {
+  const v = G.vehicle, R = G.roads;
+  hudT += dt; fpsN++;
+  const nowT = performance.now();
+  if (nowT - fpsT > 1000) { $('fps').textContent = Math.round(fpsN * 1000 / (nowT - fpsT)) + ' fps'; fpsN = 0; fpsT = nowT; }
+  if (toastT && performance.now() > toastT) { $('toast').classList.remove('show'); toastT = 0; }
+  if (hudT < 0.1) return;
+  hudT = 0;
+  const kmh = Math.abs(v.u * 3.6);
+  $('spd').textContent = Math.round(kmh);
+  $('gear').textContent = v.gear < 0 ? 'R' : (Math.abs(v.u) < 0.3 && v.throttle < 0.05 ? 'D' : 'D' + v.gear);
+  $('rpmbar').style.width = Math.min(100, v.rpm / v.spec.rpmMax * 100) + '%';
+  // strada e comune
+  let road = v.surface && v.surface.road;
+  let wi = road ? road.wi : -1;
+  if (wi < 0) { const nr = R.nearest(v.x, v.z, 25, (w) => w.drivable); if (nr) wi = nr.wi; }
+  const comune = G.world.comuneAt(v.x, v.z);
+  if (wi >= 0) {
+    const w = R.ways[wi];
+    $('roadname').textContent = R.displayName(w);
+    $('limitv').textContent = w.limit;
+    $('limit').classList.remove('hidden');
+    $('limitest').textContent = w.limitMapped ? '' : 'indicativo';
+    $('limit').classList.toggle('over', kmh > w.limit * 1.1 + 3);
+    G.curLimit = w.limit;
+  } else { $('roadname').textContent = 'Fuori strada'; $('limit').classList.add('hidden'); G.curLimit = 0; }
+  // frazione piu' vicina
+  let place = '';
+  let best = 1e9;
+  for (const p of G.meta.places) {
+    if (p.t === 'town' || p.t === 'city' || p.t === 'locality') continue;
+    const d = Math.hypot(p.x - v.x, p.z - v.z);
+    if (d < best && d < 700) { best = d; place = p.n; }
+  }
+  $('roadcomune').textContent = (comune || 'Fuori dai confini mappati') + (place && place !== comune ? ' · ' + place : '');
+  const [lat, lon] = G.proj.toLatLon(v.x, v.z);
+  const hd = ((-v.h * 180 / Math.PI) % 360 + 360 + 180) % 360;
+  const dirs = ['N', 'NE', 'E', 'SE', 'S', 'SO', 'O', 'NO'];
+  $('gps').innerHTML = `GPS ${lat.toFixed(6)}° N, ${lon.toFixed(6)}° E<br>Quota ${Math.round(v.y)} m s.l.m. · Rotta ${Math.round(hd)}° ${dirs[Math.round(hd / 45) % 8]}`;
+  $('alt').textContent = '';
+  $('clock').textContent = '🕒 ' + G.sky.clock();
+  $('tspeed').textContent = G.sky.speed === 0 ? '⏸' : G.sky.speed === 1 ? '1×' : G.sky.speed + '×';
+  if (G.carModel.dashCanvas && G.camMode === 1) drawCluster(G.carModel.dashCanvas, G.carModel.dashTex, kmh, v.rpm, v.spec.rpmMax, $('gear').textContent, G.curLimit);
+}
+
+// ------------------------------------------------------------------ mappa
+function openMap(mode) {
+  G.mapOpen = true; G.mapMode = mode || 'dest';
+  $('mapview').classList.remove('hidden');
+  G.maps.resizeBig();
+  const v = G.vehicle;
+  if (G.started && v) { G.maps.cx = v.x; G.maps.cz = v.z; G.maps.zoom = 0.35; }
+  else { const s = spawnPoint('casa'); G.maps.cx = s.x; G.maps.cz = s.z; G.maps.zoom = 0.12; }
+  $('setdest').classList.toggle('hidden', !G.started);
+  $('teleport').textContent = G.started ? '📍 Teletrasportati qui' : '📍 Parti da qui';
+  $('mapinfo').textContent = G.mapMode === 'start' ? 'Clicca il punto di partenza.' : 'Clicca sulla mappa o cerca un luogo per impostare la destinazione.';
+  G.mapDirty = true;
+  $('search').value = ''; $('results').innerHTML = '';
+}
+function closeMap() {
+  G.mapOpen = false; $('mapview').classList.add('hidden');
+  if (!G.started) setupMenu();
+}
+
+function selectPoint(x, z, label) {
+  G.mapSel = [x, z];
+  const c = G.world.comuneAt(x, z);
+  const nr = G.roads.nearest(x, z, 150, (w) => w.drivable);
+  const nm = label || (nr ? G.roads.displayName(G.roads.ways[nr.wi]) : 'Punto selezionato');
+  G.mapSelLabel = nm + (c ? ', ' + c : '');
+  $('mapinfo').innerHTML = `<b>${G.mapSelLabel}</b><br>${G.proj.toLatLon(x, z).map((v) => v.toFixed(5)).join(', ')}`;
+  G.mapDirty = true;
+  if (G.started && G.mapMode === 'dest') setDestination();
+}
+
+function setDestination() {
+  if (!G.mapSel) return;
+  G.dest = G.mapSel.slice();
+  recalcRoute(false);
+  G.mapDirty = true;
+}
+
+function setupMapUI() {
+  const cv = $('bigmap');
+  let drag = null, moved = false;
+  cv.addEventListener('mousedown', (e) => { drag = [e.clientX, e.clientY, G.maps.cx, G.maps.cz]; moved = false; });
+  addEventListener('mousemove', (e) => {
+    if (!drag || !G.mapOpen) return;
+    const dx = e.clientX - drag[0], dy = e.clientY - drag[1];
+    if (Math.abs(dx) + Math.abs(dy) > 4) moved = true;
+    G.maps.cx = drag[2] - dx / G.maps.zoom; G.maps.cz = drag[3] - dy / G.maps.zoom; G.mapDirty = true;
+  });
+  addEventListener('mouseup', (e) => {
+    if (drag && !moved && G.mapOpen && e.target === cv) { const [x, z] = G.maps.toWorld(e.clientX, e.clientY); selectPoint(x, z); }
+    drag = null;
+  });
+  cv.addEventListener('wheel', (e) => {
+    e.preventDefault();
+    const [wx, wz] = G.maps.toWorld(e.clientX, e.clientY);
+    const f = Math.exp(-e.deltaY * 0.0015);
+    G.maps.zoom = Math.max(0.03, Math.min(6, G.maps.zoom * f));
+    const [nx, nz] = G.maps.toWorld(e.clientX, e.clientY);
+    G.maps.cx += wx - nx; G.maps.cz += wz - nz; G.mapDirty = true;
+  }, { passive: false });
+  $('closemap').onclick = closeMap;
+  $('setdest').onclick = () => { setDestination(); closeMap(); };
+  $('cleardest').onclick = () => { G.route = null; G.dest = null; G.mapDirty = true; };
+  $('teleport').onclick = () => {
+    if (!G.mapSel) return;
+    if (!G.started) { G.pickedStart = G.mapSel.slice(); closeMap(); $('pickinfo').textContent = 'Partenza: ' + G.mapSelLabel; return; }
+    G.pickedStart = G.mapSel.slice();
+    const sp = spawnPoint('picked'); G.vehicle.place(sp.x, sp.z, sp.h); G.traffic.clear(); G.camInit = true; G.loadingWorld = true;
+    closeMap();
+    if (G.dest) recalcRoute(true);
+  };
+  // ricerca
+  const search = $('search');
+  search.addEventListener('input', () => {
+    const q = search.value.trim().toLowerCase();
+    const res = [];
+    if (q.length >= 2) {
+      for (const c of G.maps.comuni) if (c.n.toLowerCase().includes(q) && c.label) res.push({ n: c.n, sub: 'Comune', x: c.label[0], z: c.label[1] });
+      for (const p of G.meta.places) if (p.n.toLowerCase().includes(q)) res.push({ n: p.n, sub: { town: 'Paese', village: 'Paese', suburb: 'Quartiere', hamlet: 'Frazione', neighbourhood: 'Rione', quarter: 'Quartiere', locality: 'Località', city: 'Città' }[p.t] || p.t, x: p.x, z: p.z });
+      for (const lm of G.meta.landmarks) if (lm[3].toLowerCase().includes(q)) res.push({ n: lm[3], sub: ['', 'Luogo di culto', 'Stazione', 'Municipio', 'Ospedale', 'Distributore', 'Storico', 'Attrazione', 'Parco', 'Supermercato', 'Cultura', 'Scuola', 'Acqua', 'Cima'][lm[0]] + (G.world.comuneAt(lm[1], lm[2]) ? ' · ' + G.world.comuneAt(lm[1], lm[2]) : ''), x: lm[1], z: lm[2] });
+      let n = 0;
+      for (const [name, arr] of G.roads.streets) {
+        if (!name.toLowerCase().includes(q)) continue;
+        const byC = new Map();
+        for (const s of arr) { const c = G.world.comuneAt(s.x, s.z) || '—'; if (!byC.has(c) || byC.get(c).len < s.len) byC.set(c, s); }
+        for (const [c, s] of byC) res.push({ n: name, sub: 'Via · ' + c, x: s.x, z: s.z });
+        if (++n > 40) break;
+      }
+    }
+    $('results').innerHTML = '';
+    for (const r of res.slice(0, 60)) {
+      const d = document.createElement('div');
+      d.innerHTML = `${r.n} <small>${r.sub}</small>`;
+      d.onclick = () => { G.maps.cx = r.x; G.maps.cz = r.z; G.maps.zoom = Math.max(G.maps.zoom, 0.8); selectPoint(r.x, r.z, r.n); };
+      $('results').appendChild(d);
+    }
+  });
+}
+
+function setupPauseUI() {
+  $('resume').onclick = () => togglePause(false);
+  $('tomenu').onclick = () => { togglePause(false); G.started = false; $('hud').classList.add('hidden'); setupMenu(); };
+  $('ptraffic').onchange = (e) => { G.traffic.target = +e.target.value; if (!G.traffic.target) G.traffic.clear(); };
+  $('ptime').onchange = (e) => { G.sky.speed = +e.target.value; };
+  $('pvoice').onchange = (e) => { G.voice = e.target.value === '1'; };
+  $('paudio').onchange = (e) => { G.audio.muted = e.target.value === '0'; };
+  const cfg = G.input.wheelCfg;
+  const fillAx = (sel, val) => { sel.innerHTML = ''; for (let i = 0; i < 10; i++) { const o = document.createElement('option'); o.value = i; o.textContent = 'Asse ' + i; sel.appendChild(o); } sel.value = val; };
+  fillAx($('axsteer'), cfg.steerAxis); fillAx($('axthr'), cfg.throttleAxis); fillAx($('axbrk'), cfg.brakeAxis);
+  $('wheelon').checked = cfg.enabled; $('axinv').checked = cfg.invertPedals;
+  const save = () => { cfg.enabled = $('wheelon').checked; cfg.steerAxis = +$('axsteer').value; cfg.throttleAxis = +$('axthr').value; cfg.brakeAxis = +$('axbrk').value; cfg.invertPedals = $('axinv').checked; G.input.saveWheel(); };
+  for (const id of ['wheelon', 'axsteer', 'axthr', 'axbrk', 'axinv']) $(id).onchange = save;
+}
+
+function togglePause(on) {
+  G.paused = on;
+  $('pause').classList.toggle('hidden', !on);
+  if (on) { $('ptime').value = String(G.sky.speed); }
+}
+
+// ------------------------------------------------------------------ telecamera
+const camPos = new THREE.Vector3(), camLook = new THREE.Vector3(), tmpV = new THREE.Vector3();
+const CAM_NAMES = ['Visuale esterna', 'Visuale abitacolo', 'Visuale cofano', 'Visuale esterna lontana'];
+function updateCamera(dt, lookBack) {
+  const v = G.vehicle, cam = G.camera, m = G.carModel;
+  const fx = Math.sin(v.h), fz = Math.cos(v.h);
+  const mode = G.camMode;
+  if (G.debugCam) { cam.position.set(...G.debugCam.pos); cam.lookAt(...G.debugCam.look); cam.near = 1; cam.updateProjectionMatrix(); m.interior.visible = false; for (const e of m.exterior) e.visible = true; return; }
+  m.interior.visible = mode === 1;
+  for (const e of m.exterior) e.visible = mode !== 1;
+  if (mode === 0 || mode === 3) {
+    const dist = (mode === 0 ? 4.2 : 8) + v.spec.L * 0.75, hgt = mode === 0 ? 2.1 + v.spec.H * 0.4 : 4.2;
+    const dir = lookBack ? -1 : 1;
+    const target = tmpV.set(v.x - fx * dist * dir, v.y + hgt, v.z - fz * dist * dir);
+    const gh = G.roads.surfaceAt(target.x, target.z, v.y + 3).h;
+    target.y = Math.max(target.y, gh + 1.2);
+    if (G.camInit) { camPos.copy(target); G.camInit = false; }
+    camPos.lerp(target, 1 - Math.exp(-dt * (lookBack ? 30 : 7)));
+    cam.position.copy(camPos);
+    camLook.set(v.x + fx * 4 * dir, v.y + 1.2, v.z + fz * 4 * dir);
+    cam.lookAt(camLook);
+    cam.near = 0.5;
+  } else {
+    const eye = mode === 1 ? m.root.userData.eye.clone() : new THREE.Vector3(0, v.spec.H * 0.82 + 0.05, v.spec.L * 0.18);
+    m.root.updateMatrixWorld();
+    cam.position.copy(eye.applyMatrix4(m.root.matrixWorld));
+    const ahead = new THREE.Vector3(0, mode === 1 ? -0.6 : -0.9, lookBack ? -30 : 30).add(mode === 1 ? m.root.userData.eye : new THREE.Vector3(0, v.spec.H * 0.82, 0)).applyMatrix4(m.root.matrixWorld);
+    cam.lookAt(ahead);
+    cam.near = 0.08;
+    camPos.copy(cam.position);
+  }
+  cam.updateProjectionMatrix();
+}
+
+// ------------------------------------------------------------------ ciclo
+let last = performance.now();
+let miniT = 0;
+function loop(now) {
+  requestAnimationFrame(loop);
+  let dt = Math.min(0.05, (now - last) / 1000); last = now;
+  if (!G.renderer) return;
+  if (G.mapOpen) {
+    G.input.read(dt);
+    if (G.input.consume('KeyM') || G.input.consume('Escape')) closeMap();
+    if (G.mapDirty) { G.maps.drawBig(G.started ? G.vehicle : null, G.route, G.dest || (G.mapMode === 'start' ? null : G.mapSel)); G.mapDirty = false; }
+    if (G.mapSel && G.mapMode === 'start' && !G.started) { /* evidenzia */ }
+    return;
+  }
+  if (!G.started) return;
+  const inp = G.input;
+  if (inp.consume('Escape')) togglePause(!G.paused);
+  if (G.paused) {
+    const snap = inp.axesSnapshot();
+    $('axes').textContent = snap ? `${snap.id}: ` + snap.axes.map((a, i) => `${i}:${a.toFixed(2)}`).join('  ') : 'Nessun dispositivo rilevato: collega il volante e premi un pedale.';
+    return;
+  }
+  const ctl = inp.read(dt);
+  if (inp.consume('KeyC') || ctl.buttons.has(3)) { G.camMode = (G.camMode + 1) % 4; showToast(CAM_NAMES[G.camMode], 1000); }
+  if (inp.consume('KeyM') || ctl.buttons.has(8)) { openMap('dest'); return; }
+  if (inp.consume('KeyN')) $('mini-wrap').classList.toggle('hidden');
+  if (inp.consume('KeyH') || ctl.buttons.has(2)) { G.lightsOn = !G.lightsOn; showToast(G.lightsOn ? 'Fari accesi' : 'Fari spenti', 900); }
+  if (inp.consume('KeyR') || ctl.buttons.has(1) && false) respawnOnRoad();
+  if (inp.consume('KeyK')) { G.world.labelsOn = !G.world.labelsOn; showToast(G.world.labelsOn ? 'Nomi dei luoghi visibili' : 'Nomi dei luoghi nascosti', 1000); }
+  if (inp.consume('KeyT')) { const sp = [30, 300, 0, 1]; G.sky.speed = sp[(sp.indexOf(G.sky.speed) + 1) % sp.length]; showToast('Velocità del tempo: ' + (G.sky.speed ? G.sky.speed + '×' : 'ferma'), 1000); }
+  if (inp.consume('Equal') || inp.consume('NumpadAdd')) G.sky.hours = (G.sky.hours + 1) % 24;
+  if (inp.consume('Minus') || inp.consume('NumpadSubtract')) G.sky.hours = (G.sky.hours + 23) % 24;
+
+  const v = G.vehicle;
+  // mondo
+  G.world.update(v.x, v.z);
+  const budget = G.loadingWorld ? 40 : 7;
+  G.world.pump(budget);
+  if (G.loadingWorld) {
+    if (G.world.ready(v.x, v.z)) { G.loadingWorld = false; const s = G.roads.surfaceAt(v.x, v.z, 1e9); v.y = s.h; }
+    else { ctl.throttle = 0; ctl.brake = 1; }
+  }
+  if (!G.loadingWorld) v.update(dt, ctl);
+  G.traffic.update(dt, v, now / 1000);
+  // modello del giocatore
+  const m = G.carModel;
+  m.root.position.set(v.x, v.y, v.z);
+  m.root.rotation.set(-(v.pitch + v.dynPitch), v.h, v.roll + v.dynRoll, 'YXZ');
+  for (const w of m.wheels) { if (w.front) w.pivot.rotation.y = v.steer; w.spin.rotation.x = v.wheelSpinAngle || 0; }
+  if (m.steeringWheel) m.steeringWheel.rotation.z = -v.steer * 7;
+  m.tailMat.emissive.setHex(v.brake > 0.05 || v.gear < 0 ? 0xff1a0a : (G.lightsOn || G.sky.night > 0.5 ? 0x550000 : 0));
+  const lights = G.lightsOn || G.sky.night > 0.55;
+  m.headMat.emissive.setHex(lights ? 0xfff4d8 : 0);
+  for (const L of G.headlights.children) if (L.isSpotLight) L.intensity = lights ? 60 : 0;
+  // cielo e luci
+  G.sky.update(dt, m.root.position);
+  G.world.buildings.setNight(G.sky.night);
+  G.world.signage.update(now / 1000, G.sky.night);
+  G.traffic.setNight(G.sky.night);
+  updateCamera(dt, inp.keys.has('KeyV'));
+  G.world.updateLabels(G.camera);
+  updateHUD(dt);
+  updateNav(dt);
+  miniT += dt;
+  if (miniT > 0.05 && !$('mini-wrap').classList.contains('hidden')) { miniT = 0; G.maps.drawMini(v, G.route, G.sky.night > 0.5); }
+  G.audio.update(v.rpm, v.throttle, Math.abs(v.u) * 3.6, v.slip);
+  if (v.impact > 0.25) { showToast('💥 Urto!', 700); }
+  v.impact = 0;
+  G.renderer.render(G.scene, G.camera);
+}
+
+boot().catch((e) => {
+  console.error(e);
+  $('loadmsg').textContent = 'Errore: ' + e.message + ' — apri il gioco con un browser recente (Chrome, Edge, Firefox).';
+});

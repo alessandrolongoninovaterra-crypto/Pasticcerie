@@ -1,0 +1,16 @@
+{
+  "_comment": "Comuni inclusi nella mappa. Per ampliare la mappa aggiungi nomi (come in OSM, admin_level=8) e rilancia la pipeline.",
+  "comuni": [
+    "Giussano", "Meda", "Seregno", "Mariano Comense", "Carate Brianza",
+    "Besana in Brianza", "Verano Brianza", "Arosio", "Inverigo", "Briosco",
+    "Desio", "Lissone", "Albiate", "Veduggio con Colzano", "Renate"
+  ],
+  "margin_deg": 0.008,
+  "extra_bbox": [45.588, 9.128, 45.800, 9.315],
+  "_extra_bbox_comment": "lat_min, lon_min, lat_max, lon_max aggiunto all'area dei comuni (include il Lago di Alserio)",
+  "source_pbf": "lombardia.osm.pbf",
+  "source_pbf_url": "https://download.openstreetmap.fr/extracts/europe/italy/lombardia.osm.pbf",
+  "height_grid_m": 20,
+  "landcover_m_per_px": 6,
+  "tile_m": 1000
+}
