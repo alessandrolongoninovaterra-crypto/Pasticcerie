@@ -30,7 +30,19 @@ export class Collision {
     this._add(tile, { ring, minx, minz, maxx, maxz });
   }
 
-  addCircle(tile, x, z, r) { this._add(tile, { x, z, r, minx: x - r, minz: z - r, maxx: x + r, maxz: z + r }); }
+  addCircle(tile, x, z, r) { const o = { x, z, r, tile, minx: x - r, minz: z - r, maxx: x + r, maxz: z + r }; this._add(tile, o); return o; }
+
+  remove(obj) {
+    this._cells(obj.minx, obj.minz, obj.maxx, obj.maxz, (k) => {
+      const a = this.grid.get(k);
+      if (!a) return;
+      const i = a.indexOf(obj);
+      if (i >= 0) a.splice(i, 1);
+      if (!a.length) this.grid.delete(k);
+    });
+    const list = this.byTile.get(obj.tile);
+    if (list) { const i = list.indexOf(obj); if (i >= 0) list.splice(i, 1); }
+  }
 
   removeTile(tile) {
     const list = this.byTile.get(tile);

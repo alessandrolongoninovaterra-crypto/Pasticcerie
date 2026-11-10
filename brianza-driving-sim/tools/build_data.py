@@ -322,8 +322,22 @@ for o in fp:
             points.append((7, x, z, str(parse_speed(t.get('maxspeed')))))
         elif hw == 'traffic_mirror':
             points.append((8, x, z, ''))
-        if t.get('amenity') == 'fuel':
+        am = t.get('amenity')
+        if am == 'fuel':
             points.append((5, x, z, t.get('brand') or t.get('name') or ''))
+        # arredo urbano reale
+        elif am == 'bench':
+            points.append((10, x, z, t.get('direction', '')))
+        elif am in ('waste_basket', 'waste_disposal'):
+            points.append((11, x, z, ''))
+        elif am == 'bicycle_parking':
+            points.append((14, x, z, ''))
+        elif am in ('fountain', 'drinking_water'):
+            points.append((15, x, z, ''))
+        if t.get('barrier') == 'bollard':
+            points.append((12, x, z, ''))
+        elif t.get('emergency') == 'fire_hydrant':
+            points.append((13, x, z, ''))
         if t.get('natural') == 'tree':
             trees_pt.append((x, z))
         pl = t.get('place')

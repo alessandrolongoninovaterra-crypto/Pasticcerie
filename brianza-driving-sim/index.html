@@ -72,7 +72,10 @@
   #nav .eta { font-size: 12px; color: var(--muted); margin-top: 4px; }
   #toast { position: absolute; left: 50%; top: 18%; transform: translateX(-50%); padding: 12px 22px; font-size: 18px; transition: opacity .4s; opacity: 0; }
   #toast.show { opacity: 1; }
-  #helpbar { position: absolute; left: 50%; top: 12px; transform: translateX(-50%); font-size: 12px; color: #c2d0da; padding: 6px 12px; }
+  #flash { position: absolute; inset: 0; background: #fff; opacity: 0; pointer-events: none; }
+  #flash.go { animation: flash .5s ease-out; }
+  @keyframes flash { 0% { opacity: 0.85; } 100% { opacity: 0; } }
+  #helpbar { position: absolute; left: 50%; top: 58px; opacity: 0.85; transform: translateX(-50%); font-size: 12px; color: #c2d0da; padding: 6px 12px; }
 
   /* mappa completa */
   #mapview { position: fixed; inset: 0; z-index: 30; background: #e4e9dc; }
@@ -133,6 +136,8 @@
       <div><kbd>Shift</kbd> acceleratore parziale</div><div><kbd>C</kbd> cambia visuale (esterna / abitacolo / cofano)</div>
       <div><kbd>V</kbd> guarda indietro</div><div><kbd>M</kbd> mappa e destinazione</div>
       <div><kbd>N</kbd> mostra/nascondi minimappa</div><div><kbd>H</kbd> fari</div>
+      <div><kbd>F</kbd> scendi dall'auto / sali su un veicolo vicino</div><div><kbd>E</kbd> clacson · mouse: ruota la telecamera</div>
+      <div>A piedi: <kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd>, <kbd>Shift</kbd> corsa</div>
       <div><kbd>R</kbd> rimetti in strada</div><div><kbd>T</kbd> velocità del tempo · <kbd>+</kbd>/<kbd>-</kbd> ora</div>
       <div><kbd>K</kbd> nomi dei luoghi</div><div><kbd>Esc</kbd> pausa / opzioni / volante</div>
       <div>Gamepad: grilletti RT/LT, stick sinistro</div><div>Volante: configurabile in pausa</div>
@@ -143,14 +148,15 @@
 
 <div id="hud" class="hidden">
   <div id="nav" class="panel hidden"><div class="arrow" id="navarrow">⬆</div><div><div class="d" id="navd"></div><div class="t" id="navt"></div><div class="eta" id="naveta"></div></div></div>
-  <div id="topright" class="panel"><span id="clock">12:00</span><span id="tspeed" style="color:var(--muted)"></span><span id="fps" style="color:var(--muted)"></span></div>
-  <div id="helpbar" class="panel">M mappa · C visuale · N minimappa · Esc pausa</div>
+  <div id="topright" class="panel"><span id="clock">12:00</span><span id="tspeed" style="color:var(--muted)"></span><span id="licence">🪪 20 punti · multe € 0</span><span id="fps" style="color:var(--muted)"></span></div>
+  <div id="helpbar" class="panel">F scendi/sali · E clacson · M mappa · C visuale · mouse: telecamera · Esc pausa</div>
   <div id="mini-wrap"><canvas id="minimap" width="300" height="300"></canvas></div>
   <div id="gps" class="panel"></div>
   <div id="road" class="panel"><div class="n" id="roadname">—</div><div class="c" id="roadcomune"></div></div>
   <div id="limit"><span id="limitv">50</span><span class="est" id="limitest"></span></div>
   <div id="speedo" class="panel"><div class="v" id="spd">0</div><div class="u">km/h</div><div id="rpm"><div id="rpmbar"></div></div><div class="row"><span id="alt"></span><span class="gear" id="gear">1</span></div></div>
   <div id="toast" class="panel"></div>
+  <div id="flash"></div>
 </div>
 
 <div id="mapview" class="hidden">

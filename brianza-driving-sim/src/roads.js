@@ -53,6 +53,7 @@ export class RoadNetwork {
     });
 
     this.smooth(nx, nz, dh);
+    this.fixRoundabouts(nx, nz);
     const nn = nx.length;
     this.nx = Float32Array.from(nx); this.nz = Float32Array.from(nz); this.dh = Float32Array.from(dh);
     this.nodeCount = nn;
@@ -195,6 +196,58 @@ export class RoadNetwork {
     w.width = width; w.lw = lw; w.nF = nF; w.nB = nB;
     w.sh = (width - (nF + nB) * lw) / 2;             // banchina per lato
     w.cOff = -width / 2 + w.sh + nB * lw;             // linea di mezzeria (destra +)
+  }
+
+  // L'anello delle rotatorie in OSM e' l'asse della corona giratoria: la larghezza
+  // reale dipende dal raggio (corona piu' larga nelle rotatorie grandi).
+  fixRoundabouts(nx, nz) {
+    const parent = new Map();
+    const find = (a) => { while (parent.get(a) !== a) { parent.set(a, parent.get(parent.get(a))); a = parent.get(a); } return a; };
+    const rb = this.ways.filter((w) => w.flags & F.ROUNDABOUT);
+    for (const w of rb) { for (const n of w.nodes) if (!parent.has(n)) parent.set(n, n); for (let k = 1; k < w.nodes.length; k++) { const a = find(w.nodes[k - 1]), b = find(w.nodes[k]); if (a !== b) parent.set(a, b); } }
+    const comps = new Map();
+    for (const n of parent.keys()) { const r = find(n); if (!comps.has(r)) comps.set(r, []); comps.get(r).push(n); }
+    const width = new Map();
+    for (const [root, nodes] of comps) {
+      let cx = 0, cz = 0; for (const n of nodes) { cx += nx[n]; cz += nz[n]; } cx /= nodes.length; cz /= nodes.length;
+      let rm = 0; for (const n of nodes) rm += Math.hypot(nx[n] - cx, nz[n] - cz); rm /= nodes.length;
+      width.set(root, Math.max(4.5, Math.min(9, rm * 0.5, 2 * (rm - 2))));
+    }
+    for (const w of rb) {
+      if (w.widthTag > 2) continue;
+      const W = width.get(find(w.nodes[0]));
+      if (!W) continue;
+      const lanes = w.lanes >= 2 && W >= 7.5 ? 2 : 1;
+      w.width = W; w.nF = lanes; w.nB = 0; w.sh = 0.4; w.lw = (W - 0.8) / lanes; w.cOff = -W / 2 + w.sh;
+    }
+  }
+
+  // Il punto cade sulla carreggiata di un'altra via? Serve a interrompere linee,
+  // marciapiedi, guardrail e parapetti agli sbocchi (incroci, rotatorie, immissioni).
+  // anyPriority=false: conta solo le vie di importanza uguale o maggiore.
+  coveredBy(wi, x, z, margin = 0, anyPriority = true) {
+    const A = this.ways[wi];
+    const prio = (w) => (w.flags & F.ROUNDABOUT ? -1 : w.cls * 2 + (w.flags & F.LINK ? 1 : 0));
+    const pa = prio(A);
+    let hit = false;
+    this.segmentsNear(x, z, 0.5, (wj, k) => {
+      if (hit || wj === wi) return;
+      const B = this.ways[wj];
+      if (B.layer !== A.layer && (A.abs || B.abs)) return; // ponte sopra / strada sotto
+      if (!anyPriority && prio(B) > pa) return;
+      const a = B.nodes[k], b = B.nodes[k + 1];
+      const ax = this.nx[a], az = this.nz[a], dx = this.nx[b] - ax, dz = this.nz[b] - az;
+      const L2 = dx * dx + dz * dz;
+      if (L2 < 1e-6) return;
+      const t = ((x - ax) * dx + (z - az) * dz) / L2;
+      if (t < 0 || t > 1) return;
+      const L = Math.sqrt(L2);
+      if (k === 0 && t * L < 0.3) return;
+      if (k === B.nodes.length - 2 && (1 - t) * L < 0.3) return;
+      if (Math.abs((x - ax) * dz - (z - az) * dx) / L > B.width / 2 + margin) return;
+      hit = true;
+    });
+    return hit;
   }
 
   // scostamento a destra (nel verso di marcia) del centro della corsia di marcia
@@ -378,7 +431,10 @@ export class RoadNetwork {
       if (rmax > rmin * 1.8 || rmax > 120) continue; // non e' un anello
       const r = rmin - wm / 2 - 0.3;
       if (r < 1.2) continue;
-      this.roundabouts.push({ x: cx, z: cz, r, dh: dhm / nodes.length });
+      // bordo interno della corona: segue la forma reale dell'anello
+      const poly = nodes.map((n) => { const d = Math.hypot(this.nx[n] - cx, this.nz[n] - cz), f = Math.max(0.1, (d - wmax.get(n) / 2 - 0.1) / d); return [Math.atan2(this.nz[n] - cz, this.nx[n] - cx), cx + (this.nx[n] - cx) * f, cz + (this.nz[n] - cz) * f]; })
+        .sort((p, q) => p[0] - q[0]).map((p) => [p[1], p[2]]);
+      this.roundabouts.push({ x: cx, z: cz, r, dh: dhm / nodes.length, poly });
     }
   }
 
@@ -597,6 +653,7 @@ export class RoadNetwork {
             const x1 = e1[side * 3], y1 = e1[side * 3 + 1], z1 = e1[side * 3 + 2];
             const g0 = T.height(x0, z0), g1 = T.height(x1, z1);
             if (y0 - g0 < 0.35 && y1 - g1 < 0.35) continue;
+            if (this.coveredBy(wi, (x0 + x1) / 2, (z0 + z1) / 2, 0.3)) continue;
             const bottom0 = w.abs ? Math.max(g0 - 1, y0 - 1.4) : g0 - 0.5, bottom1 = w.abs ? Math.max(g1 - 1, y1 - 1.4) : g1 - 0.5;
             const i0 = wall.v(x0, y0, z0), i1 = wall.v(x1, y1, z1), i2 = wall.v(x1, bottom1, z1), i3 = wall.v(x0, bottom0, z0);
             wall.quad(i0, i1, i2, i3);
@@ -626,9 +683,10 @@ export class RoadNetwork {
         for (let side = 0; side < 2; side++) {
           for (let s = 0; s < edges.length - 1; s++) {
             const c0 = w.cum[k] + s / nsub * L, c1 = w.cum[k] + (s + 1) / nsub * L;
-            if (c0 - Z.pc[k] < 40 || Z.nc[k + 1] - c1 < 40) continue;
+            if (c0 - Z.pc[k] < 8 || Z.nc[k + 1] - c1 < 8) continue;
             const e0 = edges[s], e1 = edges[s + 1];
             const sg = side ? 1 : -1, off = 0.4 * sg;
+            if (this.coveredBy(wi, (e0[side * 3] + e1[side * 3]) / 2 + rx * off, (e0[side * 3 + 2] + e1[side * 3 + 2]) / 2 + rz * off, 0.8)) continue;
             const x0 = e0[side * 3] + rx * off, z0 = e0[side * 3 + 2] + rz * off, y0 = e0[side * 3 + 1];
             const x1 = e1[side * 3] + rx * off, z1 = e1[side * 3 + 2] + rz * off, y1 = e1[side * 3 + 1];
             const i0 = guard.v(x0, y0 + 0.85, z0), i1 = guard.v(x1, y1 + 0.85, z1), i2 = guard.v(x1, y1 + 0.5, z1), i3 = guard.v(x0, y0 + 0.5, z0);
@@ -648,15 +706,15 @@ export class RoadNetwork {
     for (const rb of this.roundabouts) {
       if (this.tileKey(rb.x, rb.z) !== tk) continue;
       const y = T.height(rb.x, rb.z) + rb.dh + LIFT + 0.22;
-      const segN = 32;
-      const inner = Math.max(0.5, rb.r - Math.min(1.6, rb.r * 0.3));
+      const P = rb.poly, segN = P.length;
+      const apron = Math.min(1.6, rb.r * 0.3);
       const c0 = isl.v(rb.x, y + 0.25 + Math.min(1.2, rb.r * 0.06), rb.z, 0.3, 0.52, 0.2);
-      const rings = [[rb.r, y - 0.5, 0.86, 0.86, 0.83], [rb.r, y, 0.86, 0.86, 0.83], [rb.r - 0.25, y, 0.62, 0.55, 0.5], [inner, y + 0.06, 0.62, 0.55, 0.5], [inner, y + 0.25, 0.8, 0.8, 0.78], [Math.max(0.2, inner - 0.25), y + 0.25, 0.33, 0.56, 0.22]];
-      const idx = rings.map(([r, yy, cr, cg, cb]) => {
-        const row = [];
-        for (let i = 0; i < segN; i++) { const an = i / segN * Math.PI * 2; row.push(isl.v(rb.x + Math.cos(an) * r, yy, rb.z + Math.sin(an) * r, cr, cg, cb)); }
-        return row;
-      });
+      // anelli: [arretramento dal bordo, quota, colore]
+      const rings = [[0, y - 0.6, 0.86, 0.86, 0.83], [0, y, 0.86, 0.86, 0.83], [0.25, y, 0.62, 0.55, 0.5], [apron, y + 0.06, 0.62, 0.55, 0.5], [apron, y + 0.25, 0.8, 0.8, 0.78], [apron + 0.25, y + 0.25, 0.33, 0.56, 0.22]];
+      const idx = rings.map(([inset, yy, cr, cg, cb]) => P.map(([px, pz]) => {
+        const d = Math.hypot(px - rb.x, pz - rb.z) || 1, f = Math.max(0.05, (d - inset) / d);
+        return isl.v(rb.x + (px - rb.x) * f, yy, rb.z + (pz - rb.z) * f, cr, cg, cb);
+      }));
       for (let q = 0; q < idx.length - 1; q++) for (let i = 0; i < segN; i++) { const j = (i + 1) % segN; isl.quad(idx[q][i], idx[q + 1][i], idx[q + 1][j], idx[q][j]); }
       const lastR = idx[idx.length - 1];
       for (let i = 0; i < segN; i++) isl.tri(c0, lastR[(i + 1) % segN], lastR[i]);
@@ -701,10 +759,11 @@ export class RoadNetwork {
       let prev = null;
       for (let s = 0; s <= nsub; s++) {
         const cum = w.cum[k] + s / nsub * L;
-        if (cum - Z.pc[k] < Z.pr[k] || Z.nc[k + 1] - cum < Z.nr[k + 1]) { prev = null; continue; }
         const e = edges[s], t = s / nsub;
         const ix = e[side * 3], iy = e[side * 3 + 1], iz = e[side * 3 + 2];
         const ox = ix + e[6] * sg * SW_W, oz = iz + e[7] * sg * SW_W;
+        const nearJ = cum - Z.pc[k] < 40 || Z.nc[k + 1] - cum < 40;
+        if (nearJ && this.coveredBy(wi, (ix + ox) / 2, (iz + oz) / 2, 1.0)) { prev = null; continue; }
         const oy = this.edgeH(wi, k, t, ox, oz);
         const top = Math.max(iy, oy) + SW_H;
         const cur = [
@@ -722,7 +781,8 @@ export class RoadNetwork {
     }
   }
 
-  // segnaletica orizzontale italiana: margini, mezzeria, corsie (dai tag lanes:*)
+  // segnaletica orizzontale italiana: margini, mezzeria, corsie (dai tag lanes:*).
+  // Le linee si interrompono dove entrano nella carreggiata di un'altra strada.
   buildMarkings(mark, wi, k) {
     const w = this.ways[wi];
     if (w.cls >= CLS.SERVICE || !w.drivable || w.flags & F.UNPAVED || w.surf === 1) return;
@@ -733,22 +793,20 @@ export class RoadNetwork {
     const sx = (bx - ax) / L, sz = (bz - az) / L;
     const ma = this.miter(w, k), mb = this.miter(w, k + 1);
     const hw = w.width / 2;
-    const Z = this.zones(w).mark;
+    const ZM = this.zones(w).mark, ZW = this.zones(w).walk;
     const s0 = w.cum[k];
-    const trimA = Math.max(0, Z.pc[k] + Z.pr[k] - s0), trimB = Math.max(0, s0 + L - (Z.nc[k + 1] - Z.nr[k + 1]));
-    if (trimA + trimB >= L) return;
     const lines = [];
     const urban = w.limit <= 50;
     const roundabout = w.flags & F.ROUNDABOUT;
     if (w.cls <= CLS.TERTIARY || roundabout || w.width >= 7) {
       const e = Math.max(0.3, w.sh * 0.85);
-      lines.push({ off: -hw + e, wdt: 0.15, dash: 0 }, { off: hw - e, wdt: 0.15, dash: 0 });
+      lines.push({ off: -hw + e, wdt: 0.15, dash: 0, edge: true }, { off: hw - e, wdt: 0.15, dash: 0, edge: true });
     }
     const dashT = urban ? [3, 4.5] : [4.5, 7.5];
     if (!roundabout) {
       if (!w.oneway && w.nF >= 1 && w.nB >= 1 && w.width >= 5.4) {
         // linea continua in prossimita' degli incroci sulle strade principali
-        const nearJ = (Z.nc[k + 1] - (s0 + L) < 22 || s0 - Z.pc[k] < 22) && w.cls <= CLS.TERTIARY;
+        const nearJ = (ZM.nc[k + 1] - (s0 + L) < 22 || s0 - ZM.pc[k] < 22) && w.cls <= CLS.TERTIARY;
         if (w.nF + w.nB >= 4) lines.push({ off: w.cOff - 0.14, wdt: 0.12, dash: 0 }, { off: w.cOff + 0.14, wdt: 0.12, dash: 0 });
         else lines.push({ off: w.cOff, wdt: 0.15, dash: nearJ ? 0 : dashT });
         for (let l = 1; l < w.nF; l++) lines.push({ off: w.cOff + w.lw * l, wdt: 0.12, dash: dashT });
@@ -756,23 +814,31 @@ export class RoadNetwork {
       } else if (w.oneway && w.nF >= 2) {
         for (let l = 1; l < w.nF; l++) lines.push({ off: -hw + w.sh + w.lw * l, wdt: 0.15, dash: [4.5, 7.5] });
       }
-    }
+    } else if (w.nF >= 2) lines.push({ off: -hw + w.sh + w.lw, wdt: 0.12, dash: [3, 4.5] });
+    // vicino a un incrocio (le immissioni delle superstrade sono lunghe) campiona fitto
+    const reach = w.cls <= CLS.TRUNK || w.flags & F.LINK ? 220 : 35;
+    const near = s0 - ZW.pc[k] < reach || ZW.nc[k + 1] - (s0 + L) < reach;
+    const step = near ? 1.25 : 5;
     for (const ln of lines) {
-      const pieces = [];
-      if (!ln.dash) pieces.push([trimA, L - trimB]);
-      else {
-        const [d, gp] = ln.dash, P = d + gp;
-        for (let st = Math.floor(s0 / P) * P; st < s0 + L; st += P) {
-          const p0 = Math.max(st - s0, trimA), p1 = Math.min(st + d - s0, L - trimB);
-          if (p1 > p0 + 0.05) pieces.push([p0, p1]);
+      // punti di taglio: passo regolare + inizio/fine dei tratti
+      const cuts = [];
+      for (let d = 0; d < L; d += step) cuts.push(d);
+      if (ln.dash) { const P = ln.dash[0] + ln.dash[1]; for (let st = Math.floor(s0 / P) * P; st < s0 + L; st += P) { if (st > s0) cuts.push(st - s0); if (st + ln.dash[0] > s0 && st + ln.dash[0] < s0 + L) cuts.push(st + ln.dash[0] - s0); } }
+      cuts.push(L);
+      cuts.sort((p, q) => p - q);
+      let pl = -1, pr = -1, prevD = -1;
+      for (let i = 0; i < cuts.length - 1; i++) {
+        const d0 = cuts[i], d1 = cuts[i + 1];
+        if (d1 - d0 < 0.02) continue;
+        const dm = (d0 + d1) / 2, tm = dm / L;
+        let on = !ln.dash || ((s0 + dm) % (ln.dash[0] + ln.dash[1])) < ln.dash[0];
+        if (on && near) {
+          const ox = ma[0] + (mb[0] - ma[0]) * tm, oz = ma[1] + (mb[1] - ma[1]) * tm;
+          if (this.coveredBy(wi, ax + sx * dm + ox * ln.off, az + sz * dm + oz * ln.off, ln.edge ? 0.1 : 0, !!ln.edge)) on = false;
         }
-      }
-      for (const [p0, p1] of pieces) {
-        if (p1 - p0 < 0.05) continue;
-        const n = Math.max(1, Math.ceil((p1 - p0) / 5));
-        let pl = -1, pr = -1;
-        for (let i = 0; i <= n; i++) {
-          const d = p0 + (p1 - p0) * i / n, t = d / L;
+        if (!on) { pl = -1; continue; }
+        for (const d of (pl >= 0 && prevD === d0 ? [d1] : [d0, d1])) {
+          const t = d / L;
           const ox = ma[0] + (mb[0] - ma[0]) * t, oz = ma[1] + (mb[1] - ma[1]) * t;
           const cx = ax + sx * d + ox * ln.off, cz = az + sz * d + oz * ln.off;
           const lx = cx - ox * ln.wdt / 2, lz = cz - oz * ln.wdt / 2, qx = cx + ox * ln.wdt / 2, qz = cz + oz * ln.wdt / 2;
@@ -780,6 +846,7 @@ export class RoadNetwork {
           if (pl >= 0) mark.quad(pl, pr, ir, il);
           pl = il; pr = ir;
         }
+        prevD = d1;
       }
     }
   }

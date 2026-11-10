@@ -5,6 +5,7 @@ import { BuildingFactory } from './buildings.js';
 import { Vegetation } from './vegetation.js';
 import { Signage } from './signs.js';
 import { Collision } from './collision.js';
+import { makeBollards, makeBins, makeBenches, makeHydrants, makeBikeRacks, makeFountains } from './vendor/city/streetprops.js';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 
 // Gestione del mondo a tessere da 1 km: caricamento in streaming dei dati
@@ -29,6 +30,7 @@ export class World {
     });
     this.signage = new Signage(roads, terrain, (x, z) => this.comuneAt(x, z), meta);
     this.signals = [];
+    this.cameras = [];      // autovelox reali nelle tessere caricate
     this.tileSet = new Set(meta.tiles.map(([i, j]) => j * 1000 + i));
     this.root = new THREE.Group();
     scene.add(this.root);
@@ -126,6 +128,8 @@ export class World {
       o.traverse((m) => { if (m.geometry) m.geometry.dispose(); if (m.isSprite && m.material.map) { m.material.map.dispose(); m.material.dispose(); } });
     }
     this.collision.removeTile(t.key);
+    if (this.traffic) this.traffic.removeTile(t.key);
+    this.cameras = this.cameras.filter((c) => c.tile !== t.key);
     this.signals = this.signals.filter((s) => s.tile !== t.key);
     this.tiles.delete(t.key);
     t.dead = true;
@@ -153,6 +157,7 @@ export class World {
       if (!('signs' in t.parts)) {
         const s = this.signage.build(t.key, t.data);
         for (const sg of s.signals) this.signals.push({ ...sg, tile: t.key });
+        for (const c of s.cameras || []) this.cameras.push({ x: c[0], z: c[1], tile: t.key });
         add('signs', s.group); continue;
       }
       if (!('buildings' in t.parts)) {
@@ -167,6 +172,11 @@ export class World {
         for (const o of [pa, ba, pw]) if (o) g.add(o);
         add('paths', g.children.length ? g : null); continue;
       }
+      if (!('props' in t.parts)) {
+        add('props', this.buildProps(t));
+        if (this.traffic) this.traffic.computeParkSpots(t.key, t.i, t.j);
+        continue;
+      }
       if (!('labels' in t.parts)) { add('labels', this.buildLabels(t)); continue; }
       if (t.vegWanted && !('veg' in t.parts)) { add('veg', this.vegetation.build(t.data, t.i, t.j, this.collision, t.key, this.settings.trees)); continue; }
     }
@@ -180,7 +190,7 @@ export class World {
 
   progress() {
     let done = 0, total = 0;
-    for (const t of this.tiles.values()) { total += 7; done += Object.keys(t.parts).length; }
+    for (const t of this.tiles.values()) { total += 8; done += Object.keys(t.parts).length; }
     return total ? done / total : 0;
   }
 
@@ -236,6 +246,33 @@ export class World {
     inst.computeBoundingSphere();
     g.add(inst);
     return g;
+  }
+
+  // arredo urbano reale da OSM: panchine, cestini, paletti, idranti, rastrelliere, fontanelle
+  // (modelli del progetto "city")
+  buildProps(t) {
+    const pts = (t.data && t.data.pt) || [];
+    const kinds = { 10: makeBenches, 11: makeBins, 12: makeBollards, 13: makeHydrants, 14: makeBikeRacks, 15: makeFountains };
+    const by = {};
+    for (const q of pts) if (kinds[q[0]]) (by[q[0]] = by[q[0]] || []).push(q);
+    const g = new THREE.Group();
+    for (const k of Object.keys(by)) {
+      const list = by[k], set = kinds[k](list.length);
+      list.forEach((q, i) => {
+        const x = q[1] / 10, z = q[2] / 10;
+        let rot = ((q[1] * 7 + q[2] * 13) % 628) / 100;
+        const nr = this.roads.nearest(x, z, 25, (w) => w.drivable);
+        if (nr && (+k === 10 || +k === 14)) rot = Math.atan2(nr.px - x, nr.pz - z);
+        const dir = +k === 10 ? parseFloat(t.data.s[q[3]]) : NaN;
+        if (!Number.isNaN(dir)) rot = Math.PI - dir * Math.PI / 180;
+        const onWalk = nr && nr.d < this.roads.ways[nr.wi].width / 2 + 1.9 && this.roads.sidewalkSides(this.roads.ways[nr.wi], x, z);
+        set.setAt(i, x, z, rot, this.terrain.height(x, z) + (onWalk ? 0.31 : 0.08));
+        if (+k === 12 || +k === 13) this.collision.addCircle(t.key, x, z, 0.16);
+      });
+      set.mesh.traverse((o) => { if (o.isInstancedMesh) { o.computeBoundingSphere(); o.castShadow = true; } });
+      g.add(set.mesh);
+    }
+    return g.children.length ? g : null;
   }
 
   buildLabels(t) {

@@ -324,7 +324,7 @@ export class Signage {
     const lampsByGroup = [0, 1].map(() => ({ R: new GeoBuilder(false, false), Y: new GeoBuilder(false, false), G: new GeoBuilder(false, false) }));
     const greenLamp = new GeoBuilder(false, false);
     const atlas = new TextAtlas();
-    const lampPos = [], signals = [];
+    const lampPos = [], signals = [], cameras = [];
     const grey = [0.42, 0.43, 0.44];
     const S = (name, size = 0.7) => ({ uv: uvStd(name), back: uvStd(name, true), w: size, h: size });
 
@@ -683,6 +683,7 @@ export class Signage {
         this.townSign(poles, txt, std, sx2, sz2, ex, ez, townPlate(text, false), townPlate(text, true));
       } else if (kind === 4 && nr) {
         post(px, pz, fx, fz, [S('camera', 0.9)], 2.0);
+        cameras.push([nr.px + dx * sideSign * 14, nr.pz + dz * sideSign * 14]);
         const y = T.height(px, pz), yaw = Math.atan2(-fx, -fz);
         boxTo(poles, px + fx * 14, y + 1.4, pz + fz * 14, 0.5, 2.8, 0.5, yaw, [0.95, 0.5, 0.1]);
         boxTo(poles, px + fx * 14 - fx * 0.26, y + 2.3, pz + fz * 14 - fz * 0.26, 0.3, 0.3, 0.04, yaw, [0.05, 0.05, 0.05]);
@@ -723,7 +724,7 @@ export class Signage {
       group.add(poleI, headI, poolI);
     }
     group.userData.dispose = () => { for (const m of mats) { m.map.dispose(); m.dispose(); } };
-    return { group, signals, lamps: lampPos };
+    return { group, signals, lamps: lampPos, cameras };
   }
 
   // pannello di localita' su due pali: fronte = inizio, retro = fine (barra rossa)

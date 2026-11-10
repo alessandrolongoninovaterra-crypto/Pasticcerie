@@ -24,6 +24,14 @@ export class EngineAudio {
       this.o1.start(); this.o2.start(); this.noise.start();
     } catch (e) { this.ctx = null; }
   }
+  horn(on) {
+    if (!this.ctx) return;
+    if (on && !this.hornOsc) {
+      const C = this.ctx, g = C.createGain(); g.gain.value = this.muted ? 0 : 0.12; g.connect(C.destination);
+      this.hornOsc = [420, 525].map((f) => { const o = C.createOscillator(); o.type = 'square'; o.frequency.value = f; o.connect(g); o.start(); return o; });
+      this.hornGain = g;
+    } else if (!on && this.hornOsc) { for (const o of this.hornOsc) o.stop(); this.hornGain.disconnect(); this.hornOsc = null; }
+  }
   update(rpm, throttle, speed, slip) {
     if (!this.ctx) return;
     const t = this.ctx.currentTime;

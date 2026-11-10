@@ -69,7 +69,7 @@ export class BuildingFactory {
     };
   }
 
-  setNight(f) { this.mats.res.emissiveIntensity = f * 0.9; this.mats.ind.emissiveIntensity = f * 0.6; }
+  setNight(f) { this.mats.res.emissiveIntensity = f * 0.55; this.mats.ind.emissiveIntensity = f * 0.4; }
 
   build(tile, collision, tileKey) {
     const T = this.terrain;

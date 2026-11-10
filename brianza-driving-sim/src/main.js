@@ -11,15 +11,29 @@ import { Traffic } from './traffic.js';
 import { Router, routeProgress } from './router.js';
 import { Maps } from './maps.js';
 import { EngineAudio } from './audio.js';
+import { Pedestrians } from './pedestrians.js';
+import { signalState } from './signs.js';
+import { NT } from './roads.js';
+import { VEHICLE_BOX } from './vendor/city/vehicles.js';
+import { fleetPalette } from './vendor/city/car.js';
+import { EffectComposer } from 'three/examples/jsm/postprocessing/EffectComposer.js';
+import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass.js';
+import { UnrealBloomPass } from 'three/examples/jsm/postprocessing/UnrealBloomPass.js';
+import { OutputPass } from 'three/examples/jsm/postprocessing/OutputPass.js';
 
 const $ = (id) => document.getElementById(id);
 const QUALITY = {
-  low: { viewTiles: 1, shadows: false, pixelRatio: 1, trees: 0.5 },
-  mid: { viewTiles: 2, shadows: true, pixelRatio: 1.25, trees: 0.8 },
-  high: { viewTiles: 3, shadows: true, pixelRatio: 2, trees: 1 },
+  low: { viewTiles: 1, shadows: false, pixelRatio: 1, trees: 0.5, bloom: false, peds: 20 },
+  mid: { viewTiles: 2, shadows: true, pixelRatio: 1.25, trees: 0.8, bloom: true, peds: 45 },
+  high: { viewTiles: 3, shadows: true, pixelRatio: 2, trees: 1, bloom: true, peds: 70 },
 };
 
-const G = { started: false, paused: false, mapOpen: false, camMode: 0, route: null, dest: null, voice: true, carIdx: 0 };
+const G = { started: false, paused: false, mapOpen: false, camMode: 0, route: null, dest: null, voice: true, carIdx: 0,
+  foot: { on: false, x: 0, z: 0, y: 0, h: 0, u: 0, gait: 0 },       // giocatore a piedi
+  orbit: { yaw: 0, pitch: 0, idle: 9 },                              // telecamera orbitale (mouse)
+  licence: 20, fines: 0, cool: {} };                                 // patente a punti e multe
+// posizione "viva" del giocatore: l'auto oppure la persona a piedi
+const focus = () => (G.foot.on ? G.foot : G.vehicle);
 window.BDS = G; // utile per il debug dalla console
 
 async function boot() {
@@ -86,11 +100,12 @@ function setupMenu() {
   const carsEl = $('cars');
   carsEl.innerHTML = '';
   CARS.forEach((c, i) => {
+    if (c.hidden) return;
     const d = document.createElement('div');
     d.className = 'car panel' + (i === G.carIdx ? ' sel' : '');
     d.innerHTML = `<div class="sw" style="background:${c.color}"></div><b>${c.name}</b><small>${c.desc}</small>
       <div class="spec"><span>${Math.round(c.kw * 1.36)} CV</span><span>${c.mass} kg</span><span>${c.gears.length} marce aut.</span><span>${{ F: 'Anteriore', R: 'Posteriore', A: '4x4' }[c.drive]}</span></div>`;
-    d.onclick = () => { G.carIdx = i; [...carsEl.children].forEach((e, j) => e.classList.toggle('sel', j === i)); };
+    d.onclick = () => { G.carIdx = i; [...carsEl.children].forEach((e) => e.classList.toggle('sel', e === d)); };
     carsEl.appendChild(d);
   });
   const sel = $('start');
@@ -112,6 +127,8 @@ function ensureGame() {
   renderer.setSize(innerWidth, innerHeight);
   renderer.shadowMap.enabled = q.shadows;
   renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+  renderer.toneMapping = THREE.ACESFilmicToneMapping;
+  renderer.toneMappingExposure = 1.2;
   G.renderer = renderer;
   const scene = new THREE.Scene();
   G.scene = scene;
@@ -121,11 +138,33 @@ function ensureGame() {
   G.traffic = new Traffic(G.world);
   G.world.traffic = G.traffic;
   scene.add(G.traffic.group);
+  G.peds = new Pedestrians(G.world);
+  G.peds.setTarget(q.peds);
+  G.peds.onHit = (p, speed, t) => { if (t.player) fine('ped', speed); };
+  scene.add(G.peds.group);
+  if (q.bloom) {
+    // alone delle luci di notte (lampioni, fari, finestre)
+    G.composer = new EffectComposer(renderer);
+    G.composer.addPass(new RenderPass(scene, G.camera));
+    G.bloom = new UnrealBloomPass(new THREE.Vector2(innerWidth, innerHeight), 0, 0.4, 0.82);
+    G.composer.addPass(G.bloom);
+    G.composer.addPass(new OutputPass());
+  }
+  // telecamera orbitale: trascina con il mouse
+  let drag = null;
+  canvas.addEventListener('mousedown', (e) => { drag = [e.clientX, e.clientY]; });
+  addEventListener('mouseup', () => { drag = null; });
+  addEventListener('mousemove', (e) => {
+    if (!drag || G.mapOpen || G.paused || !G.started) return;
+    G.orbit.yaw -= (e.clientX - drag[0]) * 0.006; G.orbit.pitch = Math.max(-0.25, Math.min(1.1, G.orbit.pitch + (e.clientY - drag[1]) * 0.004));
+    G.orbit.idle = 0; drag = [e.clientX, e.clientY];
+  });
   G.maps = new Maps(G.world, G.meta);
   G.input = new Input();
   G.audio = new EngineAudio();
   addEventListener('resize', () => {
     renderer.setSize(innerWidth, innerHeight);
+    if (G.composer) G.composer.setSize(innerWidth, innerHeight);
     G.camera.aspect = innerWidth / innerHeight; G.camera.updateProjectionMatrix();
     if (G.mapOpen) { G.maps.resizeBig(); G.mapDirty = true; }
   });
@@ -186,23 +225,105 @@ function spawnPoint(id) {
   return { x: 0, z: 0, h: 0 };
 }
 
-function makePlayer() {
-  if (G.carModel) { G.scene.remove(G.carModel.root); G.scene.remove(G.headlights); }
-  const spec = CARS[G.carIdx];
+function makePlayer(spec = CARS[G.carIdx], color = null) {
+  if (G.carModel) G.scene.remove(G.carModel.root);
   G.vehicle = new Vehicle(spec, G.world);
-  G.carModel = buildCarModel(spec, { interior: true });
+  G.carModel = buildCarModel(spec, { interior: true, color });
   G.scene.add(G.carModel.root);
-  // fari
-  const hl = new THREE.Group();
-  for (const s of [1, -1]) {
-    const L = new THREE.SpotLight(0xfff1d6, 0, 90, 0.5, 0.45, 1.2);
-    L.position.set(s * (spec.W / 2 - 0.3), 0.7, spec.L / 2);
-    L.target.position.set(s * 1.5, -1.5, spec.L / 2 + 30);
-    hl.add(L, L.target);
-  }
-  G.headlights = hl;
-  G.carModel.root.add(hl);
   G.lightsOn = false;
+}
+
+// ------------------------------------------------------------------ a piedi / veicoli
+const TYPE_SPECS = { car: ['compact', 'sedan', 'sport', 'sedan'], wagon: ['city', 'suv', 'compact'], van: ['van'], bus: ['bus'] };
+const ownBox = () => ({ halfL: G.vehicle.spec.L / 2, halfW: G.vehicle.spec.W / 2 });
+
+function exitCar() {
+  const v = G.vehicle, f = G.foot;
+  if (Math.abs(v.u) > 2.5) { showToast('Fermati prima di scendere', 1200); return; }
+  const lx = Math.cos(v.h), lz = -Math.sin(v.h); // lato guida (sinistra)
+  f.x = v.x + lx * (v.spec.W / 2 + 0.75); f.z = v.z + lz * (v.spec.W / 2 + 0.75); f.h = v.h; f.u = 0; f.y = v.y; f.on = true;
+  if (G.camMode === 1 || G.camMode === 2) G.camMode = 0;
+  G.orbit.yaw = 0; G.camInit = true;
+  showToast('A piedi — F per salire su un veicolo', 1800);
+}
+
+function enterCar() {
+  const f = G.foot, v = G.vehicle, T = G.traffic;
+  const dOwn = Math.hypot(v.x - f.x, v.z - f.z) - v.spec.W / 2;
+  const car = T.nearestCar(f.x, f.z, 2.6), spot = T.nearestParked(f.x, f.z, 2.6);
+  const dCar = car ? Math.hypot(car.x - f.x, car.z - f.z) - car.box.halfW : 1e9, dSpot = spot ? Math.hypot(spot.x - f.x, spot.z - f.z) - spot.box.halfW : 1e9;
+  const best = Math.min(dOwn, dCar, dSpot);
+  if (best > 2.6) { showToast('Nessun veicolo abbastanza vicino', 1200); return; }
+  if (best !== dOwn) {
+    // lascia l'auto precedente dov'e' e prende l'altra
+    const old = G.carModel; old.interior.visible = false; for (const e of old.exterior) e.visible = true;
+    T.statics.push({ x: v.x, z: v.z, h: v.h, box: ownBox(), model: old });
+    G.carModel = null;
+    if (T.statics.length > 6) { const s = T.statics.shift(); G.scene.remove(s.model.root); }
+    const got = best === dCar ? T.take(car) : T.takeParked(spot);
+    const ids = TYPE_SPECS[got.type] || TYPE_SPECS.car;
+    const spec = CARS.find((c) => c.id === ids[got.colour % ids.length]);
+    makePlayer(spec, '#' + fleetPalette[got.colour % fleetPalette.length].toString(16).padStart(6, '0'));
+    G.vehicle.place(got.x, got.z, got.h);
+    showToast(spec.name, 1500);
+  }
+  f.on = false; G.orbit.yaw = 0; G.camInit = true;
+}
+
+function updateFoot(dt, ctl) {
+  const f = G.foot, k = G.input.keys;
+  const run = k.has('ShiftLeft') || k.has('ShiftRight');
+  f.h += ctl.steer * 2.6 * dt;
+  const fwd = (k.has('KeyW') || k.has('ArrowUp') || ctl.throttle > 0.3 ? 1 : 0) - (k.has('KeyS') || k.has('ArrowDown') || ctl.brake > 0.3 ? 0.55 : 0);
+  const sp = fwd * (run ? 6.2 : 2.3);
+  f.u += (sp - f.u) * Math.min(1, dt * 8);
+  f.x += Math.sin(f.h) * f.u * dt; f.z += Math.cos(f.h) * f.u * dt;
+  // ostacoli: edifici, muri, alberi, veicoli
+  const own = { x: G.vehicle.x, z: G.vehicle.z, h: G.vehicle.h, box: ownBox() };
+  for (let pass = 0; pass < 2; pass++) {
+    const a = G.world.collision.resolveCircle(f.x, f.z, 0.32);
+    if (a) { f.x += a.nx * a.depth; f.z += a.nz * a.depth; }
+    G.traffic.statics.push(own);
+    const b = G.traffic.resolveCircle(f.x, f.z, 0.32);
+    G.traffic.statics.pop();
+    if (b) { f.x += b.nx * b.depth; f.z += b.nz * b.depth; }
+  }
+  f.surface = G.roads.surfaceAt(f.x, f.z, f.y + 0.7);
+  f.y = f.surface.h;
+  f.gait = Math.abs(f.u) / 2.3;
+}
+
+// ------------------------------------------------------------------ patente a punti
+function fine(kind, value, key = kind) {
+  const now = performance.now();
+  if (G.cool[key] && now - G.cool[key] < (kind === 'camera' ? 20000 : 5000)) return;
+  G.cool[key] = now;
+  let euro = 0, pts = 0, msg = '';
+  if (kind === 'ped') { euro = 870; pts = 8; msg = 'Hai urtato un pedone!'; }
+  else if (kind === 'red') { euro = 167; pts = 6; msg = 'Passaggio con il rosso'; }
+  else if (kind === 'camera') {
+    const over = value;
+    if (over <= 10) { euro = 42; pts = 0; } else if (over <= 40) { euro = 173; pts = 3; } else if (over <= 60) { euro = 543; pts = 6; } else { euro = 845; pts = 10; }
+    msg = `Autovelox: +${Math.round(over)} km/h oltre il limite`;
+    const fl = $('flash'); fl.classList.remove('go'); void fl.offsetWidth; fl.classList.add('go');
+  }
+  G.fines += euro; G.licence -= pts;
+  showToast(`🚨 ${msg} — multa € ${euro}${pts ? `, −${pts} punti` : ''}`, 3200);
+  if (G.licence <= 0) { G.licence = 20; setTimeout(() => showToast('🪪 Patente sospesa! Corso di recupero: riparti da 20 punti', 4000), 3300); }
+  $('licence').textContent = `🪪 ${G.licence} punti · multe € ${G.fines.toLocaleString('it')}`;
+}
+
+function checkInfractions(v, kmh, now) {
+  if (G.foot.on || !v.surface || !v.surface.road) return;
+  const R = G.roads, rd = v.surface.road, w = R.ways[rd.wi];
+  // semaforo rosso
+  if (v.u > 3) for (const nd of [w.nodes[rd.k], w.nodes[rd.k + 1]]) {
+    if (R.ntag[nd] !== NT.SIGNALS || Math.hypot(R.nx[nd] - v.x, R.nz[nd] - v.z) > 4.5) continue;
+    const fx = Math.sin(v.h), fz = Math.cos(v.h);
+    if (signalState(Math.abs(fx) > Math.abs(fz) ? 1 : 0, now / 1000) === 'R') fine('red', 0, 'red' + nd);
+  }
+  // autovelox
+  if (kmh > w.limit + 5) for (const c of G.world.cameras) if (Math.hypot(c.x - v.x, c.z - v.z) < 16) fine('camera', kmh - w.limit, 'cam' + Math.round(c.x) + '_' + Math.round(c.z));
 }
 
 function startGame() {
@@ -216,6 +337,10 @@ function startGame() {
   const sp = spawnPoint($('start').value);
   G.vehicle.place(sp.x, sp.z, sp.h);
   G.traffic.clear();
+  for (const s of G.traffic.statics) G.scene.remove(s.model.root);
+  G.traffic.statics = [];
+  G.foot.on = false; G.orbit.yaw = 0; G.orbit.pitch = 0;
+  G.peds.setTarget((QUALITY[$('quality').value] || QUALITY.mid).peds);
   G.camInit = true;
   $('menu').classList.add('hidden');
   $('hud').classList.remove('hidden');
@@ -249,7 +374,7 @@ const ARROWS = { left: '↰', right: '↱', 'slight-left': '↖', 'slight-right'
 function fmtDist(m) { return m >= 1000 ? (m / 1000).toFixed(m >= 10000 ? 0 : 1).replace('.', ',') + ' km' : (Math.round(m / 10) * 10) + ' m'; }
 
 function updateNav(dt) {
-  const v = G.vehicle;
+  const v = focus();
   if (!G.route) { $('nav').classList.add('hidden'); return; }
   const r = G.route;
   const pr = routeProgress(r, v.x, v.z);
@@ -279,7 +404,7 @@ function updateNav(dt) {
 
 function recalcRoute(silent) {
   if (!G.dest) return;
-  const v = G.vehicle;
+  const v = focus();
   const r = G.router.route(v.x, v.z, v.h, G.dest[0], G.dest[1]);
   G.route = r;
   if (!r) { showToast('Nessun percorso trovato verso la destinazione'); return; }
@@ -290,7 +415,7 @@ function recalcRoute(silent) {
 
 let hudT = 0, fpsN = 0, fpsT = performance.now();
 function updateHUD(dt) {
-  const v = G.vehicle, R = G.roads;
+  const v = focus(), R = G.roads, car = G.vehicle;
   hudT += dt; fpsN++;
   const nowT = performance.now();
   if (nowT - fpsT > 1000) { $('fps').textContent = Math.round(fpsN * 1000 / (nowT - fpsT)) + ' fps'; fpsN = 0; fpsT = nowT; }
@@ -299,8 +424,9 @@ function updateHUD(dt) {
   hudT = 0;
   const kmh = Math.abs(v.u * 3.6);
   $('spd').textContent = Math.round(kmh);
-  $('gear').textContent = v.gear < 0 ? 'R' : (Math.abs(v.u) < 0.3 && v.throttle < 0.05 ? 'D' : 'D' + v.gear);
-  $('rpmbar').style.width = Math.min(100, v.rpm / v.spec.rpmMax * 100) + '%';
+  $('gear').textContent = G.foot.on ? 'A PIEDI' : car.gear < 0 ? 'R' : (Math.abs(car.u) < 0.3 && car.throttle < 0.05 ? 'D' : 'D' + car.gear);
+  $('gear').style.fontSize = G.foot.on ? '14px' : '';
+  $('rpmbar').style.width = (G.foot.on ? 0 : Math.min(100, car.rpm / car.spec.rpmMax * 100)) + '%';
   // strada e comune
   let road = v.surface && v.surface.road;
   let wi = road ? road.wi : -1;
@@ -310,7 +436,7 @@ function updateHUD(dt) {
     const w = R.ways[wi];
     $('roadname').textContent = R.displayName(w);
     $('limitv').textContent = w.limit;
-    $('limit').classList.remove('hidden');
+    $('limit').classList.toggle('hidden', G.foot.on);
     $('limitest').textContent = w.limitMapped ? '' : 'indicativo';
     $('limit').classList.toggle('over', kmh > w.limit * 1.1 + 3);
     G.curLimit = w.limit;
@@ -331,7 +457,7 @@ function updateHUD(dt) {
   $('alt').textContent = '';
   $('clock').textContent = '🕒 ' + G.sky.clock();
   $('tspeed').textContent = G.sky.speed === 0 ? '⏸' : G.sky.speed === 1 ? '1×' : G.sky.speed + '×';
-  if (G.carModel.dashCanvas && G.camMode === 1) drawCluster(G.carModel.dashCanvas, G.carModel.dashTex, kmh, v.rpm, v.spec.rpmMax, $('gear').textContent, G.curLimit);
+  if (!G.foot.on && G.carModel.dashCanvas && G.camMode === 1) drawCluster(G.carModel.dashCanvas, G.carModel.dashTex, kmh, car.rpm, car.spec.rpmMax, $('gear').textContent, G.curLimit);
 }
 
 // ------------------------------------------------------------------ mappa
@@ -400,7 +526,7 @@ function setupMapUI() {
     if (!G.mapSel) return;
     if (!G.started) { G.pickedStart = G.mapSel.slice(); closeMap(); $('pickinfo').textContent = 'Partenza: ' + G.mapSelLabel; return; }
     G.pickedStart = G.mapSel.slice();
-    const sp = spawnPoint('picked'); G.vehicle.place(sp.x, sp.z, sp.h); G.traffic.clear(); G.camInit = true; G.loadingWorld = true;
+    const sp = spawnPoint('picked'); G.vehicle.place(sp.x, sp.z, sp.h); G.foot.on = false; G.traffic.clear(); G.camInit = true; G.loadingWorld = true;
     closeMap();
     if (G.dest) recalcRoute(true);
   };
@@ -457,29 +583,37 @@ function togglePause(on) {
 const camPos = new THREE.Vector3(), camLook = new THREE.Vector3(), tmpV = new THREE.Vector3();
 const CAM_NAMES = ['Visuale esterna', 'Visuale abitacolo', 'Visuale cofano', 'Visuale esterna lontana'];
 function updateCamera(dt, lookBack) {
-  const v = G.vehicle, cam = G.camera, m = G.carModel;
-  const fx = Math.sin(v.h), fz = Math.cos(v.h);
-  const mode = G.camMode;
+  const v = G.vehicle, cam = G.camera, m = G.carModel, f = G.foot, o = G.orbit;
+  const mode = f.on ? 0 : G.camMode;
   if (G.debugCam) { cam.position.set(...G.debugCam.pos); cam.lookAt(...G.debugCam.look); cam.near = 1; cam.updateProjectionMatrix(); m.interior.visible = false; for (const e of m.exterior) e.visible = true; return; }
   m.interior.visible = mode === 1;
   for (const e of m.exterior) e.visible = mode !== 1;
+  // la visuale orbitale torna dietro al veicolo dopo un paio di secondi
+  o.idle += dt;
+  if (o.idle > 2.2 && (f.on ? Math.abs(f.u) > 0.5 : Math.abs(v.u) > 2)) { o.yaw *= Math.exp(-dt * 2.5); o.pitch *= Math.exp(-dt * 2.5); }
   if (mode === 0 || mode === 3) {
-    const dist = (mode === 0 ? 4.2 : 8) + v.spec.L * 0.75, hgt = mode === 0 ? 2.1 + v.spec.H * 0.4 : 4.2;
-    const dir = lookBack ? -1 : 1;
-    const target = tmpV.set(v.x - fx * dist * dir, v.y + hgt, v.z - fz * dist * dir);
-    const gh = G.roads.surfaceAt(target.x, target.z, v.y + 3).h;
-    target.y = Math.max(target.y, gh + 1.2);
+    const p = f.on ? f : v;
+    const dist = f.on ? 5.6 : (mode === 0 ? 4.2 : 8) + v.spec.L * 0.75;
+    const hgt = f.on ? 2.5 : mode === 0 ? 2.1 + v.spec.H * 0.4 : 4.2, lookY = f.on ? 1.3 : 1.2;
+    const yaw = p.h + o.yaw + (lookBack ? Math.PI : 0);
+    const cp = Math.cos(o.pitch), sp = Math.sin(o.pitch);
+    const target = tmpV.set(p.x - Math.sin(yaw) * dist * cp, p.y + hgt + dist * sp, p.z - Math.cos(yaw) * dist * cp);
+    const gh = G.roads.surfaceAt(target.x, target.z, p.y + 3).h;
+    target.y = Math.max(target.y, gh + 0.8);
     if (G.camInit) { camPos.copy(target); G.camInit = false; }
-    camPos.lerp(target, 1 - Math.exp(-dt * (lookBack ? 30 : 7)));
+    camPos.lerp(target, 1 - Math.exp(-dt * (lookBack || o.idle < 0.3 ? 30 : f.on ? 9 : 7)));
     cam.position.copy(camPos);
-    camLook.set(v.x + fx * 4 * dir, v.y + 1.2, v.z + fz * 4 * dir);
+    const ahead = f.on ? 0.5 : 4;
+    camLook.set(p.x + Math.sin(yaw) * ahead, p.y + lookY, p.z + Math.cos(yaw) * ahead);
     cam.lookAt(camLook);
     cam.near = 0.5;
   } else {
     const eye = mode === 1 ? m.root.userData.eye.clone() : new THREE.Vector3(0, v.spec.H * 0.82 + 0.05, v.spec.L * 0.18);
     m.root.updateMatrixWorld();
     cam.position.copy(eye.applyMatrix4(m.root.matrixWorld));
-    const ahead = new THREE.Vector3(0, mode === 1 ? -0.6 : -0.9, lookBack ? -30 : 30).add(mode === 1 ? m.root.userData.eye : new THREE.Vector3(0, v.spec.H * 0.82, 0)).applyMatrix4(m.root.matrixWorld);
+    // con il mouse ci si guarda attorno dall'abitacolo
+    const ly = (lookBack ? Math.PI : 0) + o.yaw, d = 30;
+    const ahead = new THREE.Vector3(Math.sin(ly) * d, (mode === 1 ? -0.6 : -0.9) - o.pitch * d * 0.5, Math.cos(ly) * d).add(mode === 1 ? m.root.userData.eye : new THREE.Vector3(0, v.spec.H * 0.82, 0)).applyMatrix4(m.root.matrixWorld);
     cam.lookAt(ahead);
     cam.near = 0.08;
     camPos.copy(cam.position);
@@ -497,7 +631,7 @@ function loop(now) {
   if (G.mapOpen) {
     G.input.read(dt);
     if (G.input.consume('KeyM') || G.input.consume('Escape')) closeMap();
-    if (G.mapDirty) { G.maps.drawBig(G.started ? G.vehicle : null, G.route, G.dest || (G.mapMode === 'start' ? null : G.mapSel)); G.mapDirty = false; }
+    if (G.mapDirty) { G.maps.drawBig(G.started ? focus() : null, G.route, G.dest || (G.mapMode === 'start' ? null : G.mapSel)); G.mapDirty = false; }
     if (G.mapSel && G.mapMode === 'start' && !G.started) { /* evidenzia */ }
     return;
   }
@@ -514,35 +648,49 @@ function loop(now) {
   if (inp.consume('KeyM') || ctl.buttons.has(8)) { openMap('dest'); return; }
   if (inp.consume('KeyN')) $('mini-wrap').classList.toggle('hidden');
   if (inp.consume('KeyH') || ctl.buttons.has(2)) { G.lightsOn = !G.lightsOn; showToast(G.lightsOn ? 'Fari accesi' : 'Fari spenti', 900); }
-  if (inp.consume('KeyR') || ctl.buttons.has(1) && false) respawnOnRoad();
+  if (inp.consume('KeyR') && !G.foot.on) respawnOnRoad();
   if (inp.consume('KeyK')) { G.world.labelsOn = !G.world.labelsOn; showToast(G.world.labelsOn ? 'Nomi dei luoghi visibili' : 'Nomi dei luoghi nascosti', 1000); }
   if (inp.consume('KeyT')) { const sp = [30, 300, 0, 1]; G.sky.speed = sp[(sp.indexOf(G.sky.speed) + 1) % sp.length]; showToast('Velocità del tempo: ' + (G.sky.speed ? G.sky.speed + '×' : 'ferma'), 1000); }
   if (inp.consume('Equal') || inp.consume('NumpadAdd')) G.sky.hours = (G.sky.hours + 1) % 24;
   if (inp.consume('Minus') || inp.consume('NumpadSubtract')) G.sky.hours = (G.sky.hours + 23) % 24;
 
-  const v = G.vehicle;
+  if (inp.consume('KeyF') || inp.consume('Enter') || ctl.buttons.has(1)) { if (G.foot.on) enterCar(); else exitCar(); }
+  const horn = !G.foot.on && (inp.keys.has('KeyE') || !!ctl.hornPad);
+  G.audio.horn(horn);
+
+  const v = G.vehicle, f = G.foot, p = focus();
   // mondo
-  G.world.update(v.x, v.z);
-  const budget = G.loadingWorld ? 40 : 7;
-  G.world.pump(budget);
+  G.world.update(p.x, p.z);
+  G.world.pump(G.loadingWorld ? 40 : 7);
   if (G.loadingWorld) {
     if (G.world.ready(v.x, v.z)) { G.loadingWorld = false; const s = G.roads.surfaceAt(v.x, v.z, 1e9); v.y = s.h; }
     else { ctl.throttle = 0; ctl.brake = 1; }
   }
-  if (!G.loadingWorld) v.update(dt, ctl);
-  G.traffic.update(dt, v, now / 1000);
+  if (!G.loadingWorld) {
+    if (f.on) { v.update(dt, { throttle: 0, brake: 1, steer: 0, handbrake: 1 }); updateFoot(dt, ctl); }
+    else v.update(dt, ctl);
+  }
+  // pedoni: minacce = auto del giocatore + traffico vicino
+  const fx = Math.sin(v.h), fz = Math.cos(v.h), lx = Math.cos(v.h), lz = -Math.sin(v.h);
+  const threats = [{ x: v.x, z: v.z, h: v.h, vx: fx * v.u + lx * v.v, vz: fz * v.u + lz * v.v, halfL: v.spec.L / 2, halfW: v.spec.W / 2, player: true }];
+  for (const c of G.traffic.cars) if (Math.abs(c.x - p.x) < 90 && Math.abs(c.z - p.z) < 90) threats.push({ x: c.x, z: c.z, h: c.h, vx: Math.sin(c.h) * c.speed, vz: Math.cos(c.h) * c.speed, halfL: c.box.halfL, halfW: c.box.halfW });
+  const onRoad = G.loadingWorld ? [] : G.peds.update(dt, p.x, p.z, threats, horn);
+  if (f.on) onRoad.push([f.x, f.z]);
+  G.traffic.obstacles = onRoad;
+  G.traffic.update(dt, { x: v.x, z: v.z, h: v.h, u: v.u, wi: v.surface && v.surface.road ? v.surface.road.wi : -1 }, now / 1000);
+  G.peds.drawPlayer(f.on, f.x, f.y, f.z, f.h, f.gait, f.u, dt);
   // modello del giocatore
   const m = G.carModel;
   m.root.position.set(v.x, v.y, v.z);
   m.root.rotation.set(-(v.pitch + v.dynPitch), v.h, v.roll + v.dynRoll, 'YXZ');
-  for (const w of m.wheels) { if (w.front) w.pivot.rotation.y = v.steer; w.spin.rotation.x = v.wheelSpinAngle || 0; }
+  for (const w of m.wheels) { w.pivot.rotation.x = v.wheelSpinAngle || 0; if (w.front) w.pivot.rotation.y = v.steer; }
   if (m.steeringWheel) m.steeringWheel.rotation.z = -v.steer * 7;
-  m.tailMat.emissive.setHex(v.brake > 0.05 || v.gear < 0 ? 0xff1a0a : (G.lightsOn || G.sky.night > 0.5 ? 0x550000 : 0));
-  const lights = G.lightsOn || G.sky.night > 0.55;
-  m.headMat.emissive.setHex(lights ? 0xfff4d8 : 0);
-  for (const L of G.headlights.children) if (L.isSpotLight) L.intensity = lights ? 60 : 0;
+  const lights = !f.on && (G.lightsOn || G.sky.night > 0.55);
+  if (m.headlight) m.headlight.intensity = lights ? 70 : 0;
+  if (m.tailGlow) m.tailGlow.intensity = v.brake > 0.05 && !f.on ? 2.2 : lights ? 0.6 : 0;
   // cielo e luci
-  G.sky.update(dt, m.root.position);
+  tmpV2.set(p.x, p.y, p.z);
+  G.sky.update(dt, tmpV2);
   G.world.buildings.setNight(G.sky.night);
   G.world.signage.update(now / 1000, G.sky.night);
   G.traffic.setNight(G.sky.night);
@@ -550,13 +698,16 @@ function loop(now) {
   G.world.updateLabels(G.camera);
   updateHUD(dt);
   updateNav(dt);
+  checkInfractions(v, Math.abs(v.u) * 3.6, now);
   miniT += dt;
-  if (miniT > 0.05 && !$('mini-wrap').classList.contains('hidden')) { miniT = 0; G.maps.drawMini(v, G.route, G.sky.night > 0.5); }
-  G.audio.update(v.rpm, v.throttle, Math.abs(v.u) * 3.6, v.slip);
-  if (v.impact > 0.25) { showToast('💥 Urto!', 700); }
+  if (miniT > 0.05 && !$('mini-wrap').classList.contains('hidden')) { miniT = 0; G.maps.drawMini(p, G.route, G.sky.night > 0.5); }
+  if (f.on) G.audio.update(800, 0, 0, 0); else G.audio.update(v.rpm, v.throttle, Math.abs(v.u) * 3.6, v.slip);
+  if (v.impact > 0.25 && !f.on) { showToast('💥 Urto!', 700); }
   v.impact = 0;
-  G.renderer.render(G.scene, G.camera);
+  if (G.composer && G.sky.night > 0.2) { G.bloom.strength = G.sky.night * 0.55; G.composer.render(); }
+  else G.renderer.render(G.scene, G.camera);
 }
+const tmpV2 = new THREE.Vector3();
 
 boot().catch((e) => {
   console.error(e);

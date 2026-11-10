@@ -44,6 +44,9 @@ In alternativa: `python3 -m http.server 8080` e apri <http://localhost:8080>.
 | M | mappa completa, ricerca, destinazione, teletrasporto |
 | N | mostra/nasconde la minimappa |
 | H | fari (si accendono da soli di notte) |
+| F | scendi dall'auto / sali sul veicolo più vicino |
+| E | clacson |
+| mouse (trascina) | ruota la telecamera |
 | R | rimetti l'auto sulla strada più vicina |
 | T, + / - | velocità del tempo, cambia ora |
 | K | nomi dei punti di riferimento |
@@ -52,6 +55,32 @@ In alternativa: `python3 -m http.server 8080` e apri <http://localhost:8080>.
 Gamepad: grilletti RT/LT, stick sinistro, A freno a mano, Y visuale.
 Volanti e pedaliere (Logitech, Thrustmaster, Fanatec…) via Gamepad API: in pausa
 scegli gli assi di sterzo/acceleratore/freno (vengono mostrati in tempo reale).
+
+## Stile open world
+
+- **Pedoni** sui marciapiedi delle strade reali e nelle vie pedonali: svoltano agli incroci,
+  attraversano sulle strisce quando non arrivano auto, si scansano se un'auto punta verso di loro
+  o se suoni il clacson. Se li urti cadono e poi si rialzano (e scatta la multa).
+- **A piedi**: `F` per scendere dall'auto e camminare (`Shift` per correre); `F` vicino a un altro
+  veicolo per salirci: auto del traffico ferme, auto parcheggiate, perfino gli autobus di linea.
+- **Auto parcheggiate** nei parcheggi reali (aree `amenity=parking` di OSM).
+- **Traffico**: auto, familiari, furgoni e autobus; danno la precedenza in rotatoria e nelle
+  immissioni, si fermano per i pedoni e per il giocatore a piedi.
+- **Patente a punti**: autovelox reali (nodi `highway=speed_camera`), semafori rossi e pedoni
+  urtati costano multe e punti; a zero punti la patente viene sospesa e si riparte da 20.
+- **Arredo urbano reale**: panchine, cestini, paletti, idranti, rastrelliere e fontanelle dove
+  OSM li mappa.
+- **Telecamera**: trascina con il mouse per ruotarla attorno all'auto o al personaggio.
+- **Resa**: tone mapping filmico e alone delle luci di notte.
+
+### Crediti per la grafica importata
+
+I modelli di **veicoli**, **pedoni** (figura articolata, camminata, caduta) e **arredo urbano**
+vengono dal progetto [donmutti/city](https://github.com/donmutti/city) e stanno in
+`src/vendor/city/` con l'elenco delle modifiche in `NOTICE.md`. Il `package.json` di quel
+progetto dichiara licenza **ISC**, ma il repository non ha un file LICENSE: prima di una
+distribuzione pubblica conviene chiedere conferma all'autore. Tutto il resto (mappa, strade,
+segnaletica, edifici, fisica, navigatore, comportamento di pedoni e traffico) è di questo progetto.
 
 ## Cosa c'è (fasi 1–6)
 
@@ -133,7 +162,9 @@ npm run watch
 | `src/signs.js` | atlante dei segnali italiani, semafori, cartelli da OSM, indicazioni, lampioni |
 | `src/vegetation.js` | alberi |
 | `src/vehicle.js` / `src/cars.js` | fisica e modelli delle auto |
-| `src/traffic.js` | traffico AI |
+| `src/traffic.js` | traffico AI, precedenze, auto parcheggiate |
+| `src/pedestrians.js` | comportamento dei pedoni |
+| `src/vendor/city/` | modelli di veicoli, pedoni e arredo urbano (da donmutti/city) |
 | `src/router.js` | navigatore (A*) e indicazioni |
 | `src/maps.js` | minimappa e mappa completa |
 | `src/world.js` | streaming delle tessere, laghi, etichette |
