@@ -63,7 +63,12 @@ scegli gli assi di sterzo/acceleratore/freno (vengono mostrati in tempo reale).
   o se suoni il clacson. Se li urti cadono e poi si rialzano (e scatta la multa).
 - **A piedi**: `F` per scendere dall'auto e camminare (`Shift` per correre); `F` vicino a un altro
   veicolo per salirci: auto del traffico ferme, auto parcheggiate, perfino gli autobus di linea.
-- **Auto parcheggiate** nei parcheggi reali (aree `amenity=parking` di OSM).
+- **Auto parcheggiate negli stalli reali** (117.000 posti calcolati dalla pipeline):
+  stalli mappati uno per uno (`amenity=parking_space`), file a pettine lungo le corsie interne
+  (`service=parking_aisle`, ora percorribili), soste lungo strada in linea / a pettine / a spina
+  secondo `orientation`, piazzali con file e corsie. Rispettano `capacity`, evitano edifici,
+  strade e alberi; le righe degli stalli sono disegnate a terra e ogni parcheggio ha un suo
+  grado di riempimento (55–95%).
 - **Traffico**: auto, familiari, furgoni e autobus; danno la precedenza in rotatoria e nelle
   immissioni, si fermano per i pedoni e per il giocatore a piedi.
 - **Patente a punti**: autovelox reali (nodi `highway=speed_camera`), semafori rossi e pedoni

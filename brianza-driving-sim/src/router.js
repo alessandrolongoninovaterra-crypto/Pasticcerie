@@ -34,7 +34,7 @@ export class Router {
       const v = Math.max(10, w.limit) / 3.6;
       let pen = 1;
       if (w.flags & F.PRIVATE) pen = 6;
-      if (w.cls === CLS.SERVICE) pen = 1.8;
+      if (w.cls === CLS.SERVICE) pen = w.flags & F.AISLE ? 5 : 1.8;
       if (w.cls === CLS.TRACK) pen = 3;
       for (let k = 0; k < w.nodes.length - 1; k++) {
         const a = w.nodes[k], b = w.nodes[k + 1];

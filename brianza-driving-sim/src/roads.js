@@ -3,7 +3,7 @@ import { GeoBuilder, canvasTexture } from './geo.js';
 
 // Classi stradali (come tools/build_data.py)
 export const CLS = { MOTORWAY: 0, TRUNK: 1, PRIMARY: 2, SECONDARY: 3, TERTIARY: 4, UNCLASSIFIED: 5, RESIDENTIAL: 6, LIVING: 7, SERVICE: 8, TRACK: 9, PEDESTRIAN: 10 };
-export const F = { ONEWAY: 1, ROUNDABOUT: 2, BRIDGE: 4, TUNNEL: 8, LINK: 16, PRIVATE: 32, UNPAVED: 64, NOCAR: 128, OVERPASS: 256 };
+export const F = { ONEWAY: 1, ROUNDABOUT: 2, BRIDGE: 4, TUNNEL: 8, LINK: 16, PRIVATE: 32, UNPAVED: 64, NOCAR: 128, OVERPASS: 256, AISLE: 512 };
 export const NT = { SIGNALS: 1, STOP: 2, GIVE_WAY: 3, CROSSING: 4, MINI_RB: 5, LEVEL_CROSSING: 6, BUMP: 7, CROSSING_SIGNALS: 10, TABLE: 11, TURNING: 12, JUNCTION: 13 };
 export const CLASS_NAMES = ['Autostrada', 'Superstrada', 'Strada principale', 'Strada secondaria', 'Strada terziaria', 'Strada locale', 'Strada residenziale', 'Zona residenziale', 'Strada di servizio', 'Strada sterrata', 'Area pedonale'];
 
@@ -183,7 +183,7 @@ export class RoadNetwork {
     let width;
     if (w.widthTag > 2 && w.widthTag < 30) { width = w.widthTag; lw = Math.min(lw + 0.5, width / (nF + nB)); }
     else if (c === CLS.TRACK) width = 3.2;
-    else if (c === CLS.SERVICE) width = w.oneway ? 3.5 : 4.6;
+    else if (c === CLS.SERVICE) width = w.flags & F.AISLE ? (w.oneway ? 4.5 : 5.5) : w.oneway ? 3.5 : 4.6;
     else if (c === CLS.PEDESTRIAN) width = 6;
     else {
       if (w.flags & F.ROUNDABOUT && !w.lanes) nF = c <= 3 ? 1.6 : 1.4;
@@ -1021,6 +1021,27 @@ export class RoadNetwork {
       }
     }
     return g.empty ? null : g.mesh(this.materials().path);
+  }
+
+  // righe degli stalli dei parcheggi reali (tile.pk: x, z, rotta, larghezza, lunghezza*2+tipo)
+  buildStalls(tile) {
+    if (!tile || !tile.pk || !tile.pk.length) return null;
+    const T = this.terrain, g = new GeoBuilder(true, false), pk = tile.pk;
+    const line = (x0, z0, x1, z1, wd) => {
+      const dx = x1 - x0, dz = z1 - z0, L = Math.hypot(dx, dz) || 1, rx = -dz / L * wd / 2, rz = dx / L * wd / 2;
+      const P = [[x0 - rx, z0 - rz], [x0 + rx, z0 + rz], [x1 + rx, z1 + rz], [x1 - rx, z1 - rz]].map(([x, z]) => g.v(x, T.height(x, z) + 0.1, z, 1, 1, 1));
+      g.quad(P[0], P[1], P[2], P[3]);
+    };
+    for (let i = 0; i < pk.length; i += 5) {
+      const x = pk[i] / 10, z = pk[i + 1] / 10, h = pk[i + 2] / 10 * Math.PI / 180, wd = pk[i + 3] / 10, ln = (pk[i + 4] >> 1) / 10, typ = pk[i + 4] & 1;
+      const fx = Math.sin(h), fz = Math.cos(h), rx = -fz, rz = fx;
+      if (typ === 0) { // a pettine / a spina: righe sui lati lunghi
+        for (const s of [1, -1]) line(x + rx * s * wd / 2 - fx * ln / 2, z + rz * s * wd / 2 - fz * ln / 2, x + rx * s * wd / 2 + fx * ln / 2, z + rz * s * wd / 2 + fz * ln / 2, 0.1);
+      } else {         // in linea: righe alle estremita' e lato esterno
+        for (const s of [1, -1]) line(x + fx * s * ln / 2 - rx * wd / 2, z + fz * s * ln / 2 - rz * wd / 2, x + fx * s * ln / 2 + rx * wd / 2, z + fz * s * ln / 2 + rz * wd / 2, 0.1);
+      }
+    }
+    return g.empty ? null : g.mesh(this.materials().mark);
   }
 
   // muri di cinta, siepi, muri di sostegno e guardrail mappati in OSM

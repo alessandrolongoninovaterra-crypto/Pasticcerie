@@ -168,13 +168,13 @@ export class World {
       }
       if (!('paths' in t.parts)) {
         const g = new THREE.Group();
-        const pa = this.roads.buildPaths(t.data), ba = this.roads.buildBarriers(t.data, this.collision, t.key), pw = this.buildPower(t);
-        for (const o of [pa, ba, pw]) if (o) g.add(o);
+        const pa = this.roads.buildPaths(t.data), ba = this.roads.buildBarriers(t.data, this.collision, t.key), pw = this.buildPower(t), st = this.roads.buildStalls(t.data);
+        for (const o of [pa, ba, pw, st]) if (o) g.add(o);
         add('paths', g.children.length ? g : null); continue;
       }
       if (!('props' in t.parts)) {
         add('props', this.buildProps(t));
-        if (this.traffic) this.traffic.computeParkSpots(t.key, t.i, t.j);
+        if (this.traffic) this.traffic.computeParkSpots(t.key, t.data);
         continue;
       }
       if (!('labels' in t.parts)) { add('labels', this.buildLabels(t)); continue; }

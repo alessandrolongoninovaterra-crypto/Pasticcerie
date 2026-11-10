@@ -23,9 +23,9 @@ import { OutputPass } from 'three/examples/jsm/postprocessing/OutputPass.js';
 
 const $ = (id) => document.getElementById(id);
 const QUALITY = {
-  low: { viewTiles: 1, shadows: false, pixelRatio: 1, trees: 0.5, bloom: false, peds: 20 },
-  mid: { viewTiles: 2, shadows: true, pixelRatio: 1.25, trees: 0.8, bloom: true, peds: 45 },
-  high: { viewTiles: 3, shadows: true, pixelRatio: 2, trees: 1, bloom: true, peds: 70 },
+  low: { viewTiles: 1, shadows: false, pixelRatio: 1, trees: 0.5, bloom: false, peds: 20, parked: 132 },
+  mid: { viewTiles: 2, shadows: true, pixelRatio: 1.25, trees: 0.8, bloom: true, peds: 45, parked: 288 },
+  high: { viewTiles: 3, shadows: true, pixelRatio: 2, trees: 1, bloom: true, peds: 70, parked: 432 },
 };
 
 const G = { started: false, paused: false, mapOpen: false, camMode: 0, route: null, dest: null, voice: true, carIdx: 0,

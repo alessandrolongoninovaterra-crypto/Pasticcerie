@@ -150,6 +150,7 @@ ROAD_CLASS = {'motorway': 0, 'trunk': 1, 'primary': 2, 'secondary': 3, 'tertiary
 LINK = {'motorway_link': 0, 'trunk_link': 1, 'primary_link': 2, 'secondary_link': 3, 'tertiary_link': 4}
 # flag bit
 F_ONEWAY, F_ROUNDABOUT, F_BRIDGE, F_TUNNEL, F_LINK, F_PRIVATE, F_UNPAVED, F_NOCAR = 1, 2, 4, 8, 16, 32, 64, 128
+F_AISLE = 512  # corsia interna di un parcheggio
 
 NODE_TAG = {('highway', 'traffic_signals'): 1, ('highway', 'stop'): 2, ('highway', 'give_way'): 3,
             ('highway', 'crossing'): 4, ('highway', 'mini_roundabout'): 5, ('railway', 'level_crossing'): 6,
@@ -216,6 +217,9 @@ points = []           # elementi puntuali: (tipo, x, z, testo)
 paths = []            # percorsi pedonali/ciclabili: (tipo, larghezza, punti)
 barriers = []         # muri, siepi, guardrail: (tipo, altezza, punti)
 power_lines = []
+parkings = []         # aree amenity=parking
+spaces = []           # singoli stalli amenity=parking_space
+aisles = []           # corsie service=parking_aisle
 road_ways = []        # dict per via
 node_xy = {}          # osm id -> (x,z) per i nodi delle strade
 node_tags = {}        # osm id -> code
@@ -245,7 +249,7 @@ LC = {  # nome -> (priorita', colore RGB)
     'scrub': (7, (84, 116, 60)), 'wetland': (7, (90, 118, 90)), 'forest': (8, (54, 88, 44)), 'wood': (8, (54, 88, 44)),
     'parking': (9, (112, 112, 110)), 'water': (10, (62, 104, 142)), 'reservoir': (10, (62, 104, 142)),
     'basin': (10, (62, 104, 142)), 'riverbank': (10, (62, 104, 142)), 'bare_rock': (7, (160, 156, 146)),
-    'pedestrian': (9, (176, 168, 152)),
+    'pedestrian': (9, (176, 168, 152)), 'parking_space': (9, (112, 112, 110)),
 }
 LC_DEFAULT = (128, 150, 84)
 WATER_RGB = (62, 104, 142)
@@ -385,8 +389,11 @@ for o in fp:
             if surf in ('unpaved', 'gravel', 'dirt', 'ground', 'grass', 'compacted', 'fine_gravel', 'earth', 'mud', 'sand') or (
                     hw == 'track' and surf not in ('asphalt', 'paved', 'concrete')):
                 flags |= F_UNPAVED
-            if t.get('service') in ('parking_aisle', 'drive-through'):
-                continue  # corsie di parcheggio: troppe e inutili per la guida
+            if t.get('service') == 'drive-through':
+                continue
+            if t.get('service') == 'parking_aisle':
+                flags |= F_AISLE
+                aisles.append([P.fwd(l.lat, l.lon) for _, l in pts_ll])
             ids = [r for r, _ in pts_ll]
             for r, l in pts_ll:
                 if r not in node_xy:
@@ -527,6 +534,14 @@ for o in fp:
             cx, cz = centroid(outers[0])
             landmarks.append([code, round(cx, 1), round(cz, 1), t['name'], ''])
 
+        if t.get('amenity') == 'parking' and t.get('parking') not in ('underground', 'multi-storey', 'rooftop', 'carports', 'garage_boxes'):
+            for r in outers:
+                if len(r) >= 4:
+                    parkings.append({'r': r, 'i': [h for h in inners if len(h) >= 4], 'kind': t.get('parking', ''),
+                                     'orient': t.get('orientation', ''), 'cap': int(parse_float(t.get('capacity')))})
+        elif t.get('amenity') == 'parking_space':
+            if len(outers[0]) >= 4:
+                spaces.append(outers[0])
         if t.get('amenity') == 'fuel':
             cx, cz = centroid(outers[0])
             points.append((5, cx, cz, t.get('brand') or t.get('name') or ''))
@@ -689,6 +704,252 @@ while heap:
             dh[nb] = nvv
             heapq.heappush(heap, (-nvv, nb))
 
+# ------------------------------------------------------------------ stalli dei parcheggi
+# Ogni posto auto viene da dati reali, in quest'ordine di affidabilita':
+#  1. stalli mappati uno per uno (amenity=parking_space): posizione e orientamento esatti;
+#  2. parcheggi con corsie interne (service=parking_aisle): stalli a pettine sui due lati;
+#  3. parcheggi lungo strada (parking=street_side/lane o aree strette): fila parallela,
+#     a pettine o a spina secondo il tag orientation (o la profondita' dell'area);
+#  4. piazzali senza corsie mappate: file doppie separate da corsie da 6 m lungo l'asse maggiore.
+from shapely.geometry import Polygon as SPoly, LineString as SLine, Point as SPoint
+from shapely.prepared import prep
+from shapely.strtree import STRtree
+
+HALF_W = {0: 6.0, 1: 5.0, 2: 4.0, 3: 3.8, 4: 3.5, 5: 3.0, 6: 3.0, 7: 2.8, 8: 2.3, 9: 1.8, 10: 3.0}
+road_lines, road_half = [], []
+for w in road_ways:
+    pts = [node_xy[r] for r in w['ids']]
+    if len(pts) >= 2:
+        road_lines.append(SLine(pts)); road_half.append(2.75 if w['flags'] & F_AISLE else HALF_W.get(w['cls'], 3.0))
+road_tree = STRtree(road_lines)
+bpolys = []
+for b in buildings:
+    try:
+        bpolys.append(SPoly(b['r']))
+    except Exception:
+        pass
+btree = STRtree(bpolys)
+aisle_lines = [SLine(a) for a in aisles if len(a) >= 2]
+aisle_tree = STRtree(aisle_lines) if aisle_lines else None
+
+stalls = []           # (x, z, rotta, larghezza, lunghezza, tipo) tipo 0 = pettine/spina, 1 = in linea
+occ = defaultdict(list)
+tree_grid = defaultdict(list)   # alberi mappati: niente auto sopra un tronco
+for tx, tz in trees_pt:
+    tree_grid[(int(tx // 3), int(tz // 3))].append((tx, tz))
+
+
+def on_tree(x, z, fx, fz):
+    for s in (1.5, 0, -1.5):
+        px, pz = x + fx * s, z + fz * s
+        cx, cz = int(px // 3), int(pz // 3)
+        for i in range(cx - 1, cx + 2):
+            for j in range(cz - 1, cz + 2):
+                for (ox, oz) in tree_grid.get((i, j), ()):
+                    if (ox - px) ** 2 + (oz - pz) ** 2 < 1.15:
+                        return True
+    return False
+
+
+def free_spot(x, z, mind):
+    cx, cz = int(x // 3), int(z // 3)
+    for i in range(cx - 1, cx + 2):
+        for j in range(cz - 1, cz + 2):
+            for (ox, oz) in occ[(i, j)]:
+                if (ox - x) ** 2 + (oz - z) ** 2 < mind * mind:
+                    return False
+    return True
+
+
+def add_stall(x, z, hd, wd, ln, typ, check=True, pp=None):
+    """hd: rotta dell'auto (avanti = sin, cos). Verifica area, strade, edifici, sovrapposizioni."""
+    fx, fz = math.sin(hd), math.cos(hd)
+    if on_tree(x, z, fx, fz):
+        return False
+    if check:
+        if pp is not None:
+            for a, b in ((ln / 2 - 0.3, wd / 2 - 0.2), (ln / 2 - 0.3, -wd / 2 + 0.2), (-ln / 2 + 0.3, wd / 2 - 0.2), (-ln / 2 + 0.3, -wd / 2 + 0.2), (0, 0)):
+                if not pp.contains(SPoint(x + fx * a - fz * b, z + fz * a + fx * b)):
+                    return False
+        pt = SPoint(x, z)
+        for i in road_tree.query(pt, predicate='dwithin', distance=7.5):
+            if road_lines[i].distance(pt) < road_half[i] + (1.0 if typ == 1 else 1.2):
+                return False
+        if len(btree.query(pt.buffer(1.0), predicate='intersects')):
+            return False
+    if not free_spot(x, z, 2.15 if typ == 0 else 2.3):
+        return False
+    # i due estremi dell'auto non devono cadere su un posto gia' occupato
+    occ[(int(x // 3), int(z // 3))].append((x, z))
+    for s in (1.4, -1.4):
+        occ[(int((x + fx * s) // 3), int((z + fz * s) // 3))].append((x + fx * s, z + fz * s))
+    stalls.append((x, z, hd % (2 * math.pi), wd, ln, typ))
+    return True
+
+
+def obb(poly):
+    """rettangolo orientato minimo: centro, asse lungo (ux,uz), lunghezza, larghezza"""
+    c = list(poly.minimum_rotated_rectangle.exterior.coords)
+    e0 = (c[1][0] - c[0][0], c[1][1] - c[0][1]); e1 = (c[2][0] - c[1][0], c[2][1] - c[1][1])
+    l0, l1 = math.hypot(*e0), math.hypot(*e1)
+    cx = sum(p[0] for p in c[:4]) / 4; cz = sum(p[1] for p in c[:4]) / 4
+    if l0 >= l1:
+        return cx, cz, e0[0] / (l0 or 1), e0[1] / (l0 or 1), l0, l1
+    return cx, cz, e1[0] / (l1 or 1), e1[1] / (l1 or 1), l1, l0
+
+
+n_src = [0, 0, 0, 0]
+# 1) stalli mappati
+space_polys = []
+for r in spaces:
+    try:
+        sp = SPoly(r)
+        if not sp.is_valid or sp.area < 6 or sp.area > 60:
+            continue
+        cx, cz, ux, uz, ln, wd = obb(sp)
+    except Exception:
+        continue
+    if wd < 1.7 or wd > 4.2 or ln < 3.5 or ln > 8.5:
+        continue
+    space_polys.append(sp)
+    # in linea se l'asse lungo e' parallelo alla strada adiacente
+    typ = 0
+    pt = SPoint(cx, cz)
+    best, bd = None, 9.0
+    for i in road_tree.query(pt, predicate='dwithin', distance=9):
+        d = road_lines[i].distance(pt)
+        if d < bd:
+            bd, best = d, road_lines[i]
+    if best is not None and bd < wd / 2 + 4.5:
+        s0 = best.project(pt); a = best.interpolate(max(0, s0 - 1)); b = best.interpolate(min(best.length, s0 + 1))
+        dl = math.hypot(b.x - a.x, b.y - a.y) or 1
+        if abs((b.x - a.x) / dl * ux + (b.y - a.y) / dl * uz) > 0.85:
+            typ = 1
+    if add_stall(cx, cz, math.atan2(ux, uz), min(wd, 2.6), min(ln, 6.0), typ, check=False):
+        n_src[0] += 1
+space_tree = STRtree(space_polys) if space_polys else None
+
+for pk in parkings:
+    try:
+        poly = SPoly(pk['r'], pk['i'])
+        if not poly.is_valid:
+            poly = poly.buffer(0)
+        if poly.is_empty or poly.area < 12 or poly.geom_type != 'Polygon':
+            continue
+    except Exception:
+        continue
+    # gia' mappato stallo per stallo?
+    if space_tree is not None:
+        inside = [i for i in space_tree.query(poly, predicate='intersects')]
+        if len(inside) >= 3 or (inside and poly.area < 80):
+            continue
+    pp = prep(poly.buffer(0.35))
+    cx, cz, ux, uz, L, Wd = obb(poly)
+    before = len(stalls)
+    orient = pk['orient']
+    ais = [aisle_lines[i] for i in aisle_tree.query(poly, predicate='intersects')] if aisle_tree is not None else []
+    ais = [a.intersection(poly.buffer(1.0)) for a in ais]
+    ais = [g for a in ais for g in (a.geoms if hasattr(a, 'geoms') else [a]) if g.geom_type == 'LineString' and g.length > 4]
+    street = pk['kind'] in ('street_side', 'lane') or (not ais and Wd < 7.5)
+    if ais and not street:
+        # 2) a pettine (o a spina) sui due lati delle corsie
+        ang = math.radians(60) if orient == 'diagonal' else math.pi / 2
+        step = 2.9 if orient == 'diagonal' else 2.5
+        for a in ais:
+            n = int(a.length // step)
+            for k in range(n):
+                s0 = (a.length - n * step) / 2 + (k + 0.5) * step
+                p0 = a.interpolate(s0); p1 = a.interpolate(min(a.length, s0 + 0.5)); p9 = a.interpolate(max(0, s0 - 0.5))
+                dx, dz = p1.x - p9.x, p1.y - p9.y
+                dl = math.hypot(dx, dz) or 1; dx /= dl; dz /= dl
+                for side in (1, -1):
+                    ox, oz = -dz * side, dx * side              # verso l'esterno della corsia
+                    x, z = p0.x + ox * 5.3, p0.y + oz * 5.3
+                    hx = ox * math.sin(ang) + dx * math.cos(ang); hz = oz * math.sin(ang) + dz * math.cos(ang)
+                    if add_stall(x, z, math.atan2(hx, hz), 2.5, 5.0, 0, pp=pp):
+                        n_src[1] += 1
+    elif street:
+        # 3) lungo strada: allineati alla via piu' vicina
+        pt = poly.representative_point()
+        best, bd = None, 14.0
+        for i in road_tree.query(poly, predicate='dwithin', distance=12):
+            d = road_lines[i].distance(poly)
+            ln_in = road_lines[i].intersection(poly.buffer(12)).length
+            if ln_in > 3 and d - ln_in * 0.01 < bd:
+                bd, best = d - ln_in * 0.01, road_lines[i]
+        if not orient:
+            orient = 'parallel' if Wd < 3.7 else 'perpendicular'
+        step, depth, wd_s, typ = {'parallel': (5.8, 2.3, 2.3, 1), 'diagonal': (2.9, 5.0, 2.5, 0)}.get(orient, (2.5, 5.0, 2.5, 0))
+        if best is not None:
+            near = best.intersection(poly.buffer(14))
+            parts = [g for g in (near.geoms if hasattr(near, 'geoms') else [near]) if g.geom_type == 'LineString' and g.length > 2]
+            for a in parts:
+                n = int(a.length // step)
+                for k in range(n):
+                    s0 = (a.length - n * step) / 2 + (k + 0.5) * step
+                    p0 = a.interpolate(s0); p1 = a.interpolate(min(a.length, s0 + 0.5)); p9 = a.interpolate(max(0, s0 - 0.5))
+                    dx, dz = p1.x - p9.x, p1.y - p9.y
+                    dl = math.hypot(dx, dz) or 1; dx /= dl; dz /= dl
+                    for side in (1, -1):
+                        ox, oz = -dz * side, dx * side
+                        # intervallo di scostamenti laterali che cade dentro l'area
+                        o0 = o1 = None
+                        o = 1.2
+                        while o < 16:
+                            if pp.contains(SPoint(p0.x + ox * o, p0.y + oz * o)):
+                                if o0 is None:
+                                    o0 = o
+                                o1 = o
+                            elif o0 is not None:
+                                break
+                            o += 0.4
+                        if o0 is None or o1 - o0 < depth * 0.55:
+                            continue
+                        rows = max(1, min(2, int((o1 - o0 + 0.6) // depth)))
+                        for rw in range(rows):
+                            c = (o0 + o1) / 2 if rows == 1 else o0 + depth * (rw + 0.5)
+                            x, z = p0.x + ox * c, p0.y + oz * c
+                            if orient == 'parallel':
+                                hd = math.atan2(dx * side, dz * side)   # nel verso di marcia di quel lato
+                            elif orient == 'diagonal':
+                                hd = math.atan2(ox * 0.866 + dx * side * 0.5, oz * 0.866 + dz * side * 0.5)
+                            else:
+                                hd = math.atan2(ox, oz)
+                            if add_stall(x, z, hd, wd_s, 5.8 if typ else 5.0, typ, pp=pp):
+                                n_src[2] += 1
+        if len(stalls) == before and Wd >= 2.0:
+            # nessuna via vicina: fila lungo l'asse dell'area
+            n = int(L // step)
+            for k in range(n):
+                t0 = -L / 2 + (L - n * step) / 2 + (k + 0.5) * step
+                hd = math.atan2(ux, uz) if orient == 'parallel' else math.atan2(-uz, ux)
+                if add_stall(cx + ux * t0, cz + uz * t0, hd, wd_s, 5.8 if typ else 5.0, typ, pp=pp):
+                    n_src[2] += 1
+    else:
+        # 4) piazzale: file a pettine lungo l'asse maggiore, corsie da 6 m
+        vx, vz = -uz, ux
+        rows, v, first = [], -Wd / 2 + 2.9, True
+        while v < Wd / 2 - 2.4:
+            rows.append((v, 1 if first else -1))            # la prima fila guarda la corsia successiva
+            if not first and v + 5.0 < Wd / 2 - 2.4:
+                rows.append((v + 5.0, 1)); v += 5.0
+            v += 5.0 + 6.0
+            first = False
+        n = int(L // 2.5)
+        for (v, face) in rows:
+            for k in range(n):
+                t0 = -L / 2 + (L - n * 2.5) / 2 + (k + 0.5) * 2.5
+                if add_stall(cx + ux * t0 + vx * v, cz + uz * t0 + vz * v, math.atan2(vx * face, vz * face), 2.5, 5.0, 0, pp=pp):
+                    n_src[3] += 1
+    # capienza dichiarata: non superarla
+    made = len(stalls) - before
+    if pk['cap'] and made > pk['cap'] * 1.15 and pk['cap'] > 0:
+        keep = set(int(i * made / pk['cap']) for i in range(pk['cap']))
+        chunk = stalls[before:]
+        del stalls[before:]
+        stalls.extend(sv for i, sv in enumerate(chunk) if i in keep)
+print('stalli', len(stalls), 'mappati/corsie/strada/piazzale', n_src, 'aree', len(parkings))
+
 # ------------------------------------------------------------------ scrittura strade
 nodes_flat = []
 px = pz = 0
@@ -779,7 +1040,7 @@ img.resize((LW // 4, LH // 4)).save(os.path.join(height_dir, 'landcover_preview.
 print('landcover', LW, LH, os.path.getsize(lcjs))
 
 # ------------------------------------------------------------------ tessere edifici + alberi
-tiles = defaultdict(lambda: {'b': [], 'tr': [], 'rows': [], 'pa': [], 'ba': [], 'pt': []})
+tiles = defaultdict(lambda: {'b': [], 'tr': [], 'rows': [], 'pa': [], 'ba': [], 'pt': [], 'pk': []})
 TX = int(math.ceil((P.xmax - P.xmin) / TILE)); TZ = int(math.ceil((P.zmax - P.zmin) / TILE))
 
 
@@ -815,6 +1076,10 @@ for kind, bh, pts in barriers:
     k = tile_of(*pts[len(pts) // 2])
     if k and len(pts) >= 2:
         tiles[k]['ba'].append([kind, int(bh * 10)] + enc_ring(pts))
+for x, z, hd, wd, ln, typ in stalls:
+    k = tile_of(x, z)
+    if k:
+        tiles[k]['pk'] += [q(x), q(z), int(round(math.degrees(hd) * 10)) % 3600, int(round(wd * 10)), int(round(ln * 10)) * 2 + typ]
 for kind, x, z, text in points:
     k = tile_of(x, z)
     if k:

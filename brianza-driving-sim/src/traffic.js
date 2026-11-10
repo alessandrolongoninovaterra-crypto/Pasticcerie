@@ -9,7 +9,7 @@ import { signalState } from './signs.js';
 // da' la precedenza in rotatoria e nelle immissioni, si ferma per i pedoni. I veicoli (auto,
 // familiari, furgoni, autobus) sono la flotta istanziata del progetto "city".
 // Qui vivono anche le auto parcheggiate nei parcheggi reali e quelle lasciate dal giocatore.
-const SLOTS = 72, PARK_SLOTS = 168, FAR = 1e6, PALETTE = 14;
+const SLOTS = 72, FAR = 1e6, PALETTE = 14;
 
 export class Traffic {
   constructor(world) {
@@ -18,6 +18,7 @@ export class Traffic {
     this.target = 35;
     this.group = new THREE.Group();
     this.fleet = makeCarFleet(SLOTS);
+    const PARK_SLOTS = (world.settings && world.settings.parked) || 288;   // auto parcheggiate visibili insieme
     this.parkFleet = makeCarFleet(PARK_SLOTS);
     this.group.add(this.fleet.group, this.parkFleet.group);
     this.free = [];
@@ -267,36 +268,24 @@ export class Traffic {
   }
 
   // ------------------------------------------------------------ auto parcheggiate
-  // posti auto nei parcheggi reali (amenity=parking nella copertura del suolo)
-  computeParkSpots(tileKey, i, j) {
-    const R = this.R, T = this.world.terrain, col = this.world.collision;
-    const x0 = R.xmin + i * R.tileSize, z0 = R.zmin + j * R.tileSize;
-    const spots = [], seen = new Set();
-    let seed = (i * 73856093) ^ (j * 19349663);
-    const rnd = () => { seed = (seed * 1664525 + 1013904223) | 0; return ((seed >>> 8) & 0xffff) / 65536; };
-    for (let z = z0 + 4; z < z0 + R.tileSize && spots.length < 110; z += 8) for (let x = x0 + 4; x < x0 + R.tileSize; x += 8) {
-      if (T.landClass(x, z) !== 'parking') continue;
-      const nr = R.nearest(x, z, 45, (w) => w.drivable);
-      if (!nr) continue;
-      const w = R.ways[nr.wi], dl = Math.hypot(nr.dx, nr.dz) || 1, dx = nr.dx / dl, dz = nr.dz / dl;
-      // reticolo allineato alla corsia piu' vicina: file a 2,7 m, auto perpendicolari
-      const along = w.cum[nr.k] + nr.t * dl, side = Math.sign((x - nr.px) * -dz + (z - nr.pz) * dx) || 1;
-      const u = Math.round(along / 2.7), v = Math.max(1, Math.round((nr.d - w.width / 2 - 2.6) / 7.6));
-      const key = nr.wi * 4000003 + u * 131 + v * 2 + (side > 0 ? 1 : 0);
-      if (seen.has(key)) continue;
-      seen.add(key);
-      if (rnd() > 0.62) continue;
-      const off = w.width / 2 + 2.6 + (v - 1) * 7.6;
-      const [cx, cz] = R.pointAt(w, u * 2.7);
-      const sx = cx - dz * side * off, sz = cz + dx * side * off;
-      if (T.landClass(sx, sz) !== 'parking' || col.resolveCircle(sx, sz, 1.6)) continue;
-      const near = R.nearest(sx, sz, 6);
-      if (near && near.d < R.ways[near.wi].width / 2 + 1.2) continue;
-      const h = Math.atan2(-dz * side, dx * side) + (rnd() < 0.5 ? Math.PI : 0);
-      const type = rnd() < 0.7 ? 'car' : rnd() < 0.7 ? 'wagon' : 'van';
+  // Auto nei posti reali calcolati dalla pipeline (stalli mappati, corsie, lungo strada, piazzali).
+  // L'occupazione varia da un parcheggio all'altro ed e' stabile tra una partita e l'altra.
+  computeParkSpots(tileKey, tile) {
+    const T = this.world.terrain, col = this.world.collision;
+    const pk = (tile && tile.pk) || [], spots = [];
+    const hash = (a, b) => { let n = (Math.imul(a | 0, 374761393) + Math.imul(b | 0, 668265263)) | 0; n = Math.imul(n ^ (n >>> 13), 1274126177); return ((n ^ (n >>> 16)) >>> 0) / 4294967296; };
+    for (let i = 0; i < pk.length; i += 5) {
+      const x = pk[i] / 10, z = pk[i + 1] / 10, wd = pk[i + 3] / 10, ln = (pk[i + 4] >> 1) / 10, typ = pk[i + 4] & 1;
+      // riempimento del parcheggio (blocchi di 70 m): dal 55% al 95%
+      const fill = 0.55 + 0.4 * hash(Math.floor(x / 70), Math.floor(z / 70));
+      if (hash(pk[i], pk[i + 1]) > fill) continue;
+      let h = pk[i + 2] / 10 * Math.PI / 180;
+      if (typ === 0 && hash(pk[i + 1], pk[i]) < 0.45) h += Math.PI;       // a pettine: muso avanti o indietro
+      const r2 = hash(pk[i] + 7, pk[i + 1] + 13);
+      const type = r2 < 0.7 || wd < 2.35 ? 'car' : r2 < 0.9 ? 'wagon' : (ln >= 5 ? 'van' : 'wagon');
       const box = VEHICLE_BOX[type], fx = Math.sin(h), fz = Math.cos(h);
-      const objs = [col.addCircle(tileKey, sx + fx * 1.1, sz + fz * 1.1, box.halfW), col.addCircle(tileKey, sx - fx * 1.1, sz - fz * 1.1, box.halfW)];
-      spots.push({ x: sx, z: sz, y: T.height(sx, sz) + 0.05, h, type, box, colour: Math.floor(rnd() * PALETTE), taken: false, objs });
+      const objs = [col.addCircle(tileKey, x + fx * 1.1, z + fz * 1.1, box.halfW - 0.08), col.addCircle(tileKey, x - fx * 1.1, z - fz * 1.1, box.halfW - 0.08)];
+      spots.push({ x, z, y: T.height(x, z) + 0.06, h, type, box, colour: Math.floor(hash(pk[i] + 3, pk[i + 1] + 5) * PALETTE), taken: false, objs });
     }
     this.parkSpots.set(tileKey, spots);
     this.parkTimer = 0;
@@ -309,7 +298,7 @@ export class Traffic {
     for (const spots of this.parkSpots.values()) for (const s of spots) {
       if (s.taken) continue;
       const d = Math.hypot(s.x - px, s.z - pz);
-      if (d < 420) { s._d = d; byType[s.type].push(s); }
+      if (d < 520) { s._d = d; byType[s.type].push(s); }
     }
     nextNormal.x = 0; nextNormal.y = 1; nextNormal.z = 0;
     for (const t of Object.keys(byType)) {
