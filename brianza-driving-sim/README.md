@@ -166,11 +166,17 @@ colori restano quelli di OSM.
    Arosio, Inverigo): lì restano gli edifici OSM, a meno di aggiungere anche il pacchetto di Como.
 3. Rigenera i dati: `tools/run_pipeline.sh` (oppure solo `build_data.py`).
 
-La pipeline riconosce i livelli dai nomi dei campi (`UN_VOL_AV` per le unità volumetriche,
+I pacchetti del Geoportale sono **GeoPackage** (`dbgt.gpkg`, un database SQLite): gli edifici
+sono nella tabella `UN_VOL`, in coordinate RDN2008 / UTM 32N (EPSG 7791). Sono supportati anche
+gli shapefile. La pipeline riconosce i livelli dai nomi dei campi (`UN_VOL_AV` per le unità volumetriche,
 `CR_EDF_*` / `EDIFC_USO` per i corpi edificati), legge il sistema di riferimento dal `.prj` e
 stampa un riepilogo: comuni coperti, edifici OSM sostituiti, volumi aggiunti. Un
 comune viene sostituito solo se la maggior parte dei suoi edifici OSM trova un volume DBGT, così
 i pacchetti dei comuni vicini non lasciano buchi ai confini. I crediti compaiono nel menu.
+
+I volumi contenuti per oltre l'80% in un volume più alto (porzioni interne) vengono scartati.
+Nel repository sono conservati solo i file ridotti `dbgt/*.dbgt.json.gz` (gli zip originali sono
+esclusi da git). Comuni già importati: **Cabiate**.
 
 **Licenza:** il Geoportale pubblica i dati con licenze diverse per prodotto (CC-BY 4.0, IODL 2.0
 o altre): controlla quella indicata nella pagina di download del DBGT prima di distribuire il gioco.

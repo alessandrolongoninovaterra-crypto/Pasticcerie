@@ -583,6 +583,24 @@ if DBGT_DIR and os.path.isdir(DBGT_DIR):
     vols, bodies, dinfo = load_dbgt(DBGT_DIR, os.path.join(height_dir, 'dbgt_extract'), P.fwd, bbox)
     print('DBGT: unita volumetriche', len(vols), 'corpi edificati', len(bodies), dict(dinfo.most_common(15)))
     if vols:
+        # volumi contenuti per oltre l'80% in un volume piu' alto (porzioni interne): invisibili
+        vg = []
+        for v in vols:
+            try:
+                vg.append(_SP(v['ring']).buffer(0))
+            except Exception:
+                vg.append(None)
+        vtree0 = _Tree([g if g is not None else _SP() for g in vg])
+        drop = set()
+        for i, g in enumerate(vg):
+            if g is None or g.is_empty or g.area <= 0:
+                drop.add(i); continue
+            for j in vtree0.query(g, predicate='intersects'):
+                if j != i and vg[j] is not None and vols[j]['h'] > vols[i]['h'] + 0.3 and vg[j].intersection(g).area > 0.8 * g.area:
+                    drop.add(i); break
+        if drop:
+            print('DBGT: volumi interni a volumi piu alti scartati', len(drop))
+            vols = [v for i, v in enumerate(vols) if i not in drop]
         cpolys = []
         for c in comuni:
             try:

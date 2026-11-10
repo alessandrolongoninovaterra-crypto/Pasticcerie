@@ -15,7 +15,7 @@ import base64, gzip, json, math, os, re, sys, tempfile
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
-from dbgt import _extract, layer_kind, read_dbf, read_shp, read_prj, _attrs  # noqa: E402
+from dbgt import iter_layers  # noqa: E402  (solo libreria standard)
 
 LIMIT = float(os.environ.get('BDS_DBGT_LIMIT_MB', 28)) * 1024 * 1024
 args = [a for a in sys.argv[1:] if not a.startswith('--')]
@@ -85,36 +85,28 @@ if os.path.isfile(src):
         import shutil
         shutil.copy(src, folder)
 work = tempfile.mkdtemp(prefix='dbgt_ed_')
-shps, compact = _extract(folder, work)
 
 layers = []   # (tipo, prj, [record compatti])
 kept = total = 0
-for shp in shps:
-    recs = read_dbf(os.path.splitext(shp)[0] + '.dbf')
-    kind = layer_kind(list(recs[0].keys()) if recs and recs[0] else [])
-    if not kind:
-        continue
-    prj = read_prj(shp)
+for kind, prj, recs in iter_layers(folder, work):
     rect = clip_rect(prj, bbox)
-    out = []
-    for r, g in zip(recs, read_shp(shp)):
-        if not r or not g:
+    out, seen = [], 0
+    for attrs, rings in recs:
+        seen += 1
+        xs = [p[0] for r in rings for p in r]; ys = [p[1] for r in rings for p in r]
+        if not xs or (rect and (max(xs) < rect[0] or min(xs) > rect[2] or max(ys) < rect[1] or min(ys) > rect[3])):
             continue
-        total += 1
-        bb = g[0]
-        if rect and (bb[2] < rect[0] or bb[0] > rect[2] or bb[3] < rect[1] or bb[1] > rect[3]):
-            continue
-        rings = []
-        for ring in g[1]:
+        enc = []
+        for ring in rings:
             flat, px, py = [], 0, 0
             for x, y in ring:
                 qx, qy = int(round(x * 10)), int(round(y * 10))
                 flat += [qx - px, qy - py]
                 px, py = qx, qy
-            rings.append(flat)
-        out.append({'a': _attrs(kind, r), 'r': rings})
-    kept += len(out)
-    print('  %s: %d di %d oggetti nell\'area' % (os.path.basename(shp), len(out), len(read_shp(shp))))
+            enc.append(flat)
+        out.append({'a': [str(a) for a in attrs], 'r': enc})
+    total += seen; kept += len(out)
+    print('  %s: %d di %d oggetti nell\'area' % ('unita volumetriche' if kind == 'vol' else 'corpi edificati', len(out), seen))
     layers.append((kind, prj, out))
 
 # scrittura in parti sotto il limite

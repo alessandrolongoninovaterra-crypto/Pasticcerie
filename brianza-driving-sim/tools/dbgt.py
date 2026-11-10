@@ -13,7 +13,7 @@ Gli shapefile si leggono con codice in sola libreria standard; pyproj serve solo
 delle coordinate nella pipeline. Le unita' volumetriche sono porzioni di edificio di altezza
 omogenea: un palazzo con un corpo basso e una torre sono due unita' con altezze diverse.
 """
-import gzip, io, json, math, os, struct, zipfile
+import gzip, io, json, math, os, sqlite3, struct, zipfile
 from collections import Counter
 
 COMPANIONS = ('.shp', '.shx', '.dbf', '.prj', '.cpg')
@@ -102,7 +102,7 @@ def _extract(folder, work):
     riconosce leggendo l'intestazione del suo .dbf direttamente dentro lo zip.
     Restituisce (shapefile, file compatti)."""
     os.makedirs(work, exist_ok=True)
-    shps, compact = [], []
+    shps, compact, gpkgs = [], [], []
 
     def scan_zip(zf, tag):
         members = zf.namelist()
@@ -115,6 +115,15 @@ def _extract(folder, work):
                 dest = os.path.join(work, tag)
                 zf.extract(m, dest)
                 compact.append(os.path.join(dest, m))
+            elif m.lower().endswith('.gpkg'):
+                # i pacchetti del Geoportale sono GeoPackage (SQLite): si estrae e si controlla
+                dest = os.path.join(work, tag)
+                zf.extract(m, dest)
+                p = os.path.join(dest, m)
+                if gpkg_layers(p):
+                    gpkgs.append(p)
+                else:
+                    os.remove(p)
         for base, parts in by_base.items():
             if '.dbf' not in parts or '.shp' not in parts:
                 continue
@@ -147,16 +156,68 @@ def _extract(folder, work):
                     print('  zip non valido:', p)
             elif fl.endswith(COMPACT_EXT):
                 compact.append(p)
+            elif fl.endswith('.gpkg') and gpkg_layers(p):
+                gpkgs.append(p)
             elif fl.endswith('.shp'):
                 dbf = os.path.splitext(p)[0] + '.dbf'
                 if os.path.exists(dbf):
                     with open(dbf, 'rb') as fh:
                         if layer_kind(_dbf_fields(fh)):
                             shps.append(p)
-    print('  livelli degli edifici trovati:', len(shps), 'shapefile,', len(compact), 'file compatti')
-    for x in (shps + compact)[:12]:
+    print('  livelli degli edifici trovati:', len(shps), 'shapefile,', len(gpkgs), 'GeoPackage,', len(compact), 'file compatti')
+    for x in (shps + gpkgs + compact)[:12]:
         print('    ', os.path.relpath(x, work) if os.path.abspath(x).startswith(os.path.abspath(work)) else x)
-    return sorted(set(shps)), sorted(set(compact))
+    return sorted(set(shps)), sorted(set(compact)), sorted(set(gpkgs))
+
+
+# ------------------------------------------------------------------ GeoPackage
+def gpkg_layers(path):
+    """[(tabella, colonna geometria, wkt del sistema, tipo, colonne)] dei livelli degli edifici."""
+    try:
+        db = sqlite3.connect('file:%s?mode=ro' % path, uri=True)
+        out = []
+        srs = dict(db.execute('select srs_id, definition from gpkg_spatial_ref_sys'))
+        for table, col, srs_id in db.execute('select table_name, column_name, srs_id from gpkg_geometry_columns').fetchall():
+            cols = [r[1] for r in db.execute('pragma table_info("%s")' % table.replace('"', '""'))]
+            kind = layer_kind(cols)
+            if kind:
+                out.append((table, col, srs.get(srs_id, ''), kind, cols))
+        db.close()
+        return out
+    except sqlite3.Error:
+        return []
+
+
+def gpkg_polys(b):
+    """Geometria GeoPackage (intestazione + WKB, anche Z/M) -> [anello esterno per poligono]."""
+    env = (b[3] >> 1) & 7
+    out = []
+
+    def geom(o):
+        bo = '<' if b[o] == 1 else '>'
+        t = struct.unpack(bo + 'I', b[o + 1:o + 5])[0]
+        hz, hm = bool(t & 0x80000000), bool(t & 0x40000000)
+        t &= 0x0FFFFFFF
+        base, dim = t % 1000, t // 1000
+        nd = 2 + (hz or dim in (1, 3)) + (hm or dim in (2, 3))
+        o += 5
+        if base == 3:
+            nr = struct.unpack(bo + 'I', b[o:o + 4])[0]; o += 4
+            for r in range(nr):
+                n = struct.unpack(bo + 'I', b[o:o + 4])[0]; o += 4
+                if r == 0:
+                    v = struct.unpack(bo + '%dd' % (n * nd), b[o:o + 8 * n * nd])
+                    out.append([(v[i * nd], v[i * nd + 1]) for i in range(n)])
+                o += 8 * n * nd
+            return o
+        if base == 6:
+            n = struct.unpack(bo + 'I', b[o:o + 4])[0]; o += 4
+            for _ in range(n):
+                o = geom(o)
+            return o
+        raise ValueError('geometria non gestita %d' % t)
+    geom(8 + {0: 0, 1: 32, 2: 48, 3: 48, 4: 64}[env])
+    return out
 
 
 def read_prj(shp):
@@ -183,7 +244,27 @@ def _attrs(kind, rec):
 
 def iter_layers(folder, work):
     """(tipo, wkt del sistema di riferimento, [(attributi, anelli)]) per ogni livello trovato."""
-    shps, compact = _extract(folder, work)
+    shps, compact, gpkgs = _extract(folder, work)
+    for gp in gpkgs:
+        for table, col, wkt, kind, cols in gpkg_layers(gp):
+            db = sqlite3.connect('file:%s?mode=ro' % gp, uri=True)
+            n = db.execute('select count(*) from "%s"' % table).fetchone()[0]
+            print('  lettura', os.path.basename(gp), table, n, 'oggetti')
+            q = 'select "%s", %s from "%s"' % (col, ', '.join('"%s"' % c for c in cols if c != col), table)
+            other = [c.lower() for c in cols if c != col]
+
+            def gen(db=db, q=q, other=other, kind=kind):
+                for row in db.execute(q):
+                    if not row[0]:
+                        continue
+                    rec = {k: ('' if v is None else str(v).strip()) for k, v in zip(other, row[1:])}
+                    try:
+                        polys = gpkg_polys(row[0])
+                    except (ValueError, struct.error):
+                        continue
+                    for ring in polys:          # un record per poligono, con il solo anello esterno
+                        yield _attrs(kind, rec), [ring]
+            yield kind, wkt, gen()
     for shp in shps:
         recs = read_dbf(os.path.splitext(shp)[0] + '.dbf')
         kind = layer_kind(list(recs[0].keys()) if recs and recs[0] else [])
