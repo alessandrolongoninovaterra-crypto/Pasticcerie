@@ -148,18 +148,23 @@ colori restano quelli di OSM.
 1. Registrati gratuitamente sul [Geoportale della Lombardia](https://www.geoportale.regione.lombardia.it/download-dati),
    fai l'accesso, cerca nel catalogo il *Database Geo-Topografico* e scarica il pacchetto di
    ciascun comune che ti interessa.
-2. Metti gli zip così come sono in `brianza-driving-sim/dbgt/` (la cartella è esclusa da git).
-   Va bene anche il pacchetto provinciale intero (Monza e Brianza supera 1 GB): la pipeline legge
-   l'intestazione dei file dentro lo zip ed estrae solo i livelli degli edifici. Per ottenere uno
-   zip piccolo da conservare o da inviare:
-   `python3 tools/dbgt_solo_edifici.py pacchetto.zip DBGT_solo_edifici.zip` (solo libreria standard).
+2. Hai due possibilità:
+   - metti gli zip così come sono (anche il pacchetto provinciale da oltre 1 GB) in
+     `brianza-driving-sim/dbgt/` (cartella esclusa da git): la pipeline legge l'intestazione dei
+     file dentro lo zip ed estrae solo i livelli degli edifici;
+   - oppure riducili prima a file compatti con i soli edifici dell'area del gioco:
+     `python3 tools/dbgt_solo_edifici.py pacchetto.zip DBGT_MB` (su Windows `py` al posto di
+     `python3`). Usa solo la libreria standard di Python, ritaglia sull'area del gioco e scrive
+     uno o più file `DBGT_MB_N.dbgt.json.gz` sotto i 28 MB ciascuno. Con i ~110.000 edifici
+     dell'area attuale si ottengono pochi MB: si possono conservare, inviare o mettere in `dbgt/`.
+
    Il pacchetto di Monza e Brianza non comprende i comuni in provincia di Como (Mariano Comense,
    Arosio, Inverigo): lì restano gli edifici OSM, a meno di aggiungere anche il pacchetto di Como.
 3. Rigenera i dati: `tools/run_pipeline.sh` (oppure solo `build_data.py`).
 
-La pipeline estrae gli zip, riconosce i livelli dai nomi dei campi (`UN_VOL_AV` per le unità
-volumetriche, `CR_EDF_*` / `EDIFC_USO` per i corpi edificati), legge il sistema di riferimento
-dal `.prj` e stampa un riepilogo: comuni coperti, edifici OSM sostituiti, volumi aggiunti. Un
+La pipeline riconosce i livelli dai nomi dei campi (`UN_VOL_AV` per le unità volumetriche,
+`CR_EDF_*` / `EDIFC_USO` per i corpi edificati), legge il sistema di riferimento dal `.prj` e
+stampa un riepilogo: comuni coperti, edifici OSM sostituiti, volumi aggiunti. Un
 comune viene sostituito solo se la maggior parte dei suoi edifici OSM trova un volume DBGT, così
 i pacchetti dei comuni vicini non lasciano buchi ai confini. I crediti compaiono nel menu.
 
@@ -205,7 +210,7 @@ npm run watch
 | `src/sky.js` | ciclo giorno/notte |
 | `src/main.js` | menu, HUD, telecamere, ciclo di gioco |
 | `tools/dbgt.py` | lettura dei pacchetti DBGT di Regione Lombardia |
-| `tools/dbgt_solo_edifici.py` | riduce un pacchetto DBGT ai soli livelli degli edifici |
+| `tools/dbgt_solo_edifici.py` | riduce un pacchetto DBGT a file compatti (< 28 MB) con i soli edifici dell'area |
 
 ## Licenze dei dati
 

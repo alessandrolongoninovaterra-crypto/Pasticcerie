@@ -2,5 +2,4 @@ osmium>=4.0
 numpy
 pillow
 shapely
-pyshp
 pyproj
