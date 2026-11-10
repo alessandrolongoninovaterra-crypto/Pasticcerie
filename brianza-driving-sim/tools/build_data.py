@@ -565,6 +565,102 @@ for o in fp:
 print('oggetti', n_obj, 'vie', len(road_ways), 'nodi strada', len(node_xy), 'edifici', len(buildings),
       'landcover', len(landcover_polys), 'alberi', len(trees_pt), 'ferrovie', len(rails), 'acque', len(waters))
 
+# ------------------------------------------------------------------ edifici dal DBGT di Regione Lombardia
+# Se e' disponibile una cartella con i pacchetti DBGT (config "dbgt_dir" o variabile BDS_DBGT),
+# nei comuni coperti le forme OSM vengono sostituite dalle "unita' volumetriche" del DBGT,
+# con la loro altezza misurata. Tipologia, nome e colori restano quelli di OSM (per sovrapposizione).
+dbgt_comuni = []
+DBGT_DIR = os.environ.get('BDS_DBGT') or CFG.get('dbgt_dir') or ''
+if DBGT_DIR and not os.path.isabs(DBGT_DIR):
+    DBGT_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', DBGT_DIR)
+if DBGT_DIR and os.path.isdir(DBGT_DIR):
+    from collections import Counter
+    from shapely.geometry import Polygon as _SP, Point as _Pt
+    from shapely.ops import unary_union
+    from shapely.prepared import prep as _prep
+    from shapely.strtree import STRtree as _Tree
+    from dbgt import load_dbgt
+    vols, bodies, dinfo = load_dbgt(DBGT_DIR, os.path.join(height_dir, 'dbgt_extract'), P.fwd, bbox)
+    print('DBGT: unita volumetriche', len(vols), 'corpi edificati', len(bodies), dict(dinfo.most_common(15)))
+    if vols:
+        cpolys = []
+        for c in comuni:
+            try:
+                g = unary_union([_SP(r) for r in c['rings'] if len(r) >= 4]).buffer(0)
+                if not g.is_empty:
+                    cpolys.append((c['n'], g))
+            except Exception:
+                pass
+        ctree = _Tree([g for _, g in cpolys])
+        cnt = Counter()
+        for v in vols:
+            pt = _Pt(*centroid(v['ring']))
+            for i in ctree.query(pt):
+                if cpolys[i][1].contains(pt):
+                    cnt[i] += 1
+                    break
+        # un comune e' "coperto" se la maggior parte dei suoi edifici OSM trova un volume DBGT:
+        # cosi' i pochi volumi di confine dei comuni vicini non cancellano gli edifici OSM.
+        vtree = _Tree([_SP(v['ring']) for v in vols if len(v['ring']) >= 4])
+        osm_n, osm_hit = Counter(), Counter()
+        for b in buildings:
+            pt = _Pt(*centroid(b['r']))
+            for i in ctree.query(pt):
+                if cpolys[i][1].contains(pt):
+                    osm_n[i] += 1
+                    if len(vtree.query(pt.buffer(0.5), predicate='intersects')):
+                        osm_hit[i] += 1
+                    break
+        covered = [i for i, k in cnt.items() if (osm_n[i] and osm_hit[i] / osm_n[i] >= 0.6) or (not osm_n[i] and k >= 30)]
+        for i, k in cnt.items():
+            if i not in covered and k >= 30:
+                print('  DBGT parziale, resta OSM:', cpolys[i][0], '%d/%d edifici OSM corrispondenti' % (osm_hit[i], osm_n[i]))
+        dbgt_comuni = sorted(cpolys[i][0] for i in covered)
+        cov = _prep(unary_union([cpolys[i][1] for i in covered]).buffer(1.0)) if covered else None
+        # indice degli edifici OSM per ereditarne tipologia, nome e colori
+        osm_idx = []
+        for b in buildings:
+            try:
+                g = _SP(b['r'])
+                if g.is_valid and not g.is_empty:
+                    osm_idx.append((g, b))
+            except Exception:
+                pass
+        otree = _Tree([g for g, _ in osm_idx]) if osm_idx else None
+        kept = [b for b in buildings if not (cov and cov.contains(_Pt(*centroid(b['r']))))]
+        added = 0
+        for v in vols:
+            r = v['ring']
+            if r[0] == r[-1]:
+                r = r[:-1]
+            r = dp_simplify(r + [r[0]], 0.2)[:-1]
+            if len(r) < 3:
+                continue
+            if ring_area(r) < 0:
+                r = r[::-1]
+            if abs(ring_area(r)) < 4:
+                continue
+            pt = _Pt(*centroid(r))
+            if not (cov and cov.contains(pt)):
+                continue
+            src = None
+            if otree is not None:
+                best = 0
+                for i in otree.query(pt):
+                    g, b = osm_idx[i]
+                    if g.contains(pt) and (src is None or g.area < best):
+                        src, best = b, g.area
+            h = v['h'] if 0.8 < v['h'] < 250 else 0.0
+            kept.append({'r': r, 't': src['t'] if src else 0, 'h': h, 'mh': 0.0, 'l': 0,
+                         'rs': src['rs'] if src else 0, 'n': src['n'] if src else '',
+                         'c': src['c'] if src else '', 'rc': src['rc'] if src else ''})
+            added += 1
+        print('DBGT: comuni coperti', len(dbgt_comuni), dbgt_comuni[:20], '- edifici OSM sostituiti',
+              len(buildings) - (len(kept) - added), 'volumi DBGT aggiunti', added)
+        buildings = kept
+elif DBGT_DIR:
+    print('DBGT: cartella non trovata', DBGT_DIR)
+
 # ------------------------------------------------------------------ rete stradale: nodi, semplificazione
 use_count = defaultdict(int)
 for w in road_ways:
@@ -1113,8 +1209,9 @@ config_comuni = CFG['comuni']
 meta = {
     'proj': P.meta(), 'height': HMETA, 'tile': TILE, 'tilesX': TX, 'tilesZ': TZ, 'tiles': tile_keys,
     'landcover': {'w': LW, 'h': LH, 'mpp': MPP, 'palette': {k: v[1] for k, v in LC.items()}, 'default': LC_DEFAULT},
-    'comuni': comuni, 'featured': config_comuni, 'places': places, 'landmarks': lm_out, 'waters': waters,
+    'comuni': comuni, 'featured': config_comuni, 'dbgt': dbgt_comuni, 'places': places, 'landmarks': lm_out, 'waters': waters,
     'rivers': rivers, 'power': power_lines,
-    'source': 'Dati (c) OpenStreetMap contributors, ODbL. Altimetria: Terrarium tiles (Mapzen / AWS Open Data).',
+    'source': 'Dati (c) OpenStreetMap contributors, ODbL. Altimetria: Terrarium tiles (Mapzen / AWS Open Data).'
+              + (' Edifici: DBGT Regione Lombardia (comuni: ' + ', '.join(dbgt_comuni) + ').' if dbgt_comuni else ''),
 }
 print('meta.js', write_js(os.path.join(OUT, 'meta.js'), 'meta', meta), 'landmarks', len(lm_out), 'places', len(places))

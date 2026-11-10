@@ -137,6 +137,29 @@ segnaletica, edifici, fisica, navigatore, comportamento di pedoni e traffico) è
   geometrie unite per materiale, atlanti di texture per i cartelli, alberi e lampioni
   instanziati, tre livelli di qualità.
 
+## Edifici dal DBGT di Regione Lombardia (facoltativo)
+
+Il **DBGT** (Database Geo-Topografico) della Regione contiene le forme degli edifici rilevate
+dalla cartografia comunale e, per ogni porzione di edificio di altezza omogenea ("unità
+volumetrica"), l'**altezza misurata**. Se lo fornisci alla pipeline, nei comuni coperti le forme
+e le altezze degli edifici vengono dal DBGT invece che da OpenStreetMap; tipologia, nomi e
+colori restano quelli di OSM.
+
+1. Registrati gratuitamente sul [Geoportale della Lombardia](https://www.geoportale.regione.lombardia.it/download-dati),
+   fai l'accesso, cerca nel catalogo il *Database Geo-Topografico* e scarica il pacchetto di
+   ciascun comune che ti interessa.
+2. Metti gli zip così come sono in `brianza-driving-sim/dbgt/` (la cartella è esclusa da git).
+3. Rigenera i dati: `tools/run_pipeline.sh` (oppure solo `build_data.py`).
+
+La pipeline estrae gli zip, riconosce i livelli dai nomi dei campi (`UN_VOL_AV` per le unità
+volumetriche, `CR_EDF_*` / `EDIFC_USO` per i corpi edificati), legge il sistema di riferimento
+dal `.prj` e stampa un riepilogo: comuni coperti, edifici OSM sostituiti, volumi aggiunti. Un
+comune viene sostituito solo se la maggior parte dei suoi edifici OSM trova un volume DBGT, così
+i pacchetti dei comuni vicini non lasciano buchi ai confini. I crediti compaiono nel menu.
+
+**Licenza:** il Geoportale pubblica i dati con licenze diverse per prodotto (CC-BY 4.0, IODL 2.0
+o altre): controlla quella indicata nella pagina di download del DBGT prima di distribuire il gioco.
+
 ## Ampliare la mappa (fase 4)
 
 Aggiungi i comuni a `tools/config.json` (nome come in OSM) e rigenera i dati:
@@ -175,6 +198,7 @@ npm run watch
 | `src/world.js` | streaming delle tessere, laghi, etichette |
 | `src/sky.js` | ciclo giorno/notte |
 | `src/main.js` | menu, HUD, telecamere, ciclo di gioco |
+| `tools/dbgt.py` | lettura dei pacchetti DBGT di Regione Lombardia |
 
 ## Licenze dei dati
 

@@ -97,6 +97,11 @@ function startOptions() {
 function setupMenu() {
   const menu = $('menu');
   menu.classList.remove('hidden');
+  if (G.meta.dbgt && G.meta.dbgt.length && !$('dbgtcredit')) {
+    const p = document.createElement('div'); p.id = 'dbgtcredit';
+    p.textContent = `Forme e altezze degli edifici: DBGT – Database Geo-Topografico di Regione Lombardia (${G.meta.dbgt.join(', ')}).`;
+    document.querySelector('#menu .credits').appendChild(p);
+  }
   const carsEl = $('cars');
   carsEl.innerHTML = '';
   CARS.forEach((c, i) => {
