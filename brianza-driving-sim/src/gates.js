@@ -47,6 +47,8 @@ export function fenceMaterials() {
     grille: new THREE.MeshLambertMaterial({ map: tex, vertexColors: true, alphaTest: 0.45, side: THREE.DoubleSide, transparent: false }),
     solid: new THREE.MeshLambertMaterial({ vertexColors: true }),
   };
+  // ombre delle griglie: un solo materiale condiviso da tutte le tessere
+  MATS.depth = new THREE.MeshDepthMaterial({ depthPacking: THREE.RGBADepthPacking, map: tex, alphaTest: 0.45, side: THREE.DoubleSide });
   return MATS;
 }
 
@@ -171,7 +173,7 @@ export class Gates {
       }
       if (state === 2) { this.addDynamic(group, tileKey, kind, x, y, z, sx, sz, w, H); continue; }
       const closed = state === 1;
-      if (closed) this.col.addPolygon(tileKey, Float32Array.from([Ax - nx * 0.2, Az - nz * 0.2, Bx - nx * 0.2, Bz - nz * 0.2, Bx + nx * 0.2, Bz + nz * 0.2, Ax + nx * 0.2, Az + nz * 0.2]));
+      if (closed) this.col.addPolygon(tileKey, Float32Array.from([Ax - nx * 0.2, Az - nz * 0.2, Bx - nx * 0.2, Bz - nz * 0.2, Bx + nx * 0.2, Bz + nz * 0.2, Ax + nx * 0.2, Az + nz * 0.2]), undefined, true);
       if (kind === 0) {
         const two = w > 2.6, len = two ? w / 2 : w;
         const leaves = two ? [[Ax, Az, sx, sz], [Bx, Bz, -sx, -sz]] : [[Ax, Az, sx, sz]];
@@ -203,8 +205,7 @@ export class Gates {
   }
 
   depthMat() {
-    if (!this._depth) this._depth = new THREE.MeshDepthMaterial({ depthPacking: THREE.RGBADepthPacking, map: fenceMaterials().grille.map, alphaTest: 0.45, side: THREE.DoubleSide });
-    return this._depth;
+    return fenceMaterials().depth;
   }
 
   // sbarra ferma: orizzontale (chiusa) o alzata
@@ -250,7 +251,7 @@ export class Gates {
       }
     }
     for (const p of d.parts) p.apply(0);
-    d.colObj = this.col.addPolygon(tileKey, d.ring);
+    d.colObj = this.col.addPolygon(tileKey, d.ring, undefined, true);
     this.dyn.push(d);
   }
 
@@ -268,7 +269,7 @@ export class Gates {
       d.open = d.target > d.open ? Math.min(1, d.open + dt * sp) : Math.max(0, d.open - dt * sp);
       for (const p of d.parts) p.apply(d.open);
       const block = d.open < 0.8;
-      if (block && !d.colObj) d.colObj = this.col.addPolygon(d.tile, d.ring);
+      if (block && !d.colObj) d.colObj = this.col.addPolygon(d.tile, d.ring, undefined, true);
       else if (!block && d.colObj) { this.col.remove(d.colObj); d.colObj = null; }
     }
   }

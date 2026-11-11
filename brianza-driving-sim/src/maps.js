@@ -1,4 +1,4 @@
-import { CLS, F } from './roads.js';
+import { CLS } from './roads.js';
 
 // Minimappa stile navigatore (orientata con la direzione di marcia) e mappa
 // completa per scegliere la destinazione o il punto di partenza.

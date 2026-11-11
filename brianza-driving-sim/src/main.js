@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { loadData, Projection } from './data.js';
 import { Terrain } from './terrain.js';
-import { RoadNetwork, CLS, F } from './roads.js';
+import { RoadNetwork, CLS } from './roads.js';
 import { World } from './world.js';
 import { Sky } from './sky.js';
 import { CARS, buildCarModel, drawCluster } from './cars.js';
@@ -15,7 +15,6 @@ import { EngineAudio } from './audio.js';
 import { Pedestrians } from './pedestrians.js';
 import { signalState } from './signs.js';
 import { NT } from './roads.js';
-import { VEHICLE_BOX } from './vendor/city/vehicles.js';
 import { fleetPalette } from './vendor/city/car.js';
 import { EffectComposer } from 'three/examples/jsm/postprocessing/EffectComposer.js';
 import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass.js';
@@ -100,7 +99,7 @@ function setupMenu() {
   menu.classList.remove('hidden');
   if (G.meta.dbgt && G.meta.dbgt.length && !$('dbgtcredit')) {
     const p = document.createElement('div'); p.id = 'dbgtcredit';
-    p.textContent = `Forme e altezze degli edifici: DBGT – Database Geo-Topografico di Regione Lombardia (${G.meta.dbgt.join(', ')}).`;
+    p.textContent = `Forme e altezze degli edifici${G.meta.height.step < 20 ? ' e altimetria di dettaglio' : ''}: DBGT – Database Geo-Topografico di Regione Lombardia (${G.meta.dbgt.join(', ')}).`;
     document.querySelector('#menu .credits').appendChild(p);
   }
   const carsEl = $('cars');

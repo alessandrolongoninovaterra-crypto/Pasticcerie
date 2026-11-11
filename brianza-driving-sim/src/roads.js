@@ -1096,7 +1096,7 @@ export class RoadNetwork {
     if (!gs.empty) grp.add(gs.mesh(fenceMaterials().solid, true));
     if (!gg.empty) {
       const m = gg.mesh(fenceMaterials().grille, true);
-      m.customDepthMaterial = new THREE.MeshDepthMaterial({ depthPacking: THREE.RGBADepthPacking, map: fenceMaterials().grille.map, alphaTest: 0.45, side: THREE.DoubleSide });
+      m.customDepthMaterial = fenceMaterials().depth;
       grp.add(m);
     }
     return grp.children.length ? grp : null;

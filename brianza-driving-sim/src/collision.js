@@ -22,13 +22,14 @@ export class Collision {
 
   // top (facoltativo): quota assoluta della sommita' dell'ostacolo (edifici, alberi, tralicci),
   // usata dall'aereo per capire se ci passa sopra
-  addPolygon(tile, ring, top) {
+  // force: registra anche i poligoni piccoli (cancelletti), di solito scartati perche' irrilevanti
+  addPolygon(tile, ring, top, force = false) {
     let minx = 1e9, minz = 1e9, maxx = -1e9, maxz = -1e9;
     for (let i = 0; i < ring.length; i += 2) {
       minx = Math.min(minx, ring[i]); maxx = Math.max(maxx, ring[i]);
       minz = Math.min(minz, ring[i + 1]); maxz = Math.max(maxz, ring[i + 1]);
     }
-    if (maxx - minx < 1.5 && maxz - minz < 1.5) return null;
+    if (!force && maxx - minx < 1.5 && maxz - minz < 1.5) return null;
     const o = { ring, tile, minx, minz, maxx, maxz, top };
     this._add(tile, o);
     return o;

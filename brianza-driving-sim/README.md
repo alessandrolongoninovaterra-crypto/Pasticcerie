@@ -187,6 +187,8 @@ colori restano quelli di OSM.
      del gioco), scegli lo zip del DBGT e scarica i file ridotti con edifici e altimetria dell'area
      del gioco, ognuno sotto i 28 MB. Funziona nel browser (Chrome, Edge, Firefox), senza inviare il
      file da nessuna parte; anche il pacchetto provinciale da oltre 1 GB va bene;
+     se la pagina viene aperta da sola (senza la cartella `data/` accanto) ritaglia comunque,
+     sull'area predefinita del gioco;
    - oppure fai la stessa riduzione da riga di comando, se hai Python:
      `python3 tools/dbgt_solo_edifici.py pacchetto.zip DBGT_MB` (su Windows `py` al posto di
      `python3`). Usa solo la libreria standard di Python, ritaglia sull'area del gioco e scrive

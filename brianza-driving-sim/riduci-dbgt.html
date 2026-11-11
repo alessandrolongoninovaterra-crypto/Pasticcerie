@@ -49,6 +49,9 @@ const log = (s, cls) => { const d = document.createElement('div'); d.textContent
 const progress = (f) => { $('bar').style.width = Math.round(f * 100) + '%'; };
 
 // ------------------------------------------------------------------ area del gioco (data/meta.js)
+// area predefinita del gioco (lat sud, lon ovest, lat nord, lon est): si usa se data/meta.js non si trova,
+// per esempio quando la pagina viene aperta da sola, fuori dalla cartella del gioco
+const DEFAULT_BBOX = [45.588, 9.128, 45.8, 9.315];
 let BBOX = null;
 window.BDS_DATA = async (key, fmt, b64) => {
   if (key !== 'meta') return;
@@ -445,9 +448,9 @@ $('file').addEventListener('change', async (ev) => {
   if (!file) return;
   logEl.textContent = ''; $('out').textContent = ''; progress(0);
   const clip = !$('all').checked;
-  const bbox = clip ? BBOX : null;
+  const bbox = clip ? (BBOX || DEFAULT_BBOX) : null;
   log(`File: ${file.name} (${(file.size / 1e6).toFixed(0)} MB)`);
-  log(bbox ? `Area del gioco: lat ${bbox[0]}–${bbox[2]}, lon ${bbox[1]}–${bbox[3]}` : (clip ? 'Area del gioco non trovata (data/meta.js): nessun ritaglio' : 'Nessun ritaglio'));
+  log(bbox ? `Area del gioco${BBOX ? '' : ' (predefinita: data/meta.js non trovato)'}: lat ${bbox[0]}–${bbox[2]}, lon ${bbox[1]}–${bbox[3]}` : 'Nessun ritaglio');
   try {
     const found = [];
     if (/\.gpkg$/i.test(file.name)) await gpkgLayers(file, '', found);

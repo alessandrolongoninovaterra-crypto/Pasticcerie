@@ -85,12 +85,15 @@ export class Plane {
       this.collideGround();
       this.surface = W.roads.surfaceAt(this.x, this.z, this.y + 1);
       this.y = this.surface.h; this.vy = 0;
+      const slope = Math.atan2(this.ground(this.x + fx * 2, this.z + fz * 2, this.y + 3) - this.ground(this.x - fx * 2, this.z - fz * 2, this.y + 3), 4);
+      this.dynPitch += (slope - this.dynPitch) * Math.min(1, dt * 8);   // il modello segue la pendenza del terreno
       const lift = 0.5 * RHO * s.wingS * this.u * this.u * (0.35 + this.pitch * 5) / (s.mass * G);
       if (this.pitch > 0.08 && lift > 1) { this.onGround = false; this.airborne = true; this.surface = null; this.vy = 1; }
       return;
     }
 
     // --- in volo
+    this.dynPitch *= Math.exp(-dt * 3);
     const lf = Math.min(1, (this.u / s.vStall) ** 2);       // portanza disponibile rispetto al peso
     this.stall = lf < 0.98;
     // alettoni: inclinazione con rateo limitato; senza comandi l'ala torna piano orizzontale
@@ -139,9 +142,12 @@ export class Plane {
     // contatto con il suolo: atterraggio o schianto
     const g2 = this.ground(this.x, this.z, this.y + 1);
     if (this.y <= g2) {
-      const hard = this.vy < -4.2 || Math.abs(this.bank) > 0.35 || this.pitch < -0.18 || this.u > 50;
+      // velocita' di avvicinamento al terreno: conta anche il pendio che sale incontro all'aereo
+      const rise = (this.ground(this.x + fx * 3, this.z + fz * 3, this.y + 4) - g2) / 3;
+      const closing = this.vy - rise * this.u;
+      const hard = closing < -4.2 || Math.abs(this.bank) > 0.35 || this.pitch < -0.18 || this.u > 40;
       this.y = g2;
-      if (hard) { this.crash('Atterraggio troppo duro!'); return; }
+      if (hard) { this.crash(closing < -4.2 && rise > 0.12 ? 'Schianto contro il pendio!' : this.u > 40 ? 'Atterraggio troppo veloce!' : 'Atterraggio troppo duro!'); return; }
       this.onGround = true; this.airborne = false; this.impact = Math.min(1, -this.vy / 6); this.vy = 0; this.bank = 0;
       this.touchdown = true;
     }
