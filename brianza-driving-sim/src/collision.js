@@ -20,19 +20,21 @@ export class Collision {
     list.push(obj);
   }
 
-  addPolygon(tile, ring) {
+  // top (facoltativo): quota assoluta della sommita' dell'ostacolo (edifici, alberi, tralicci),
+  // usata dall'aereo per capire se ci passa sopra
+  addPolygon(tile, ring, top) {
     let minx = 1e9, minz = 1e9, maxx = -1e9, maxz = -1e9;
     for (let i = 0; i < ring.length; i += 2) {
       minx = Math.min(minx, ring[i]); maxx = Math.max(maxx, ring[i]);
       minz = Math.min(minz, ring[i + 1]); maxz = Math.max(maxz, ring[i + 1]);
     }
     if (maxx - minx < 1.5 && maxz - minz < 1.5) return null;
-    const o = { ring, tile, minx, minz, maxx, maxz };
+    const o = { ring, tile, minx, minz, maxx, maxz, top };
     this._add(tile, o);
     return o;
   }
 
-  addCircle(tile, x, z, r) { const o = { x, z, r, tile, minx: x - r, minz: z - r, maxx: x + r, maxz: z + r }; this._add(tile, o); return o; }
+  addCircle(tile, x, z, r, top) { const o = { x, z, r, tile, top, minx: x - r, minz: z - r, maxx: x + r, maxz: z + r }; this._add(tile, o); return o; }
 
   remove(obj) {
     this._cells(obj.minx, obj.minz, obj.maxx, obj.maxz, (k) => {
@@ -62,6 +64,22 @@ export class Collision {
   }
 
   // cerchio (x,z,r) contro ostacoli: restituisce la spinta minima {nx,nz,depth} o null
+  // quota della sommita' piu' alta tra gli ostacoli "alti" che toccano il cerchio (-Infinity se nessuno)
+  topAt(x, z, r) {
+    let top = -Infinity;
+    this._cells(x - r, z - r, x + r, z + r, (k) => {
+      const a = this.grid.get(k);
+      if (!a) return;
+      for (const o of a) {
+        if (o.top === undefined || o.top <= top) continue;
+        if (x + r < o.minx || x - r > o.maxx || z + r < o.minz || z - r > o.maxz) continue;
+        const hit = o.ring ? circlePoly(x, z, r, o.ring) : Math.hypot(x - o.x, z - o.z) < r + o.r;
+        if (hit) top = o.top;
+      }
+    });
+    return top;
+  }
+
   resolveCircle(x, z, r) {
     let best = null;
     const seen = new Set();

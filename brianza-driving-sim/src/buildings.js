@@ -151,7 +151,7 @@ export class BuildingFactory {
       if (!rc) rc = new THREE.Color(pitched ? ROOF_TILE[Math.floor(rnd * ROOF_TILE.length)] : ROOF_FLAT[Math.floor(rnd * ROOF_FLAT.length)]);
       rc.convertSRGBToLinear();
       this.roof(roof, ring, n, eave, pitched, rc, area, kind, col, rnd2);
-      if (collision) collision.addPolygon(tileKey, Float32Array.from(ring));
+      if (collision) collision.addPolygon(tileKey, Float32Array.from(ring), eave + (pitched ? 3 : 1));
       if (name && (kind === 5 || kind === 8 || type === 7)) labels.push({ name, x: cx, z: cz, y: eave + 4 });
     }
     const group = new THREE.Group();

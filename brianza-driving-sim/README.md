@@ -18,7 +18,7 @@ fino al Lago di Alserio).
 un server né una connessione internet, i dati sono già inclusi in `data/`.
 In alternativa: `python3 -m http.server 8080` e apri <http://localhost:8080>.
 
-1. Scegli l'auto (6 modelli con dati tecnici diversi).
+1. Scegli l'auto (6 modelli con dati tecnici diversi) oppure l'**aereo da turismo** (vedi sotto).
 2. Scegli la partenza: predefinita **Giussano – Via Arturo Toscanini 22A**,
    oppure Via Milano, il centro di qualunque comune, o un punto qualsiasi sulla mappa.
 3. Guida liberamente; premi **M** per la mappa, cerca un paese/via/chiesa/stazione
@@ -30,6 +30,30 @@ In alternativa: `python3 -m http.server 8080` e apri <http://localhost:8080>.
 > `index.html?lat=45.68210&lon=9.21141` con le tue coordinate, oppure aggiungi
 > in `index.html`, prima di `dist/game.js`:
 > `<script>window.BDS_START = { lat: 45.68210, lon: 9.21141 };</script>`
+
+### Aereo da turismo
+
+L'ultima scelta del menu è un piccolo monomotore ad ala alta (modello originale, non riproduce un
+aereo reale). Parte in volo a 250 m sopra il punto di partenza scelto; si può atterrare su un prato
+o su una strada dritta, scendere (F), e ridecollare.
+
+| Tasto | Aereo |
+|---|---|
+| **W / S** | manetta su / giù (resta dove la lasci) |
+| **↑ / ↓** | cabra / picchia |
+| **A / D** (o ← / →) | inclina e vira |
+| **Spazio** | freni a terra |
+| **R** | di nuovo in volo a 250 m |
+| **C** | visuale esterna / abitacolo / sopra l'ala / lontana |
+| Gamepad | stick sinistro (alettoni e cabra/picchia), grilletti per la manetta |
+
+Fisica: spinta dell'elica che cala con la velocità, resistenza parassita e indotta, stallo sotto
+~72 km/h (il muso cade), virate coordinate, trim automatico che a motore ridotto mantiene ~90 km/h
+in planata (circa 8:1). Decollo dopo ~8 s di corsa a ~90 km/h; salita fino a ~5 m/s. Atterraggio:
+velocità di discesa sotto 4 m/s, ali quasi orizzontali e muso non in picchiata, altrimenti è uno
+schianto e si riparte in volo. Edifici, alberi e tralicci hanno la loro altezza: ci si schianta solo
+se si passa più in basso della loro sommità. In volo traffico, pedoni, autovelox e cancelli ignorano
+l'aereo e il navigatore indica la destinazione in linea d'aria.
 
 ### Comandi
 
@@ -273,6 +297,7 @@ npm run watch
 | `tools/dbgt.py` | lettura dei pacchetti DBGT di Regione Lombardia |
 | `tools/dbgt_solo_edifici.py` | riduce un pacchetto DBGT a file compatti (< 28 MB) con edifici e altimetria dell'area |
 | `src/gates.js` | cancelli, sbarre e recinzioni |
+| `src/plane.js` | aereo da turismo: modello, fisica di volo, strumenti |
 
 ## Licenze dei dati
 

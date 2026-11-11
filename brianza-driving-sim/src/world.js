@@ -245,7 +245,7 @@ export class World {
     }
     const inst = new THREE.InstancedMesh(this.towerGeo, this.towerMat, tw.length);
     const m = new THREE.Matrix4(), q = new THREE.Quaternion(), up = new THREE.Vector3(0, 1, 0), one = new THREE.Vector3(1, 1, 1), v = new THREE.Vector3();
-    tw.forEach(([x, y, z, yaw], i) => { q.setFromAxisAngle(up, yaw); v.set(x, y - 0.5, z); m.compose(v, q, one); inst.setMatrixAt(i, m); this.collision.addCircle(t.key, x, z, 2.2); });
+    tw.forEach(([x, y, z, yaw], i) => { q.setFromAxisAngle(up, yaw); v.set(x, y - 0.5, z); m.compose(v, q, one); inst.setMatrixAt(i, m); this.collision.addCircle(t.key, x, z, 2.2, y + 29); });
     inst.computeBoundingSphere();
     g.add(inst);
     return g;

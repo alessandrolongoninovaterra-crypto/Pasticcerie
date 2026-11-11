@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { makeCar, registerBody, bodySpec } from './vendor/city/car.js';
+import { PLANE_SPEC } from './plane.js';
 
 // Parco auto: dati tecnici indicativi. I modelli 3D sono quelli del progetto "city" di
 // donmutti (src/vendor/city/car.js), con carrozzerie derivate per le nostre sei auto.
@@ -15,7 +16,8 @@ export const CARS = [
   { id: 'bus', hidden: true, base: 'bus', sz: 1, sy: 1, sx: 1, name: 'Autobus di linea', desc: '', body: 'bus', L: 10.05, W: 2.5, H: 2.9, wb: 5.9, color: '#d9651c', mass: 11500, kw: 210, nm: 1100, rpmMax: 2400, gears: [6.3, 3.4, 2.0, 1.35, 1.0, 0.78], final: 5.2, drive: 'R', cda: 3.6, brake: 62000, steer: 0.72, grip: 0.85, wheelR: 0.48 },
 ];
 
-for (const c of CARS) if (c.base !== 'bus') registerBody('bds-' + c.id, c.base, { sz: c.sz, sy: c.sy, sx: c.sx, wheelR: c.wheelR });
+CARS.push(PLANE_SPEC);   // aereo da turismo: si sceglie dal menu come un'auto
+for (const c of CARS) if (c.base !== 'bus' && c.kind !== 'plane') registerBody('bds-' + c.id, c.base, { sz: c.sz, sy: c.sy, sx: c.sx, wheelR: c.wheelR });
 const bodyName = (spec) => (spec.base === 'bus' ? 'bus' : 'bds-' + spec.id);
 
 const darkMat = new THREE.MeshLambertMaterial({ color: 0x222426 });

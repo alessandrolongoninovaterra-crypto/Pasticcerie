@@ -34,6 +34,7 @@ export class Input {
       handbrake: k.has('Space') ? 1 : 0,
       analogWheel: false,
       buttons: new Set(),
+      padThr: 0, padBrk: 0, stickY: 0,   // per l'aereo: grilletti e stick verticale
     };
     if (k.has('ShiftLeft') || k.has('ShiftRight')) out.throttle *= 0.45; // acceleratore parziale
     const pads = navigator.getGamepads ? navigator.getGamepads() : [];
@@ -55,6 +56,8 @@ export class Input {
         if (Math.abs(sx) > 0.08) out.steer = -Math.sign(sx) * Math.pow(Math.abs(sx), 1.6);
         out.throttle = Math.max(out.throttle, btn(7));
         out.brake = Math.max(out.brake, btn(6));
+        out.padThr = btn(7); out.padBrk = btn(6);
+        if (Math.abs(ax[1] || 0) > 0.1) out.stickY = ax[1];
         if (btn(0) > 0.5 || btn(5) > 0.5) out.handbrake = 1;
       }
       // pulsanti (fronte di salita)

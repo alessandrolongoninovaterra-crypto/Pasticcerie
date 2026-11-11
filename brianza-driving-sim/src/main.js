@@ -6,6 +6,7 @@ import { World } from './world.js';
 import { Sky } from './sky.js';
 import { CARS, buildCarModel, drawCluster } from './cars.js';
 import { Vehicle } from './vehicle.js';
+import { Plane, buildPlaneModel, drawPlaneCluster } from './plane.js';
 import { Input } from './input.js';
 import { Traffic } from './traffic.js';
 import { Router, routeProgress } from './router.js';
@@ -108,8 +109,11 @@ function setupMenu() {
     if (c.hidden) return;
     const d = document.createElement('div');
     d.className = 'car panel' + (i === G.carIdx ? ' sel' : '');
-    d.innerHTML = `<div class="sw" style="background:${c.color}"></div><b>${c.name}</b><small>${c.desc}</small>
-      <div class="spec"><span>${Math.round(c.kw * 1.36)} CV</span><span>${c.mass} kg</span><span>${c.gears.length} marce aut.</span><span>${{ F: 'Anteriore', R: 'Posteriore', A: '4x4' }[c.drive]}</span></div>`;
+    const spec = c.kind === 'plane'
+      ? `<span>${Math.round(c.kw * 1.36)} CV</span><span>${c.mass} kg</span><span>apertura ${c.W} m</span><span>decollo ~${Math.round(c.vRot * 3.6)} km/h</span>`
+      : `<span>${Math.round(c.kw * 1.36)} CV</span><span>${c.mass} kg</span><span>${c.gears.length} marce aut.</span><span>${{ F: 'Anteriore', R: 'Posteriore', A: '4x4' }[c.drive]}</span>`;
+    d.innerHTML = `<div class="sw" style="background:${c.kind === 'plane' ? c.stripe : c.color}"></div><b>${c.kind === 'plane' ? '✈ ' : ''}${c.name}</b><small>${c.desc}</small>
+      <div class="spec">${spec}</div>`;
     d.onclick = () => { G.carIdx = i; [...carsEl.children].forEach((e) => e.classList.toggle('sel', e === d)); };
     carsEl.appendChild(d);
   });
@@ -232,11 +236,30 @@ function spawnPoint(id) {
 
 function makePlayer(spec = CARS[G.carIdx], color = null) {
   if (G.carModel) G.scene.remove(G.carModel.root);
-  G.vehicle = new Vehicle(spec, G.world);
-  G.carModel = buildCarModel(spec, { interior: true, color });
+  if (spec.kind === 'plane') {
+    G.vehicle = new Plane(spec, G.world);
+    G.carModel = buildPlaneModel(spec, { color });
+  } else {
+    G.vehicle = new Vehicle(spec, G.world);
+    G.carModel = buildCarModel(spec, { interior: true, color });
+  }
   G.scene.add(G.carModel.root);
   G.lightsOn = false;
+  $('helpbar').textContent = spec.kind === 'plane'
+    ? 'W/S manetta · ↑/↓ cabra/picchia · A/D vira · Spazio freni a terra · R riparti in volo · C visuale · F scendi (a terra)'
+    : 'F scendi/sali · E clacson · M mappa · C visuale · mouse: telecamera · Esc pausa';
 }
+
+// comandi dell'aereo: W/S spostano la manetta, frecce su/giu' l'equilibratore, A/D o frecce gli alettoni
+function planeInput(ctl) {
+  const k = G.input.keys;
+  return {
+    throttle: Math.max(k.has('KeyW') ? 1 : 0, ctl.padThr || 0), brake: Math.max(k.has('KeyS') ? 1 : 0, ctl.padBrk || 0),
+    pitch: Math.max(-1, Math.min(1, (k.has('ArrowUp') ? 1 : 0) - (k.has('ArrowDown') ? 1 : 0) - (ctl.stickY || 0))),
+    steer: ctl.steer, handbrake: ctl.handbrake,
+  };
+}
+const flying = () => !G.foot.on && G.vehicle && G.vehicle.isPlane && !G.vehicle.onGround;
 
 // ------------------------------------------------------------------ a piedi / veicoli
 const TYPE_SPECS = { car: ['compact', 'sedan', 'sport', 'sedan'], wagon: ['city', 'suv', 'compact'], van: ['van'], bus: ['bus'] };
@@ -244,6 +267,7 @@ const ownBox = () => ({ halfL: G.vehicle.spec.L / 2, halfW: G.vehicle.spec.W / 2
 
 function exitCar() {
   const v = G.vehicle, f = G.foot;
+  if (v.isPlane && !v.onGround) { showToast('Atterra prima di scendere', 1200); return; }
   if (Math.abs(v.u) > 2.5) { showToast('Fermati prima di scendere', 1200); return; }
   const lx = Math.cos(v.h), lz = -Math.sin(v.h); // lato guida (sinistra)
   f.x = v.x + lx * (v.spec.W / 2 + 0.75); f.z = v.z + lz * (v.spec.W / 2 + 0.75); f.h = v.h; f.u = 0; f.y = v.y; f.on = true;
@@ -319,7 +343,7 @@ function fine(kind, value, key = kind) {
 }
 
 function checkInfractions(v, kmh, now) {
-  if (G.foot.on || !v.surface || !v.surface.road) return;
+  if (G.foot.on || v.isPlane || !v.surface || !v.surface.road) return;
   const R = G.roads, rd = v.surface.road, w = R.ways[rd.wi];
   // semaforo rosso
   if (v.u > 3) for (const nd of [w.nodes[rd.k], w.nodes[rd.k + 1]]) {
@@ -341,6 +365,7 @@ function startGame() {
   makePlayer();
   const sp = spawnPoint($('start').value);
   G.vehicle.place(sp.x, sp.z, sp.h);
+  if (G.vehicle.isPlane) G.vehicle.pendingLaunch = true;   // l'aereo parte in volo sopra il punto scelto
   G.traffic.clear();
   for (const s of G.traffic.statics) G.scene.remove(s.model.root);
   G.traffic.statics = [];
@@ -357,6 +382,7 @@ function startGame() {
 
 function respawnOnRoad() {
   const v = G.vehicle, R = G.roads;
+  if (v.isPlane) { v.launch(250, 45); G.camInit = true; showToast('Di nuovo in volo a 250 m', 1200); return; }
   const nr = R.nearest(v.x, v.z, 300, (w) => w.drivable && w.cls <= CLS.SERVICE);
   if (!nr) return;
   const w = R.ways[nr.wi], a = w.nodes[nr.k], b = w.nodes[nr.k + 1];
@@ -380,6 +406,17 @@ function fmtDist(m) { return m >= 1000 ? (m / 1000).toFixed(m >= 10000 ? 0 : 1).
 
 function updateNav(dt) {
   const v = focus();
+  if (flying() && G.dest) {   // in volo: destinazione in linea d'aria
+    const dx = G.dest[0] - v.x, dz = G.dest[1] - v.z, d = Math.hypot(dx, dz);
+    let rel = Math.atan2(dx, dz) - v.h; while (rel > Math.PI) rel -= 2 * Math.PI; while (rel < -Math.PI) rel += 2 * Math.PI;
+    $('nav').classList.remove('hidden');
+    $('navarrow').textContent = Math.abs(rel) < 0.3 ? '⬆' : Math.abs(rel) > 2.6 ? '⬇' : rel > 0 ? (rel > 1.2 ? '⬅' : '↖') : (rel < -1.2 ? '➡' : '↗');
+    $('navarrow').style.fontSize = '44px';
+    $('navd').textContent = fmtDist(d);
+    $('navt').textContent = 'Destinazione in linea d\'aria';
+    $('naveta').textContent = `circa ${Math.max(1, Math.round(d / Math.max(20, v.u) / 60))} min alla velocità attuale`;
+    return;
+  }
   if (!G.route) { $('nav').classList.add('hidden'); return; }
   const r = G.route;
   const pr = routeProgress(r, v.x, v.z);
@@ -409,6 +446,7 @@ function updateNav(dt) {
 
 function recalcRoute(silent) {
   if (!G.dest) return;
+  if (flying()) { G.route = null; if (!silent) showToast(`Destinazione impostata: ${fmtDist(Math.hypot(G.dest[0] - G.vehicle.x, G.dest[1] - G.vehicle.z))} in linea d'aria`); return; }
   const v = focus();
   const r = G.router.route(v.x, v.z, v.h, G.dest[0], G.dest[1]);
   G.route = r;
@@ -429,15 +467,25 @@ function updateHUD(dt) {
   hudT = 0;
   const kmh = Math.abs(v.u * 3.6);
   $('spd').textContent = Math.round(kmh);
-  $('gear').textContent = G.foot.on ? 'A PIEDI' : car.gear < 0 ? 'R' : (Math.abs(car.u) < 0.3 && car.throttle < 0.05 ? 'D' : 'D' + car.gear);
-  $('gear').style.fontSize = G.foot.on ? '14px' : '';
-  $('rpmbar').style.width = (G.foot.on ? 0 : Math.min(100, car.rpm / car.spec.rpmMax * 100)) + '%';
+  if (!G.foot.on && car.isPlane) {
+    $('gear').textContent = car.crashed > 0 ? 'INCIDENTE' : car.onGround ? 'A TERRA' : car.stall ? 'STALLO' : 'IN VOLO';
+    $('gear').style.fontSize = '14px';
+    $('gear').style.color = car.stall && !car.onGround ? 'var(--bad)' : '';
+    $('rpmbar').style.width = Math.round(car.lever * 100) + '%';
+  } else {
+    $('gear').textContent = G.foot.on ? 'A PIEDI' : car.gear < 0 ? 'R' : (Math.abs(car.u) < 0.3 && car.throttle < 0.05 ? 'D' : 'D' + car.gear);
+    $('gear').style.fontSize = G.foot.on ? '14px' : ''; $('gear').style.color = '';
+    $('rpmbar').style.width = (G.foot.on ? 0 : Math.min(100, car.rpm / car.spec.rpmMax * 100)) + '%';
+  }
   // strada e comune
   let road = v.surface && v.surface.road;
   let wi = road ? road.wi : -1;
   if (wi < 0) { const nr = R.nearest(v.x, v.z, 25, (w) => w.drivable); if (nr) wi = nr.wi; }
   const comune = G.world.comuneAt(v.x, v.z);
-  if (wi >= 0) {
+  if (flying()) {
+    $('roadname').textContent = `In volo · ${Math.round(car.agl)} m dal suolo`;
+    $('limit').classList.add('hidden'); G.curLimit = 0;
+  } else if (wi >= 0) {
     const w = R.ways[wi];
     $('roadname').textContent = R.displayName(w);
     $('limitv').textContent = w.limit;
@@ -459,10 +507,11 @@ function updateHUD(dt) {
   const hd = ((-v.h * 180 / Math.PI) % 360 + 360 + 180) % 360;
   const dirs = ['N', 'NE', 'E', 'SE', 'S', 'SO', 'O', 'NO'];
   $('gps').innerHTML = `GPS ${lat.toFixed(6)}° N, ${lon.toFixed(6)}° E<br>Quota ${Math.round(v.y)} m s.l.m. · Rotta ${Math.round(hd)}° ${dirs[Math.round(hd / 45) % 8]}`;
-  $('alt').textContent = '';
+  $('alt').textContent = !G.foot.on && car.isPlane ? `manetta ${Math.round(car.lever * 100)}% · ${car.vy >= 0 ? '↑' : '↓'} ${Math.abs(car.vy).toFixed(1)} m/s` : '';
   $('clock').textContent = '🕒 ' + G.sky.clock();
   $('tspeed').textContent = G.sky.speed === 0 ? '⏸' : G.sky.speed === 1 ? '1×' : G.sky.speed + '×';
-  if (!G.foot.on && G.carModel.dashCanvas && G.camMode === 1) drawCluster(G.carModel.dashCanvas, G.carModel.dashTex, kmh, car.rpm, car.spec.rpmMax, $('gear').textContent, G.curLimit);
+  if (!G.foot.on && car.isPlane && G.camMode === 1) drawPlaneCluster(G.carModel.dashCanvas, G.carModel.dashTex, kmh, car.agl, car.vy, car.lever, car.stall && !car.onGround);
+  else if (!G.foot.on && G.carModel.dashCanvas && G.camMode === 1) drawCluster(G.carModel.dashCanvas, G.carModel.dashTex, kmh, car.rpm, car.spec.rpmMax, $('gear').textContent, G.curLimit);
 }
 
 // ------------------------------------------------------------------ mappa
@@ -531,7 +580,7 @@ function setupMapUI() {
     if (!G.mapSel) return;
     if (!G.started) { G.pickedStart = G.mapSel.slice(); closeMap(); $('pickinfo').textContent = 'Partenza: ' + G.mapSelLabel; return; }
     G.pickedStart = G.mapSel.slice();
-    const sp = spawnPoint('picked'); G.vehicle.place(sp.x, sp.z, sp.h); G.foot.on = false; G.traffic.clear(); G.camInit = true; G.loadingWorld = true;
+    const sp = spawnPoint('picked'); G.vehicle.place(sp.x, sp.z, sp.h); if (G.vehicle.isPlane) G.vehicle.pendingLaunch = true; G.foot.on = false; G.traffic.clear(); G.camInit = true; G.loadingWorld = true;
     closeMap();
     if (G.dest) recalcRoute(true);
   };
@@ -599,7 +648,7 @@ function updateCamera(dt, lookBack) {
   if (o.idle > 2.2 && (f.on ? Math.abs(f.u) > 0.5 : Math.abs(v.u) > 2)) { o.yaw *= Math.exp(-dt * 2.5); o.pitch *= Math.exp(-dt * 2.5); }
   if (mode === 0 || mode === 3) {
     const p = f.on ? f : v;
-    const dist = f.on ? 5.6 : (mode === 0 ? 4.2 : 8) + v.spec.L * 0.75;
+    const dist = f.on ? 5.6 : (mode === 0 ? 4.2 : 8) + v.spec.L * (v.isPlane ? 1.1 : 0.75);
     const hgt = f.on ? 2.5 : mode === 0 ? 2.1 + v.spec.H * 0.4 : 4.2, lookY = f.on ? 1.3 : 1.2;
     const yaw = p.h + o.yaw + (lookBack ? Math.PI : 0);
     const cp = Math.cos(o.pitch), sp = Math.sin(o.pitch);
@@ -619,7 +668,7 @@ function updateCamera(dt, lookBack) {
     cam.position.copy(eye.applyMatrix4(m.root.matrixWorld));
     // con il mouse ci si guarda attorno dall'abitacolo
     const ly = (lookBack ? Math.PI : 0) + o.yaw, d = 30;
-    const ahead = new THREE.Vector3(Math.sin(ly) * d, (mode === 1 ? -3.2 : -0.9) - o.pitch * d * 0.5, Math.cos(ly) * d).add(mode === 1 ? m.root.userData.eye : new THREE.Vector3(0, v.spec.H * 0.82, 0)).applyMatrix4(m.root.matrixWorld);
+    const ahead = new THREE.Vector3(Math.sin(ly) * d, (mode === 1 ? (v.isPlane ? -3.5 : -3.2) : -0.9) - o.pitch * d * 0.5, Math.cos(ly) * d).add(mode === 1 ? m.root.userData.eye : new THREE.Vector3(0, v.spec.H * 0.82, 0)).applyMatrix4(m.root.matrixWorld);
     cam.lookAt(ahead);
     cam.near = 0.08;
     camPos.copy(cam.position);
@@ -667,24 +716,33 @@ function loop(now) {
   const v = G.vehicle, f = G.foot, p = focus();
   // mondo
   G.world.update(p.x, p.z);
-  G.world.pump(G.loadingWorld ? 40 : 7);
+  G.world.pump(G.loadingWorld ? 40 : flying() ? 12 : 7);
   if (G.loadingWorld) {
-    if (G.world.ready(v.x, v.z)) { G.loadingWorld = false; const s = G.roads.surfaceAt(v.x, v.z, 1e9); v.y = s.h; }
-    else { ctl.throttle = 0; ctl.brake = 1; }
+    if (G.world.ready(v.x, v.z)) {
+      G.loadingWorld = false;
+      if (v.pendingLaunch) { v.pendingLaunch = false; v.launch(250, 45); G.camInit = true; showToast('✈ In volo sopra la Brianza — W/S manetta, ↑/↓ cabra/picchia, A/D vira', 4500); }
+      else if (!v.isPlane || v.onGround) { const s = G.roads.surfaceAt(v.x, v.z, 1e9); v.y = s.h; }
+    } else { ctl.throttle = 0; ctl.brake = 1; }
   }
   if (!G.loadingWorld) {
-    if (f.on) { v.update(dt, { throttle: 0, brake: 1, steer: 0, handbrake: 1 }); updateFoot(dt, ctl); }
-    else v.update(dt, ctl);
+    if (f.on) { v.update(dt, { throttle: 0, brake: 1, steer: 0, handbrake: 1, pitch: 0 }); updateFoot(dt, ctl); }
+    else v.update(dt, v.isPlane ? planeInput(ctl) : ctl);
+  }
+  if (v.isPlane) {
+    if (v.crashed > 0 && !v.crashShown) { v.crashShown = true; showToast('💥 ' + v.crashMsg + ' Si riparte in volo…', 2200); }
+    if (v.relaunched) { v.relaunched = false; v.crashShown = false; G.camInit = true; }
+    if (v.touchdown) { v.touchdown = false; showToast(v.impact > 0.4 ? 'Atterraggio un po\' brusco' : '🛬 Atterraggio riuscito', 1800); v.impact = 0; }
+    if (v.outside) { v.outside = 0; showToast('Fine della zona: si torna indietro', 1500); }
   }
   // pedoni: minacce = auto del giocatore + traffico vicino
   const fx = Math.sin(v.h), fz = Math.cos(v.h), lx = Math.cos(v.h), lz = -Math.sin(v.h);
-  const threats = [{ x: v.x, z: v.z, h: v.h, vx: fx * v.u + lx * v.v, vz: fz * v.u + lz * v.v, halfL: v.spec.L / 2, halfW: v.spec.W / 2, player: true }];
+  const threats = flying() ? [] : [{ x: v.x, z: v.z, h: v.h, vx: fx * v.u + lx * v.v, vz: fz * v.u + lz * v.v, halfL: v.spec.L / 2, halfW: v.spec.W / 2, player: true }];
   for (const c of G.traffic.cars) if (Math.abs(c.x - p.x) < 90 && Math.abs(c.z - p.z) < 90) threats.push({ x: c.x, z: c.z, h: c.h, vx: Math.sin(c.h) * c.speed, vz: Math.cos(c.h) * c.speed, halfL: c.box.halfL, halfW: c.box.halfW });
   const onRoad = G.loadingWorld ? [] : G.peds.update(dt, p.x, p.z, threats, horn);
   if (f.on) onRoad.push([f.x, f.z]);
   G.traffic.obstacles = onRoad;
-  G.traffic.update(dt, { x: v.x, z: v.z, h: v.h, u: v.u, wi: v.surface && v.surface.road ? v.surface.road.wi : -1 }, now / 1000);
-  const movers = [{ x: v.x, z: v.z }];
+  G.traffic.update(dt, { x: v.x, z: v.z, h: v.h, u: v.u, wi: v.surface && v.surface.road ? v.surface.road.wi : -1, active: !flying() }, now / 1000);
+  const movers = flying() ? [] : [{ x: v.x, z: v.z }];
   for (const c of G.traffic.cars) if (Math.abs(c.x - p.x) < 300 && Math.abs(c.z - p.z) < 300) movers.push(c);
   G.world.gates.update(dt, movers);
   G.peds.drawPlayer(f.on, f.x, f.y, f.z, f.h, f.gait, f.u, dt);
@@ -693,12 +751,13 @@ function loop(now) {
   m.root.position.set(v.x, v.y, v.z);
   m.root.rotation.set(-(v.pitch + v.dynPitch), v.h, v.roll + v.dynRoll, 'YXZ');
   for (const w of m.wheels) { w.pivot.rotation.x = v.wheelSpinAngle || 0; if (w.front) w.pivot.rotation.y = v.steer; }
+  if (m.prop) m.prop.rotation.z = v.propAngle || 0;
   if (m.steeringWheel) m.steeringWheel.rotation.z = -v.steer * 7;
   const lights = !f.on && (G.lightsOn || G.sky.night > 0.55);
   if (m.headlight) m.headlight.intensity = lights ? 70 : 0;
   if (m.tailGlow) m.tailGlow.intensity = v.brake > 0.05 && !f.on ? 2.2 : lights ? 0.6 : 0;
   // cielo e luci
-  tmpV2.set(p.x, p.y, p.z);
+  tmpV2.set(p.x, flying() ? v.y - v.agl : p.y, p.z);   // ombre centrate sul suolo anche in volo
   G.sky.update(dt, tmpV2);
   G.world.buildings.setNight(G.sky.night);
   G.world.signage.update(now / 1000, G.sky.night);
@@ -711,7 +770,7 @@ function loop(now) {
   miniT += dt;
   if (miniT > 0.05 && !$('mini-wrap').classList.contains('hidden')) { miniT = 0; G.maps.drawMini(p, G.route, G.sky.night > 0.5); }
   if (f.on) G.audio.update(800, 0, 0, 0); else G.audio.update(v.rpm, v.throttle, Math.abs(v.u) * 3.6, v.slip);
-  if (v.impact > 0.25 && !f.on) { showToast('💥 Urto!', 700); }
+  if (v.impact > 0.25 && !f.on && !v.isPlane) { showToast('💥 Urto!', 700); }
   v.impact = 0;
   if (G.composer && G.sky.night > 0.2) { G.bloom.strength = G.sky.night * 0.55; G.composer.render(); }
   else G.renderer.render(G.scene, G.camera);
