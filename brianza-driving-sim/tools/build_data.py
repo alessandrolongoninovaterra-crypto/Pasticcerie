@@ -915,7 +915,8 @@ if alti['pts'] or alti['roads']:
     if len(R_):
         R_ = R_[~masked(R_[:, 0], R_[:, 1])]
     rng = np.random.default_rng(7)
-    hold = rng.random(len(P_)) < 0.05          # 5% dei punti tenuti da parte per la verifica
+    inP = (P_[:, 0] > gxs[0]) & (P_[:, 0] < gxs[-1]) & (P_[:, 1] > gzs[0]) & (P_[:, 1] < gzs[-1])
+    hold = (rng.random(len(P_)) < 0.05) & inP  # 5% dei punti (dentro la mappa) tenuti da parte per la verifica
     S = np.vstack([P_[~hold], B_, R_]); W_ = np.concatenate([np.full((~hold).sum(), 1.0), np.full(len(B_), 1.0), np.full(len(R_), 1.5)])
     inside_ = (S[:, 0] > gxs[0]) & (S[:, 0] < gxs[-1]) & (S[:, 1] > gzs[0]) & (S[:, 1] < gzs[-1])
     S, W_ = S[inside_], W_[inside_]
@@ -944,8 +945,10 @@ if alti['pts'] or alti['roads']:
     print('altimetria DBGT: quote scartate perche\' incoerenti con quelle vicine (oltre 15 m)', n_out)
     cov = np.abs(base_err) < 1e9
     if hold.sum():
-        print('altimetria DBGT: errore sui punti di verifica (%d): prima media %.2f m, 95%% %.2f m; dopo media %.2f m, 95%% %.2f m'
-              % (hold.sum(), np.mean(np.abs(base_err)), np.percentile(np.abs(base_err), 95), np.mean(np.abs(after)), np.percentile(np.abs(after), 95)))
+        okh = np.abs(after) <= 15   # oltre 15 m dal terreno ricostruito con tutti gli altri dati: errore del dato
+        print('altimetria DBGT: errore sui punti di verifica (%d, esclusi %d dati errati): prima media %.2f m, 95%% %.2f m; '
+              'dopo media %.2f m, 95%% %.2f m' % (okh.sum(), (~okh).sum(), np.mean(np.abs(base_err[okh])), np.percentile(np.abs(base_err[okh]), 95),
+                                                 np.mean(np.abs(after[okh])), np.percentile(np.abs(after[okh]), 95)))
     # profilo delle strade a raso: quota dei nodi OSM dall'asse DBGT piu' vicino e parallelo
     seg = defaultdict(list)
     for line in alti['roads']:

@@ -212,15 +212,22 @@ sono il terreno). Se ci sono, la pipeline:
    terreno sotto la strada a quella quota (trincee, rilevati, rampe); ponti e gallerie sono esclusi;
 3. verifica il risultato sul 5% dei punti quotati tenuti da parte e stampa l'errore prima e dopo.
 
-L'altimetria è importata per la **provincia di Monza e Brianza** e per Cabiate: circa 1,3 milioni
-di punti a terra, 190.000 piedi di edifici e 500.000 campioni lungo gli assi stradali. Sui punti di
-verifica l'errore medio del terreno passa da 3,3 m a 0,6 m (95% dei punti: da 11,7 a 2,3 m); a
-Cabiate da 5,1 a 1,0 m. Le correzioni più grandi sono nelle valli (Lambro tra Triuggio e Albiate:
-fino a 38 m), che il modello satellitare riempiva. Le curve di livello concordano con i punti
-quotati (scarto mediano 2 cm). Le quote che si discostano più di 15 m da quelle vicine (667, ai
-margini della provincia) e i nodi stradali con una quota a più di 12 m dal terreno vengono scartati
-come errori dei dati. Mancano ancora la provincia di Como (il file importato contiene solo gli
-edifici: va ripassato nella pagina `riduci-dbgt.html` aggiornata) e quella di Lecco.
+L'altimetria è importata per le **province di Monza e Brianza e di Como** (e Cabiate dal pacchetto
+comunale): circa 2,9 milioni di punti a terra (punti quotati e vertici delle curve di livello),
+250.000 piedi di edifici e 770.000 campioni lungo gli assi stradali; 111.000 nodi stradali hanno la
+quota reale. Sui punti di verifica (146.000, dentro la mappa) l'errore medio del terreno passa da
+3,9 m a 0,6 m (95% dei punti: da 12,8 a 2,2 m). Le correzioni più grandi sono nelle valli (Lambro
+tra Triuggio e Albiate: fino a 38 m), che il modello satellitare riempiva. Le curve di livello
+concordano con i punti quotati (scarto mediano 2 cm).
+
+Dati scartati come errori: quote sotto i 50 m s.l.m. (nel pacchetto di Como ~2.700 punti quotati
+con valori di 2–4 m, quote relative e non sul livello del mare), quote che si discostano più di
+15 m da quelle vicine (~2.900 su 3,8 milioni) e nodi stradali a più di 12 m dal terreno corretto.
+Manca ancora la provincia di Lecco.
+
+I pacchetti provinciali ridotti senza ritaglio (tutta la provincia) si possono ritagliare
+sull'area del gioco ripassandoli in `tools/dbgt_solo_edifici.py`, che legge anche i file compatti:
+`python3 tools/dbgt_solo_edifici.py cartella_con_le_parti DBGT_PROV_COMO`.
 
 **Licenza:** il Geoportale pubblica i dati con licenze diverse per prodotto (CC-BY 4.0, IODL 2.0
 o altre): controlla quella indicata nella pagina di download del DBGT prima di distribuire il gioco.

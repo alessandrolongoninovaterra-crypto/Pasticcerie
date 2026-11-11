@@ -54,6 +54,8 @@ def layer_kind(names):
 
 
 ALTI_KINDS = ('quo', 'cv', 'str')
+# quote sotto i 50 m s.l.m. non esistono in Lombardia: sono quote relative (altezze di manufatti) o errori
+MIN_Q = 50.0
 
 
 def read_dbf(path):
@@ -425,7 +427,7 @@ def load_dbgt(folder, work, fwd, bbox):
                     info['quo_gronda_scartati'] += 1   # quote in gronda: non sono il terreno
                     continue
                 for part in parts:
-                    pts = [p for p in part if len(p) > 2 and p[2] is not None and math.isfinite(p[2]) and -50 < p[2] < 5000]
+                    pts = [p for p in part if len(p) > 2 and p[2] is not None and math.isfinite(p[2]) and MIN_Q < p[2] < 5000]
                     if pts:
                         buf.append(pts); npt += len(pts)
                 if npt > 50000:
@@ -447,7 +449,7 @@ def load_dbgt(folder, work, fwd, bbox):
                 if kind == 'vol':
                     z0 = _num(attrs[3]) if len(attrs) > 3 and str(attrs[3]).strip() else None
                     vols.append({'ring': ring, 'h': _num(attrs[0]), 'por': str(attrs[1]), 'ex': str(attrs[2]), 'src': src,
-                                 'z0': z0 if z0 and z0 > 1 else None})
+                                 'z0': z0 if z0 and z0 > MIN_Q else None})
                     info['por:' + str(attrs[1] or '-')] += 1
                 else:
                     bodies.append({'ring': ring, 'uso': str(attrs[0]), 'cat': str(attrs[1])})
