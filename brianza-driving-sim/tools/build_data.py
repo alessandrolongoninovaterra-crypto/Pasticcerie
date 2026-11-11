@@ -927,8 +927,13 @@ if alti['pts'] or alti['roads']:
     gx = (S[:, 0] - x0g) / STEP2; gz = (S[:, 1] - z0g) / STEP2
     ix = np.clip(gx.astype(int), 0, nx2 - 2); iz = np.clip(gz.astype(int), 0, nz2 - 2); fx = gx - ix; fz = gz - iz
     corners = [(0, 0, (1 - fx) * (1 - fz)), (0, 1, fx * (1 - fz)), (1, 0, (1 - fx) * fz), (1, 1, fx * fz)]
-    for rad, eps in ((4, 0.02), (1, 0.05), (1, 0.05), (1, 0.05)):   # correzione larga (~40 m), poi fine (~14 m) ripetuta
+    n_out = 0
+    for it, (rad, eps) in enumerate(((4, 0.02), (1, 0.05), (1, 0.05), (1, 0.05))):   # correzione larga (~40 m), poi fine (~14 m) ripetuta
         res = S[:, 2] - _bilin(G, x0g, z0g, STEP2, S[:, 0], S[:, 1])
+        if it == 1:   # dopo la prima correzione: le quote lontane da tutte le altre sono errori dei dati
+            bad = np.abs(res) > 15
+            n_out = int(bad.sum())
+            W_ = np.where(bad, 0.0, W_)
         num = np.zeros_like(G); den = np.zeros_like(G)
         for di, dj, wc in corners:
             np.add.at(num, (iz + di, ix + dj), W_ * wc * res)
@@ -936,6 +941,7 @@ if alti['pts'] or alti['roads']:
         num = _smooth(num, rad); den = _smooth(den, rad)
         G += num / (den + eps)
     after = P_[hold, 2] - _bilin(G, x0g, z0g, STEP2, P_[hold, 0], P_[hold, 1])
+    print('altimetria DBGT: quote scartate perche\' incoerenti con quelle vicine (oltre 15 m)', n_out)
     cov = np.abs(base_err) < 1e9
     if hold.sum():
         print('altimetria DBGT: errore sui punti di verifica (%d): prima media %.2f m, 95%% %.2f m; dopo media %.2f m, 95%% %.2f m'
@@ -970,6 +976,14 @@ if alti['pts'] or alti['roads']:
             if best:
                 node_h.setdefault(r, []).append(best[1])
     node_h = {r: sum(v) / len(v) for r, v in node_h.items()}
+    # quota della strada troppo lontana dal terreno corretto (oltre 12 m): dato errato, si ignora
+    if node_h:
+        rr = list(node_h)
+        hz = _bilin(G, x0g, z0g, STEP2, np.array([node_xy[r][0] for r in rr]), np.array([node_xy[r][1] for r in rr]))
+        badn = [r for r, g_ in zip(rr, hz) if abs(node_h[r] - g_) > 12]
+        for r in badn:
+            del node_h[r]
+        print('altimetria DBGT: nodi strada con quota incoerente ignorati', len(badn))
     # scavo/riporto: le celle sotto la strada prendono la quota della strada
     smp = []
     for w in road_ways:

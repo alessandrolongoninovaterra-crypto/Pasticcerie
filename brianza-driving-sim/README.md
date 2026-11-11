@@ -212,11 +212,15 @@ sono il terreno). Se ci sono, la pipeline:
    terreno sotto la strada a quella quota (trincee, rilevati, rampe); ponti e gallerie sono esclusi;
 3. verifica il risultato sul 5% dei punti quotati tenuti da parte e stampa l'errore prima e dopo.
 
-A Cabiate (pacchetto comunale, unico per ora con l'altimetria) l'errore medio del terreno sui punti
-di verifica passa da 5,1 m a 1,0 m (95% dei punti: da 14,4 a 3,4 m). Le curve di livello
-concordano con i punti quotati (scarto mediano 2 cm): l'errore era del modello satellitare,
-troppo liscio nelle valli e sui pendii. Per avere l'altimetria anche altrove basta ripassare i
-pacchetti provinciali nella pagina `riduci-dbgt.html` aggiornata e sostituire i file in `dbgt/`.
+L'altimetria è importata per la **provincia di Monza e Brianza** e per Cabiate: circa 1,3 milioni
+di punti a terra, 190.000 piedi di edifici e 500.000 campioni lungo gli assi stradali. Sui punti di
+verifica l'errore medio del terreno passa da 3,3 m a 0,6 m (95% dei punti: da 11,7 a 2,3 m); a
+Cabiate da 5,1 a 1,0 m. Le correzioni più grandi sono nelle valli (Lambro tra Triuggio e Albiate:
+fino a 38 m), che il modello satellitare riempiva. Le curve di livello concordano con i punti
+quotati (scarto mediano 2 cm). Le quote che si discostano più di 15 m da quelle vicine (667, ai
+margini della provincia) e i nodi stradali con una quota a più di 12 m dal terreno vengono scartati
+come errori dei dati. Mancano ancora la provincia di Como (il file importato contiene solo gli
+edifici: va ripassato nella pagina `riduci-dbgt.html` aggiornata) e quella di Lecco.
 
 **Licenza:** il Geoportale pubblica i dati con licenze diverse per prodotto (CC-BY 4.0, IODL 2.0
 o altre): controlla quella indicata nella pagina di download del DBGT prima di distribuire il gioco.
