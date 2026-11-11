@@ -1507,12 +1507,73 @@ def tile_of(x, z):
     return None
 
 
+def min_rect(pts):
+    """Rettangolo orientato di area minima attorno a un poligono: (cx, cz, mezza lunghezza,
+    mezza larghezza, angolo dell'asse lungo). Calibri rotanti sull'inviluppo convesso."""
+    P_ = sorted(set((round(x, 2), round(z, 2)) for x, z in pts))
+    if len(P_) < 3:
+        return None
+
+    def half(seq):
+        h = []
+        for p_ in seq:
+            while len(h) >= 2 and (h[-1][0] - h[-2][0]) * (p_[1] - h[-2][1]) - (h[-1][1] - h[-2][1]) * (p_[0] - h[-2][0]) <= 0:
+                h.pop()
+            h.append(p_)
+        return h[:-1]
+    hull = half(P_) + half(P_[::-1])
+    if len(hull) < 3:
+        return None
+    best = None
+    for i in range(len(hull)):
+        ax, az = hull[i]; bx, bz = hull[(i + 1) % len(hull)]
+        L = math.hypot(bx - ax, bz - az)
+        if L < 1e-6:
+            continue
+        ux, uz = (bx - ax) / L, (bz - az) / L
+        us = [(x - ax) * ux + (z - az) * uz for x, z in hull]; vs = [-(x - ax) * uz + (z - az) * ux for x, z in hull]
+        u0, u1, v0, v1 = min(us), max(us), min(vs), max(vs)
+        area = (u1 - u0) * (v1 - v0)
+        if best is None or area < best[0]:
+            cu, cv = (u0 + u1) / 2, (v0 + v1) / 2
+            best = (area, ax + ux * cu - uz * cv, az + uz * cu + ux * cv, (u1 - u0) / 2, (v1 - v0) / 2, math.atan2(ux, uz))
+    if best is None:
+        return None
+    _, cx_, cz_, hu, hv, ang = best
+    if hv > hu:
+        hu, hv, ang = hv, hu, ang + math.pi / 2
+    return cx_, cz_, hu, hv, ang
+
+
+# edifici semplificati per la vista da lontano (soprattutto in volo): un rettangolo orientato per
+# edificio con altezza e tipo di tetto, nella stessa tessera dell'edificio dettagliato.
+# Record (7 interi): x, z relativi alla tessera (dm), mezza lunghezza, mezza larghezza (dm),
+# angolo (gradi), altezza (dm), flag (1 tetto a falde, 2 industriale/commerciale)
+far_tiles = defaultdict(list)
+FAR_H = {1: 7.5, 2: 9.0, 3: 9.5, 4: 9.5, 5: 15.0, 6: 3.2, 7: 12.0, 8: 34.0, 9: 7.0}
+n_far = 0
+
 bnames = StrTable()
 for b in buildings:
     cx, cz = centroid(b['r'])
     k = tile_of(cx, cz)
     if not k:
         continue
+    area = abs(ring_area(b['r']))
+    if area >= 30:
+        kind = b['t'] or (6 if area < 45 else 3 if area > 1800 else 2)
+        hgt = b['h'] or (b['l'] * 3.1 + 0.6 if b['l'] > 0 else (14.0 if kind == 2 and area > 500 else FAR_H.get(kind, 5.5)))
+        mr = min_rect(b['r']) if hgt >= 2.5 else None
+        if mr:
+            rx, rz, hu, hv, ang = mr
+            sc = math.sqrt(min(1.0, area / max(1e-6, 4 * hu * hv)))   # stessa area del poligono vero
+            pitched = (kind == 1 or (kind == 2 and (area < 1400 or b['l'] <= 4)) or kind in (5, 9) or (kind == 7 and area < 900)
+                       or kind == 6) and b['rs'] != 1
+            far_tiles[k] += [int(round((rx - (P.xmin + k[0] * TILE)) * 10)), int(round((rz - (P.zmin + k[1] * TILE)) * 10)),
+                             max(10, int(round(hu * sc * 10))), max(10, int(round(hv * sc * 10))),
+                             int(round(math.degrees(ang))) % 180, int(round(min(hgt, 200) * 10)),
+                             (1 if pitched else 0) | (2 if kind in (3, 4) else 0)]
+            n_far += 1
     rec = [b['t'], int(b['h'] * 10), int(b['mh'] * 10), b['l'], b['rs'], bnames(b['n']),
            bnames(b['c']), bnames(b['rc'])] + enc_ring(b['r'])
     tiles[k]['b'].append(rec)
@@ -1571,6 +1632,10 @@ for (i, j), tdata in tiles.items():
     total += write_js(os.path.join(OUT, 'tiles', key + '.js'), key, tdata)
     tile_keys.append([i, j, len(tdata['b'])])
 print('tessere', len(tile_keys), 'byte', total)
+far_idx, far_data = [], []
+for (i, j), arr in sorted(far_tiles.items()):
+    far_idx.append([i, j, len(arr) // 7]); far_data += arr
+print('edifici semplificati per la vista da lontano', n_far, 'byte', write_js(os.path.join(OUT, 'far.js'), 'far', {'t': far_idx, 'd': far_data}))
 
 # ------------------------------------------------------------------ meta
 if HEIGHT_CHANGED:

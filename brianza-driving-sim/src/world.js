@@ -93,6 +93,97 @@ export class World {
     this.root.add(g);
   }
 
+  // ---------------------------------------------------------------- edifici in lontananza
+  // Oltre il raggio degli edifici dettagliati (soprattutto in volo) i paesi si vedono come volumi
+  // semplici: un parallelepipedo per edificio, con il tetto colorato. Dati: data/far.js.
+  initFar(data) {
+    this.farIdx = new Map();
+    let o = 0;
+    for (const [i, j, n] of data.t) { this.farIdx.set(j * 1000 + i, [o, n]); o += n * 7; }
+    this.farData = data.d;
+    this.farMeshes = new Map();
+    this.farQueue = [];
+    this.farGroup = new THREE.Group();
+    this.root.add(this.farGroup);
+    this.farBMat = new THREE.MeshLambertMaterial({ vertexColors: true });
+    const lin = (list, k = 1) => list.map((h) => new THREE.Color(h).convertSRGBToLinear().multiplyScalar(k));
+    this.farPal = { wall: lin(['#eadcbc', '#e9cf9f', '#dcab6e', '#f1e8d6', '#ddb7a2', '#cdbb9f', '#f0dc9e', '#e3c08e', '#d9c7a6']), ind: lin(['#c6c6c0', '#a8aeb0', '#d4cfc2', '#b9b4a6', '#9aa3a6']),
+      tile: lin(['#b8694a', '#a9603f', '#c27752', '#9e5b43', '#b5704f', '#a46a52'], 1.2), flat: lin(['#8d8a84', '#7d7b77', '#9a968e', '#6f6e6a']) };
+  }
+
+  // tessere lontane da costruire o da togliere (chiamata a ogni fotogramma, lavora 3 volte al secondo)
+  updateFar(x, z, R) {
+    if (!this.farIdx) return;
+    this.farTick = (this.farTick || 0) + 1;
+    if (this.farTick % 20 !== 1 && R === this.farR) return;
+    this.farR = R;
+    const p = this.meta.proj, ci = Math.floor((x - p.xmin) / 1000), cj = Math.floor((z - p.zmin) / 1000), r = Math.ceil(R / 1000);
+    const want = [];
+    for (let j = cj - r; j <= cj + r; j++) for (let i = ci - r; i <= ci + r; i++) {
+      const key = j * 1000 + i;
+      if (i < 0 || j < 0 || !this.farIdx.has(key) || this.farMeshes.has(key)) continue;
+      const d = Math.hypot(p.xmin + (i + 0.5) * 1000 - x, p.zmin + (j + 0.5) * 1000 - z);
+      if (d <= R) want.push([d, key]);
+    }
+    want.sort((a, b) => a[0] - b[0]);
+    this.farQueue = want.map((w) => w[1]);
+    for (const [key, m] of this.farMeshes) {
+      const i = key % 1000, j = Math.floor(key / 1000);
+      if (Math.hypot(p.xmin + (i + 0.5) * 1000 - x, p.zmin + (j + 0.5) * 1000 - z) > R + 1500) { this.farGroup.remove(m); m.geometry.dispose(); this.farMeshes.delete(key); }
+    }
+  }
+
+  pumpFar(budget = 3) {
+    if (!this.farIdx) return;
+    const t0 = performance.now();
+    while (this.farQueue.length && performance.now() - t0 < budget) {
+      const key = this.farQueue.shift();
+      if (this.farMeshes.has(key)) continue;
+      const m = this.buildFarTile(key);
+      this.farMeshes.set(key, m); this.farGroup.add(m);
+    }
+    // dove ci sono gia' gli edifici dettagliati quelli semplificati spariscono
+    for (const [key, m] of this.farMeshes) { const t = this.tiles.get(key); m.visible = !(t && 'buildings' in t.parts); }
+  }
+
+  buildFarTile(key) {
+    const [o, n] = this.farIdx.get(key), d = this.farData, T = this.terrain, p = this.meta.proj, P = this.farPal;
+    const x0 = p.xmin + (key % 1000) * 1000, z0 = p.zmin + Math.floor(key / 1000) * 1000;
+    const pos = new Float32Array(n * 60), col = new Float32Array(n * 60), nor = new Float32Array(n * 60), idx = new Uint32Array(n * 30);
+    let v = 0, t = 0;
+    const put = (x, y, z, c, s, nx, ny, nz) => { pos[v * 3] = x; pos[v * 3 + 1] = y; pos[v * 3 + 2] = z; col[v * 3] = c.r * s; col[v * 3 + 1] = c.g * s; col[v * 3 + 2] = c.b * s; nor[v * 3] = nx; nor[v * 3 + 1] = ny; nor[v * 3 + 2] = nz; return v++; };
+    for (let b = 0; b < n; b++) {
+      const q = o + b * 7, cx = x0 + d[q] / 10, cz = z0 + d[q + 1] / 10, hu = d[q + 2] / 10, hv = d[q + 3] / 10, a = d[q + 4] * Math.PI / 180, H = d[q + 5] / 10, f = d[q + 6];
+      const ux = Math.sin(a), uz = Math.cos(a), wx = -uz, wz = ux;      // asse lungo e asse corto
+      const g = T.height(cx, cz), y0 = g - 2.5, y1 = g + H + ((f & 1) ? 1.0 : 0.2);
+      const r1 = ((d[q] * 73 + d[q + 1] * 151 + b * 7) % 97) / 97, r2 = ((d[q] * 31 + d[q + 1] * 17 + b * 13) % 89) / 89;
+      const wc = (f & 2) ? P.ind[Math.floor(r1 * P.ind.length)] : P.wall[Math.floor(r1 * P.wall.length)];
+      const rc = (f & 1) ? P.tile[Math.floor(r2 * P.tile.length)] : P.flat[Math.floor(r2 * P.flat.length)];
+      const c = [[cx + ux * hu + wx * hv, cz + uz * hu + wz * hv], [cx - ux * hu + wx * hv, cz - uz * hu + wz * hv], [cx - ux * hu - wx * hv, cz - uz * hu - wz * hv], [cx + ux * hu - wx * hv, cz + uz * hu - wz * hv]];
+      const nrm = [[wx, wz], [-ux, -uz], [-wx, -wz], [ux, uz]];           // normale esterna di ogni parete
+      for (let k = 0; k < 4; k++) {
+        const A = c[k], B = c[(k + 1) % 4], [nx, nz] = nrm[k];
+        const i0 = put(A[0], y0, A[1], wc, 1, nx, 0, nz), i1 = put(B[0], y0, B[1], wc, 1, nx, 0, nz), i2 = put(B[0], y1, B[1], wc, 1, nx, 0, nz), i3 = put(A[0], y1, A[1], wc, 1, nx, 0, nz);
+        // verso dei triangoli: la faccia anteriore guarda fuori
+        if (-(B[1] - A[1]) * nx + (B[0] - A[0]) * nz > 0) { idx[t++] = i0; idx[t++] = i1; idx[t++] = i2; idx[t++] = i0; idx[t++] = i2; idx[t++] = i3; }
+        else { idx[t++] = i0; idx[t++] = i2; idx[t++] = i1; idx[t++] = i0; idx[t++] = i3; idx[t++] = i2; }
+      }
+      const j0 = put(c[0][0], y1, c[0][1], rc, 1, 0, 1, 0), j1 = put(c[1][0], y1, c[1][1], rc, 1, 0, 1, 0), j2 = put(c[2][0], y1, c[2][1], rc, 1, 0, 1, 0), j3 = put(c[3][0], y1, c[3][1], rc, 1, 0, 1, 0);
+      const up = (c[1][1] - c[0][1]) * (c[2][0] - c[0][0]) - (c[1][0] - c[0][0]) * (c[2][1] - c[0][1]) > 0;   // componente y di (c1-c0)x(c2-c0)
+      if (up) { idx[t++] = j0; idx[t++] = j1; idx[t++] = j2; idx[t++] = j0; idx[t++] = j2; idx[t++] = j3; }
+      else { idx[t++] = j0; idx[t++] = j2; idx[t++] = j1; idx[t++] = j0; idx[t++] = j3; idx[t++] = j2; }
+    }
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+    geo.setAttribute('color', new THREE.BufferAttribute(col, 3));
+    geo.setAttribute('normal', new THREE.BufferAttribute(nor, 3));
+    geo.setIndex(new THREE.BufferAttribute(idx, 1));
+    geo.computeBoundingSphere();
+    const m = new THREE.Mesh(geo, this.farBMat);
+    m.matrixAutoUpdate = false;
+    return m;
+  }
+
   tileKeyAt(x, z) { const p = this.meta.proj; return Math.floor((z - p.zmin) / 1000) * 1000 + Math.floor((x - p.xmin) / 1000); }
 
   // aggiorna l'insieme di tessere necessarie attorno al giocatore

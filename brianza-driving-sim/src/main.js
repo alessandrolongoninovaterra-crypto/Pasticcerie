@@ -23,9 +23,10 @@ import { OutputPass } from 'three/examples/jsm/postprocessing/OutputPass.js';
 
 const $ = (id) => document.getElementById(id);
 const QUALITY = {
-  low: { viewTiles: 1, shadows: false, pixelRatio: 1, trees: 0.5, bloom: false, peds: 20, parked: 132 },
-  mid: { viewTiles: 2, shadows: true, pixelRatio: 1.25, trees: 0.8, bloom: true, peds: 45, parked: 288 },
-  high: { viewTiles: 3, shadows: true, pixelRatio: 2, trees: 1, bloom: true, peds: 70, parked: 432 },
+  // farKm: raggio degli edifici semplificati in lontananza (in volo; a terra bastano 3 km per la foschia)
+  low: { viewTiles: 1, shadows: false, pixelRatio: 1, trees: 0.5, bloom: false, peds: 20, parked: 132, farKm: 0 },
+  mid: { viewTiles: 2, shadows: true, pixelRatio: 1.25, trees: 0.8, bloom: true, peds: 45, parked: 288, farKm: 5 },
+  high: { viewTiles: 3, shadows: true, pixelRatio: 2, trees: 1, bloom: true, peds: 70, parked: 432, farKm: 7 },
 };
 
 const G = { started: false, paused: false, mapOpen: false, camMode: 0, route: null, dest: null, voice: true, carIdx: 0,
@@ -358,6 +359,11 @@ function startGame() {
   G.audio && G.audio.start();
   ensureGame();
   G.settings.viewTiles = (QUALITY[$('quality').value] || QUALITY.mid).viewTiles;
+  G.settings.farKm = (QUALITY[$('quality').value] || QUALITY.mid).farKm;
+  if (G.settings.farKm > 0 && !G.world.farIdx && !G.farLoading) {   // edifici in lontananza: si caricano in sottofondo
+    G.farLoading = true;
+    loadData('far', 'data/far.js').then((d) => G.world.initFar(d)).catch(() => { /* dati non presenti: si gioca senza */ });
+  }
   G.traffic.target = +$('traffic').value;
   $('ptraffic').value = $('traffic').value;
   G.sky.hours = +$('tod').value;
@@ -716,6 +722,7 @@ function loop(now) {
   // mondo
   G.world.update(p.x, p.z);
   G.world.pump(G.loadingWorld ? 40 : flying() ? 12 : 7);
+  if (G.settings.farKm > 0) { G.world.updateFar(p.x, p.z, flying() ? G.settings.farKm * 1000 : Math.min(G.settings.farKm * 1000, 3200)); G.world.pumpFar(G.loadingWorld ? 12 : 3); }
   if (G.loadingWorld) {
     if (G.world.ready(v.x, v.z)) {
       G.loadingWorld = false;
@@ -758,6 +765,10 @@ function loop(now) {
   // cielo e luci
   tmpV2.set(p.x, flying() ? v.y - v.agl : p.y, p.z);   // ombre centrate sul suolo anche in volo
   G.sky.update(dt, tmpV2);
+  // in quota l'aria e' piu' limpida: la foschia si allontana e si vedono i paesi vicini
+  const clear = flying() ? 1 + Math.min(1.9, v.agl / 130) : 1;
+  G.scene.fog.near *= clear; G.scene.fog.far *= clear;
+  G.camera.far = Math.max(5000, G.scene.fog.far * 1.1);
   G.world.buildings.setNight(G.sky.night);
   G.world.signage.update(now / 1000, G.sky.night);
   G.traffic.setNight(G.sky.night);

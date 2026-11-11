@@ -136,6 +136,10 @@ segnaletica, edifici, fisica, navigatore, comportamento di pedoni e traffico) è
     gli altri sono aperti.
 - **Altimetria reale**: griglia di 20 m (Terrarium/AWS, da SRTM ed EU-DEM, 160–530 m s.l.m.);
   dove c'è l'altimetria del DBGT la griglia passa a 10 m ed è corretta sui dati misurati (vedi sotto).
+- **Edifici in lontananza** (qualità media e alta): oltre il raggio degli edifici dettagliati i
+  paesi si vedono come volumi semplici (un parallelepipedo orientato per edificio, con altezza e
+  colore del tetto; `data/far.js`, 166.000 edifici in 2,2 MB), fino a 5–7 km in volo e 3 km a
+  terra. In quota la foschia si allontana, così dall'aereo si vedono i paesi vicini.
 - **Guida**: modello a bicicletta con pneumatici a saturazione, cerchio d'attrito,
   trasferimento di carico, curva di coppia, cambio automatico, freno motore, pendenze,
   aderenza ridotta su sterrato/erba, ESC leggero; collisioni con edifici, muri, alberi,
