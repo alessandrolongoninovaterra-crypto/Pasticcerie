@@ -2,11 +2,12 @@
 """Riduce un pacchetto DBGT di Regione Lombardia (anche quello provinciale da oltre 1 GB) a uno o
 piu' file compatti con i soli edifici e l'altimetria dell'area del gioco, ognuno sotto i 28 MB.
 
-Uso:  python3 tools/dbgt_solo_edifici.py <pacchetto.zip o cartella> [nome_uscita] [--tutto]
+Uso:  python3 tools/dbgt_solo_edifici.py <pacchetto.zip o cartella> [nome_uscita] [--tutto] [--bbox=S,O,N,E]
 
   * tiene solo gli edifici (unita' volumetriche con la quota del piede) e l'altimetria
     (punti quotati a terra, curve di livello, assi stradali con la quota);
-  * ritaglia sull'area del gioco letta da data/meta.js (con --tutto non ritaglia);
+  * ritaglia sull'area del gioco letta da data/meta.js (con --tutto non ritaglia; con
+    --bbox=lat_sud,lon_ovest,lat_nord,lon_est su un'area a scelta);
   * conserva solo i campi che servono (altezza, tipo di porzione/estrusione, uso);
   * scrive file <nome_uscita>_N.dbgt.json.gz da mettere in brianza-driving-sim/dbgt/ o da inviare.
 
@@ -75,7 +76,8 @@ def clip_rect(prj, bbox):
     return (min(p[0] for p in pts) - margin, min(p[1] for p in pts) - margin, max(p[0] for p in pts) + margin, max(p[1] for p in pts) + margin)
 
 
-bbox = game_bbox() if clip else None
+opt_bbox = next((a.split('=', 1)[1] for a in sys.argv[1:] if a.startswith('--bbox=')), None)
+bbox = [float(v) for v in opt_bbox.split(',')] if opt_bbox else (game_bbox() if clip else None)
 print('Area del gioco:', bbox if bbox else 'tutta (nessun ritaglio)')
 folder = src
 if os.path.isfile(src):
@@ -98,6 +100,31 @@ def delta(pts, scale):
     return flat
 
 
+def simplify(pts, tol):
+    """Douglas-Peucker in pianta (le quote seguono i punti tenuti)."""
+    if len(pts) < 3:
+        return pts
+    keep = [False] * len(pts); keep[0] = keep[-1] = True
+    stack = [(0, len(pts) - 1)]
+    while stack:
+        a, b = stack.pop()
+        ax, ay = pts[a][0], pts[a][1]; bx, by = pts[b][0], pts[b][1]
+        dx, dy = bx - ax, by - ay; L = math.hypot(dx, dy)
+        best, bi = -1.0, -1
+        for i in range(a + 1, b):
+            px, py = pts[i][0] - ax, pts[i][1] - ay
+            d = abs(px * dy - py * dx) / L if L > 1e-9 else math.hypot(px, py)
+            if d > best:
+                best, bi = d, i
+        if best > tol:
+            keep[bi] = True
+            stack += [(a, bi), (bi, b)]
+    return [p for p, k in zip(pts, keep) if k]
+
+
+# curve di livello: il terreno del gioco ha una griglia di 10 m, basta una tolleranza di 1,5 m
+CV_TOL = 1.5
+
 NAMES = {'vol': 'unita volumetriche', 'body': 'corpi edificati', 'quo': 'punti quotati',
          'cv': 'curve di livello', 'str': 'assi stradali'}
 for kind, prj, recs, _src in iter_layers(folder, work):
@@ -116,7 +143,7 @@ for kind, prj, recs, _src in iter_layers(folder, work):
                 out.append({'p': delta(qbuf, (10, 10, 100))}); qbuf = []
             continue
         if kind in ALTI_KINDS:   # linee con quota: terne (dm, dm, cm)
-            enc = [delta(r, (10, 10, 100)) for r in rings if all(p[2] is not None for p in r)]
+            enc = [delta(simplify(r, CV_TOL) if kind == 'cv' else r, (10, 10, 100)) for r in rings if all(p[2] is not None for p in r)]
             if enc:
                 out.append({'a': [str(a) for a in attrs], 'r': enc})
             continue

@@ -17,7 +17,23 @@ export class Terrain {
     cv.width = lc.w; cv.height = lc.h;
     const ctx = cv.getContext('2d', { willReadFrequently: true });
     ctx.drawImage(landcoverImg, 0, 0);
-    this.lcPixels = ctx.getImageData(0, 0, lc.w, lc.h).data;
+    // classe di copertura per pixel: un byte invece dei 4 dell'immagine RGBA (la mappa allargata
+    // fino a Lecco ha ~44 milioni di pixel: 44 MB invece di 176)
+    {
+      const px = new Uint32Array(ctx.getImageData(0, 0, lc.w, lc.h).data.buffer);
+      const idx = new Uint8Array(px.length), keyIdx = new Map();
+      this.lcKeys = [];
+      let lastK = -1, lastI = 0;
+      for (let i = 0; i < px.length; i++) {
+        const k = px[i];
+        if (k !== lastK) {
+          lastK = k; lastI = keyIdx.get(k);
+          if (lastI === undefined) { lastI = this.lcKeys.length; keyIdx.set(k, lastI); this.lcKeys.push(k); }
+        }
+        idx[i] = lastI;
+      }
+      this.lcIdx = idx;
+    }
     this.lcCanvas = cv;
     this.texture = new THREE.CanvasTexture(cv);
     this.texture.colorSpace = THREE.SRGBColorSpace;
@@ -50,16 +66,16 @@ export class Terrain {
   landClass(x, z) {
     const px = Math.floor((x - this.proj.xmin) / this.mpp), py = Math.floor((z - this.proj.zmin) / this.mpp);
     if (px < 0 || py < 0 || px >= this.lcW || py >= this.lcH) return 'default';
-    const o = (py * this.lcW + px) * 4, d = this.lcPixels;
-    const key = (d[o] << 16) | (d[o + 1] << 8) | d[o + 2];
-    let k = this.classCache.get(key);
+    const i = this.lcIdx[py * this.lcW + px];
+    let k = this.classCache.get(i);
     if (k === undefined) {
+      const u = this.lcKeys[i], r = u & 255, g = (u >>> 8) & 255, bl = (u >>> 16) & 255;   // RGBA little endian
       let best = 1e9;
       for (const p of this.palette) {
-        const e = (p.c[0] - d[o]) ** 2 + (p.c[1] - d[o + 1]) ** 2 + (p.c[2] - d[o + 2]) ** 2;
+        const e = (p.c[0] - r) ** 2 + (p.c[1] - g) ** 2 + (p.c[2] - bl) ** 2;
         if (e < best) { best = e; k = p.k; }
       }
-      this.classCache.set(key, k);
+      this.classCache.set(i, k);
     }
     return k;
   }

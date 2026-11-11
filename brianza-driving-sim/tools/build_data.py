@@ -361,6 +361,35 @@ def seg_cells_g(a, b, cell):
             yield (i, j)
 
 
+def clip_water(outers, inners):
+    """Ritaglia uno specchio d'acqua sull'area della mappa (con 300 m di margine).
+    Restituisce [(anelli esterni, fori)]: un elemento per ogni pezzo che resta."""
+    xs = [p[0] for r in outers for p in r]; zs = [p[1] for r in outers for p in r]
+    m = 300
+    if min(xs) >= P.xmin - m and max(xs) <= P.xmax + m and min(zs) >= P.zmin - m and max(zs) <= P.zmax + m:
+        return [(outers, inners)]
+    from shapely.geometry import Polygon as _WP, box as _box
+    g = None
+    for r in outers:
+        if len(r) >= 4:
+            try:
+                p_ = _WP(r).buffer(0)
+                g = p_ if g is None else g.union(p_)
+            except Exception:
+                pass
+    if g is None:
+        return []
+    for r in inners:
+        if len(r) >= 4:
+            try:
+                g = g.difference(_WP(r).buffer(0))
+            except Exception:
+                pass
+    g = g.intersection(_box(P.xmin - m, P.zmin - m, P.xmax + m, P.zmax + m))
+    polys = [g] if g.geom_type == 'Polygon' else [q for q in getattr(g, 'geoms', []) if q.geom_type == 'Polygon']
+    return [([list(q.exterior.coords)[:-1]], [list(h.coords)[:-1] for h in q.interiors]) for q in polys if q.area >= 1500]
+
+
 def xy(loc):
     return P.fwd(loc.lat, loc.lon)
 
@@ -649,10 +678,12 @@ for o in fp:
             if is_water:
                 area = sum(abs(ring_area(r)) for r in outers)
                 if area > 1500:
-                    waters.append({
-                        'n': t.get('name', ''), 'a': round(area),
-                        'o': [[[round(x, 1), round(z, 1)] for x, z in dp_simplify(r, 1.0)] for r in outers],
-                        'i': [[[round(x, 1), round(z, 1)] for x, z in dp_simplify(r, 1.0)] for r in inners]})
+                    # i laghi grandi (Como) escono dalla mappa: si tiene solo la parte dentro l'area
+                    for wo, wi in clip_water(outers, inners):
+                        waters.append({
+                            'n': t.get('name', ''), 'a': round(area),
+                            'o': [[[round(x, 1), round(z, 1)] for x, z in dp_simplify(r, 1.0)] for r in wo],
+                            'i': [[[round(x, 1), round(z, 1)] for x, z in dp_simplify(r, 1.0)] for r in wi]})
 print('oggetti', n_obj, 'vie', len(road_ways), 'nodi strada', len(node_xy), 'edifici', len(buildings),
       'landcover', len(landcover_polys), 'alberi', len(trees_pt), 'ferrovie', len(rails), 'acque', len(waters))
 
@@ -1649,7 +1680,7 @@ for lm in landmarks:
         continue
     lm_seen.add(key)
     lm_out.append(lm)
-config_comuni = CFG['comuni']
+config_comuni = CFG['comuni'] + [c for c in CFG.get('featured_extra', []) if c in {x['n'] for x in comuni}]
 meta = {
     'proj': P.meta(), 'height': HMETA, 'tile': TILE, 'tilesX': TX, 'tilesZ': TZ, 'tiles': tile_keys,
     'landcover': {'w': LW, 'h': LH, 'mpp': MPP, 'palette': {k: v[1] for k, v in LC.items()}, 'default': LC_DEFAULT},

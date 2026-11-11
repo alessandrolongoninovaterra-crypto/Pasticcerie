@@ -6,8 +6,10 @@
     "Desio", "Lissone", "Albiate", "Veduggio con Colzano", "Renate"
   ],
   "margin_deg": 0.008,
-  "extra_bbox": [45.588, 9.128, 45.800, 9.315],
-  "_extra_bbox_comment": "lat_min, lon_min, lat_max, lon_max aggiunto all'area dei comuni (include il Lago di Alserio)",
+  "extra_bbox": [45.588, 9.128, 45.872, 9.415],
+  "_extra_bbox_comment": "lat_min, lon_min, lat_max, lon_max aggiunto all'area dei comuni: laghi di Alserio, Pusiano, Annone e Garlate, Lecco con il suo ramo del lago di Como",
+  "featured_extra": ["Lecco"],
+  "_featured_extra_comment": "comuni fuori dalla lista principale (che definisce l'area) da proporre comunque come partenza",
   "source_pbf": "lombardia.osm.pbf",
   "source_pbf_url": "https://download.openstreetmap.fr/extracts/europe/italy/lombardia.osm.pbf",
   "height_grid_m": 20,
