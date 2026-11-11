@@ -50,6 +50,7 @@ export class Sky {
     const sg = new THREE.BufferGeometry(); sg.setAttribute('position', new THREE.Float32BufferAttribute(sp, 3));
     this.starMat = new THREE.PointsMaterial({ color: 0xffffff, size: 2, sizeAttenuation: false, transparent: true, opacity: 0, fog: false, depthWrite: false });
     this.stars = new THREE.Points(sg, this.starMat); this.stars.frustumCulled = false;
+    this.stars.scale.setScalar(0.3);   // dentro il piano lontano della telecamera anche con la foschia notturna
     scene.add(this.stars);
 
     this.sun = new THREE.DirectionalLight(0xffffff, 2);
@@ -92,9 +93,9 @@ export class Sky {
     this.scene.fog.far = 1500 + day * 1300;
     this.sun.intensity = 2.6 * day * Math.min(1, Math.max(0, Math.sin(el)) * 4);
     this.sun.color.setRGB(1, 0.92 - golden * 0.25, 0.82 - golden * 0.35);
-    this.hemi.intensity = 0.25 + 0.85 * day;
+    this.hemi.intensity = 0.28 + 0.98 * day;
     this.hemi.color.setRGB(0.55 + 0.2 * day, 0.62 + 0.2 * day, 0.85 + 0.1 * day);
-    this.hemi.groundColor.setRGB(0.25 * day + 0.05, 0.27 * day + 0.05, 0.2 * day + 0.08);
+    this.hemi.groundColor.setRGB(0.34 * day + 0.05, 0.33 * day + 0.05, 0.27 * day + 0.08);   // luce riflessa dal suolo: facciate in ombra piu' leggibili
     this.starMat.opacity = Math.max(0, this.night - 0.3) * 1.2;
     const lightDir = this.sunDir.y > 0 ? this.sunDir : new THREE.Vector3(0.3, 1, 0.2).normalize();
     this.sun.position.set(center.x + lightDir.x * 300, center.y + lightDir.y * 300, center.z + lightDir.z * 300);

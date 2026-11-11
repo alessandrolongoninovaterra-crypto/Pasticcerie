@@ -72,12 +72,22 @@ export class BuildingFactory {
   setNight(f) { this.mats.res.emissiveIntensity = f * 0.55; this.mats.ind.emissiveIntensity = f * 0.4; }
 
   build(tile, collision, tileKey) {
+    const g = this.buildGen(tile, collision, tileKey);
+    let r;
+    while (!(r = g.next()).done);
+    return r.value;
+  }
+
+  // costruzione a passi (vedi RoadNetwork.buildTileGen): una pausa ogni 12 edifici
+  *buildGen(tile, collision, tileKey) {
     const T = this.terrain;
     const gb = { res: new GeoBuilder(), ind: new GeoBuilder(), plain: new GeoBuilder() };
     const roof = new GeoBuilder(true, false);
     const names = tile.s;
     const labels = [];
+    let nDone = 0;
     for (const rec of tile.b) {
+      if (++nDone % 12 === 0) yield;
       const type = rec[0];
       let H = rec[1] / 10;
       const minH = rec[2] / 10;
@@ -155,7 +165,8 @@ export class BuildingFactory {
       if (name && (kind === 5 || kind === 8 || type === 7)) labels.push({ name, x: cx, z: cz, y: eave + 4 });
     }
     const group = new THREE.Group();
-    for (const k of ['res', 'ind', 'plain']) if (!gb[k].empty) group.add(gb[k].mesh(this.mats[k], true));
+    for (const k of ['res', 'ind', 'plain']) if (!gb[k].empty) { yield; group.add(gb[k].mesh(this.mats[k], true)); }
+    yield;
     if (!roof.empty) group.add(roof.mesh(this.mats.roof, true));
     return { group, labels };
   }

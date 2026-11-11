@@ -140,6 +140,15 @@ segnaletica, edifici, fisica, navigatore, comportamento di pedoni e traffico) è
   paesi si vedono come volumi semplici (un parallelepipedo orientato per edificio, con altezza e
   colore del tetto; `data/far.js`, 166.000 edifici in 2,2 MB), fino a 5–7 km in volo e 3 km a
   terra. In quota la foschia si allontana, così dall'aereo si vedono i paesi vicini.
+- **Prestazioni** (novembre 2026): curve delle strade con freccia di 12 cm (non 4), passo adattivo
+  di asfalto e marciapiedi (10 m dove il terreno è regolare), segnaletica continua non spezzata,
+  recinzioni senza facce nascoste e senza ombre, edifici dettagliati solo entro 1,5–2,2 km (oltre
+  ci sono i volumi semplici), piano lontano della telecamera legato alla foschia. Strade ed edifici
+  di una tessera si costruiscono a passi su più fotogrammi (niente scatti da 100 ms). **Qualità
+  automatica**: sotto ~24 fps il gioco riduce la risoluzione di disegno (fino al 60%) e poi spegne
+  le ombre; risale sopra ~50 fps. Si disattiva con `index.html?auto=0`.
+- **Aspetto**: acqua dei laghi con onde animate e riflesso del cielo, roccia sui pendii oltre ~45°,
+  luce riflessa dal suolo sulle facciate in ombra.
 - **Guida**: modello a bicicletta con pneumatici a saturazione, cerchio d'attrito,
   trasferimento di carico, curva di coppia, cambio automatico, freno motore, pendenze,
   aderenza ridotta su sterrato/erba, ESC leggero; collisioni con edifici, muri, alberi,

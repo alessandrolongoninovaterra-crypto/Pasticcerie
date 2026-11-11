@@ -25,8 +25,8 @@ const $ = (id) => document.getElementById(id);
 const QUALITY = {
   // farKm: raggio degli edifici semplificati in lontananza (in volo; a terra bastano 3 km per la foschia)
   low: { viewTiles: 1, shadows: false, pixelRatio: 1, trees: 0.5, bloom: false, peds: 20, parked: 132, farKm: 0 },
-  mid: { viewTiles: 2, shadows: true, pixelRatio: 1.25, trees: 0.8, bloom: true, peds: 45, parked: 288, farKm: 5 },
-  high: { viewTiles: 3, shadows: true, pixelRatio: 2, trees: 1, bloom: true, peds: 70, parked: 432, farKm: 7 },
+  mid: { viewTiles: 2, shadows: true, softShadows: false, pixelRatio: 1.25, trees: 0.8, bloom: true, peds: 45, parked: 288, farKm: 5, detailKm: 1.5 },
+  high: { viewTiles: 3, shadows: true, softShadows: true, pixelRatio: 2, trees: 1, bloom: true, peds: 70, parked: 432, farKm: 7, detailKm: 2.2 },
 };
 
 const G = { started: false, paused: false, mapOpen: false, camMode: 0, route: null, dest: null, voice: true, carIdx: 0,
@@ -36,6 +36,7 @@ const G = { started: false, paused: false, mapOpen: false, camMode: 0, route: nu
 // posizione "viva" del giocatore: l'auto oppure la persona a piedi
 const focus = () => (G.foot.on ? G.foot : G.vehicle);
 window.BDS = G; // utile per il debug dalla console
+if (new URLSearchParams(location.search).get('auto') === '0') G.autoOff = true;
 
 // Caricamento a fasi: tra una fase e l'altra si lascia respirare la pagina, cosi' barra e messaggi
 // si aggiornano anche sui computer lenti; un contatore mostra che il lavoro prosegue e un errore
@@ -155,7 +156,7 @@ function ensureGame() {
   renderer.setPixelRatio(Math.min(devicePixelRatio, q.pixelRatio));
   renderer.setSize(innerWidth, innerHeight);
   renderer.shadowMap.enabled = q.shadows;
-  renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+  renderer.shadowMap.type = q.softShadows ? THREE.PCFSoftShadowMap : THREE.PCFShadowMap;
   renderer.toneMapping = THREE.ACESFilmicToneMapping;
   renderer.toneMappingExposure = 1.2;
   G.renderer = renderer;
@@ -380,6 +381,7 @@ function startGame() {
   ensureGame();
   G.settings.viewTiles = (QUALITY[$('quality').value] || QUALITY.mid).viewTiles;
   G.settings.farKm = (QUALITY[$('quality').value] || QUALITY.mid).farKm;
+  G.settings.detailKm = (QUALITY[$('quality').value] || QUALITY.mid).detailKm;
   if (G.settings.farKm > 0 && !G.world.farIdx && !G.farLoading) {   // edifici in lontananza: si caricano in sottofondo
     G.farLoading = true;
     loadData('far', 'data/far.js').then((d) => G.world.initFar(d)).catch(() => { /* dati non presenti: si gioca senza */ });
@@ -701,12 +703,39 @@ function updateCamera(dt, lookBack) {
   cam.updateProjectionMatrix();
 }
 
+// ------------------------------------------------------------------ qualita' automatica
+// Se il computer non tiene ~24 fotogrammi al secondo si abbassa la risoluzione di disegno (fino
+// al 60%) e poi si spengono le ombre; quando c'e' margine (oltre ~50 fps) si risale.
+// Disattivabile con window.BDS.autoOff = true oppure index.html?auto=0.
+const AQ = { t: 0, n: 0, scale: 1, good: 0, shadowsOff: false };
+function autoQuality(frame) {
+  if (G.autoOff || G.loadingWorld || frame > 0.5) return;
+  AQ.t += frame; AQ.n++;
+  if (AQ.t < 1.5) return;
+  const avg = AQ.t / AQ.n; AQ.t = 0; AQ.n = 0;
+  const base = Math.min(devicePixelRatio, G.settings.pixelRatio);
+  const apply = () => { const pr = Math.max(0.5, base * AQ.scale); G.renderer.setPixelRatio(pr); if (G.composer) G.composer.setPixelRatio(pr); };
+  if (avg > 0.042) {
+    AQ.good = 0;
+    if (AQ.scale > 0.61) { AQ.scale = Math.max(0.6, AQ.scale - 0.14); apply(); }
+    else if (!AQ.shadowsOff && G.settings.shadows) { AQ.shadowsOff = true; G.sky.sun.castShadow = false; }
+  } else if (avg < 0.02) {
+    if (++AQ.good >= 3) {
+      AQ.good = 0;
+      if (AQ.shadowsOff) { AQ.shadowsOff = false; G.sky.sun.castShadow = true; }
+      else if (AQ.scale < 1) { AQ.scale = Math.min(1, AQ.scale + 0.1); apply(); }
+    }
+  } else AQ.good = 0;
+  $('fps').title = `risoluzione ${Math.round(AQ.scale * 100)}%${AQ.shadowsOff ? ', ombre spente' : ''}`;
+}
+
 // ------------------------------------------------------------------ ciclo
 let last = performance.now();
 let miniT = 0;
 function loop(now) {
   requestAnimationFrame(loop);
-  let dt = Math.min(0.05, (now - last) / 1000); last = now;
+  const frame = (now - last) / 1000;
+  let dt = Math.min(0.05, frame); last = now;
   if (!G.renderer) return;
   if (G.mapOpen) {
     G.input.read(dt);
@@ -785,10 +814,12 @@ function loop(now) {
   // cielo e luci
   tmpV2.set(p.x, flying() ? v.y - v.agl : p.y, p.z);   // ombre centrate sul suolo anche in volo
   G.sky.update(dt, tmpV2);
+  G.world.updateWater(now / 1000, G.scene.fog.color);
+  autoQuality(frame);
   // in quota l'aria e' piu' limpida: la foschia si allontana e si vedono i paesi vicini
   const clear = flying() ? 1 + Math.min(1.9, v.agl / 130) : 1;
   G.scene.fog.near *= clear; G.scene.fog.far *= clear;
-  G.camera.far = Math.max(5000, G.scene.fog.far * 1.1);
+  G.camera.far = Math.max(1700, G.scene.fog.far * 1.06);   // oltre la foschia non si disegna nulla
   G.world.buildings.setNight(G.sky.night);
   G.world.signage.update(now / 1000, G.sky.night);
   G.traffic.setNight(G.sky.night);

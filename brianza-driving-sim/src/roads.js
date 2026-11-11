@@ -308,7 +308,8 @@ export class RoadNetwork {
           const am = Math.max(aA, aB);
           if (am > 0.03 && am < 1.1) {
             const sag = L * am / 4;
-            const ns = Math.min(10, Math.ceil(Math.sqrt(sag / 0.04)));
+            // freccia massima tra corda e curva: 12 cm (a 4 cm i nodi erano il quadruplo, senza differenze visibili)
+            const ns = Math.min(8, Math.ceil(Math.sqrt(sag / 0.12)));
             if (ns >= 2) {
               const ma = Ta[2] > 0.6 ? Math.min(L, 7) : L, mb = Tb[2] > 0.6 ? Math.min(L, 7) : L;
               for (let s = 1; s < ns; s++) {
@@ -589,7 +590,17 @@ export class RoadNetwork {
     g.quad(P[0], P[1], P[2], P[3]);
   }
 
+  // costruzione tutta in una volta (per chi non ha fretta)
   buildTile(tk) {
+    const g = this.buildTileGen(tk);
+    let r;
+    while (!(r = g.next()).done);
+    return r.value;
+  }
+
+  // Costruzione a passi: il generatore si ferma ogni pochi tratti di strada, cosi' chi lo guida
+  // (World.pump) puo' distribuire il lavoro su piu' fotogrammi senza scatti.
+  *buildTileGen(tk) {
     const group = new THREE.Group();
     const segs = this.tileSegs.get(tk) || [];
     const M = this.materials();
@@ -598,7 +609,9 @@ export class RoadNetwork {
     const T = this.terrain;
     const STEP = 5;
     const discDone = new Set();
+    let nDone = 0;
     for (const packed of segs) {
+      if (++nDone % 20 === 0) yield;
       const wi = Math.floor(packed / 16384), k = packed % 16384;
       const w = this.ways[wi];
       const a = w.nodes[k], b = w.nodes[k + 1];
@@ -609,7 +622,25 @@ export class RoadNetwork {
       const rx = -sz, rz = sx;
       const ma = this.miter(w, k), mb = this.miter(w, k + 1);
       const hw = w.width / 2;
-      const nsub = Math.max(1, Math.ceil(L / STEP));
+      let nsub = Math.max(1, Math.ceil(L / STEP));
+      // passo adattivo: dove il terreno e' regolare (scarto sotto i 2 cm a meta' di ogni tratto,
+      // su entrambi i bordi) bastano tratti da 10 m; resta a 5 m su dossi e cambi di pendenza
+      const n2 = Math.max(1, Math.ceil(L / 10));
+      if (n2 < nsub) {
+        let flat = true;
+        for (let s = 0; s < n2 && flat; s++) {
+          for (const sg of [-1, 1]) {
+            const h3 = [];
+            for (const t of [s / n2, (s + 0.5) / n2, (s + 1) / n2]) {
+              const ox = ma[0] + (mb[0] - ma[0]) * t, oz = ma[1] + (mb[1] - ma[1]) * t;
+              const px = ax + (bx - ax) * t + ox * hw * sg, pz = az + (bz - az) * t + oz * hw * sg;
+              h3.push(this.edgeH(wi, k, t, px, pz));
+            }
+            if (Math.abs(h3[1] - (h3[0] + h3[2]) / 2) > 0.02) { flat = false; break; }
+          }
+        }
+        if (flat) nsub = n2;
+      }
       const col = this.wayColor(w);
       const isStone = w.surf === 1 || !!(w.flags & F.NOCAR);
       const g = isStone ? stone : road;
@@ -720,13 +751,19 @@ export class RoadNetwork {
       const lastR = idx[idx.length - 1];
       for (let i = 0; i < segN; i++) isl.tri(c0, lastR[(i + 1) % segN], lastR[i]);
     }
+    yield;
     this.buildNodeMarks(tk, mark, road);
+    yield;
     this.buildLaneArrows(tk, decal);
     this.buildRoundaboutEntries(tk, mark);
+    yield;
     this.buildRails(tk, road, wall);
+    yield;
     if (!road.empty) group.add(road.mesh(M.road));
+    yield;
     if (!stone.empty) group.add(stone.mesh(M.stone));
     if (!walk.empty) group.add(walk.mesh(M.walk));
+    yield;
     if (!mark.empty) group.add(mark.mesh(M.mark));
     if (!decal.empty) group.add(decal.mesh(M.decal));
     if (!wall.empty) group.add(wall.mesh(M.wall, true));
@@ -827,7 +864,8 @@ export class RoadNetwork {
       if (ln.dash) { const P = ln.dash[0] + ln.dash[1]; for (let st = Math.floor(s0 / P) * P; st < s0 + L; st += P) { if (st > s0) cuts.push(st - s0); if (st + ln.dash[0] > s0 && st + ln.dash[0] < s0 + L) cuts.push(st + ln.dash[0] - s0); } }
       cuts.push(L);
       cuts.sort((p, q) => p - q);
-      let pl = -1, pr = -1, prevD = -1;
+      // stato (dipinto / non dipinto) di ogni intervallo tra due tagli
+      const ivs = [];
       for (let i = 0; i < cuts.length - 1; i++) {
         const d0 = cuts[i], d1 = cuts[i + 1];
         if (d1 - d0 < 0.02) continue;
@@ -837,8 +875,19 @@ export class RoadNetwork {
           const ox = ma[0] + (mb[0] - ma[0]) * tm, oz = ma[1] + (mb[1] - ma[1]) * tm;
           if (this.coveredBy(wi, ax + sx * dm + ox * ln.off, az + sz * dm + oz * ln.off, ln.edge ? 0.1 : 0, !!ln.edge)) on = false;
         }
+        ivs.push([d0, d1, on]);
+      }
+      let pl = -1, pr = -1, prevD = -1;
+      for (let i = 0; i < ivs.length; i++) {
+        const [d0, d1, on] = ivs[i];
         if (!on) { pl = -1; continue; }
-        for (const d of (pl >= 0 && prevD === d0 ? [d1] : [d0, d1])) {
+        // dentro un tratto continuo bastano i vertici ogni 5 m (per seguire il terreno): i tagli
+        // fitti servono solo a trovare dove la linea comincia e finisce
+        const nxt = ivs[i + 1];
+        const mid = nxt && nxt[2] && nxt[0] === d1 && Math.abs(d1 / 5 - Math.round(d1 / 5)) > 1e-6;
+        const cont = pl >= 0 && prevD === d0;
+        if (mid && cont) { prevD = d1; continue; }
+        for (const d of (cont ? [d1] : mid ? [d0] : [d0, d1])) {
           const t = d / L;
           const ox = ma[0] + (mb[0] - ma[0]) * t, oz = ma[1] + (mb[1] - ma[1]) * t;
           const cx = ax + sx * d + ox * ln.off, cz = az + sz * d + oz * ln.off;
@@ -1093,10 +1142,9 @@ export class RoadNetwork {
     }
     const grp = new THREE.Group();
     if (!g.empty) grp.add(g.mesh(this.materials().barrier, true));
-    if (!gs.empty) grp.add(gs.mesh(fenceMaterials().solid, true));
+    if (!gs.empty) grp.add(gs.mesh(fenceMaterials().solid, false));
     if (!gg.empty) {
-      const m = gg.mesh(fenceMaterials().grille, true);
-      m.customDepthMaterial = fenceMaterials().depth;
+      const m = gg.mesh(fenceMaterials().grille, false);
       grp.add(m);
     }
     return grp.children.length ? grp : null;

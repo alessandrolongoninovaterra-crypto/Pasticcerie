@@ -90,13 +90,18 @@ export class Terrain {
     const p = this.proj;
     mat.onBeforeCompile = (sh) => {
       sh.uniforms.detailMap = { value: detailTex };
-      sh.vertexShader = sh.vertexShader.replace('#include <common>', '#include <common>\nvarying vec3 vWPos;')
+      sh.vertexShader = sh.vertexShader.replace('#include <common>', '#include <common>\nvarying vec3 vWPos;\nvarying float vUp;')
+        .replace('#include <beginnormal_vertex>', '#include <beginnormal_vertex>\nvUp = normalize(mat3(modelMatrix) * objectNormal).y;')
         .replace('#include <worldpos_vertex>', '#include <worldpos_vertex>\nvWPos = (modelMatrix * vec4(transformed, 1.0)).xyz;');
-      sh.fragmentShader = sh.fragmentShader.replace('#include <common>', '#include <common>\nvarying vec3 vWPos;\nuniform sampler2D detailMap;')
+      sh.fragmentShader = sh.fragmentShader.replace('#include <common>', '#include <common>\nvarying vec3 vWPos;\nvarying float vUp;\nuniform sampler2D detailMap;')
         .replace('#include <map_fragment>', `#include <map_fragment>
           float d1 = texture2D(detailMap, vWPos.xz * 0.11).r;
           float d2 = texture2D(detailMap, vWPos.xz * 0.013).g;
-          diffuseColor.rgb *= 0.72 + 0.32 * d1 + 0.22 * (d2 - 0.5);`);
+          diffuseColor.rgb *= 0.72 + 0.32 * d1 + 0.22 * (d2 - 0.5);
+          // sui pendii molto ripidi (oltre ~45 gradi) affiora la roccia
+          float steep = smoothstep(0.26, 0.46, 1.0 - vUp);
+          vec3 rock = vec3(0.47, 0.45, 0.42) * (0.75 + 0.5 * d1) * (0.9 + 0.3 * d2);
+          diffuseColor.rgb = mix(diffuseColor.rgb, rock, steep * 0.85);`);
     };
     return mat;
   }

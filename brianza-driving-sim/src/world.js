@@ -66,7 +66,28 @@ export class World {
 
   buildWaters() {
     // laghi e specchi d'acqua reali
-    const mat = new THREE.MeshPhongMaterial({ color: 0x3f6f8f, specular: 0x99aabb, shininess: 80, transparent: true, opacity: 0.92, side: THREE.DoubleSide });
+    const mat = new THREE.MeshPhongMaterial({ color: 0x2f6688, specular: 0xaabbcc, shininess: 110, transparent: true, opacity: 0.94, side: THREE.DoubleSide });
+    // piccole onde animate (normale perturbata) e riflesso del cielo verso l'orizzonte (Fresnel)
+    this.waterU = { uTime: { value: 0 }, uSky: { value: new THREE.Color(0.75, 0.84, 0.92) } };
+    mat.onBeforeCompile = (sh) => {
+      Object.assign(sh.uniforms, this.waterU);
+      sh.vertexShader = sh.vertexShader.replace('#include <common>', '#include <common>\nvarying vec3 vWPos;')
+        .replace('#include <worldpos_vertex>', '#include <worldpos_vertex>\nvWPos = (modelMatrix * vec4(transformed, 1.0)).xyz;');
+      sh.fragmentShader = sh.fragmentShader.replace('#include <common>', '#include <common>\nvarying vec3 vWPos;\nuniform float uTime;\nuniform vec3 uSky;')
+        .replace('#include <normal_fragment_maps>', `#include <normal_fragment_maps>
+          vec2 wp = vWPos.xz;
+          float wd = distance(cameraPosition, vWPos);
+          float amp = clamp(1.0 - wd / 700.0, 0.12, 1.0);
+          vec2 wg = vec2(cos(wp.x * 0.33 + uTime * 1.1), cos(wp.y * 0.29 + uTime * 0.9)) * 0.04
+                  + vec2(cos(dot(wp, vec2(0.9, 0.5)) * 0.8 + uTime * 1.7), cos(dot(wp, vec2(-0.4, 0.8)) * 0.74 + uTime * 1.5)) * 0.03
+                  + vec2(cos(dot(wp, vec2(0.3, -0.95)) * 2.1 + uTime * 2.6), cos(dot(wp, vec2(0.8, 0.6)) * 1.9 + uTime * 2.3)) * 0.015;
+          vec3 nW = normalize(vec3(-wg.x * amp, 1.0, -wg.y * amp));
+          normal = normalize((viewMatrix * vec4(nW, 0.0)).xyz);
+          vec3 vdirW = normalize(cameraPosition - vWPos);
+          float fres = pow(1.0 - max(dot(vdirW, nW), 0.0), 3.0);
+          diffuseColor.rgb = mix(diffuseColor.rgb, uSky, clamp(fres, 0.0, 1.0) * 0.8);
+          diffuseColor.a = mix(0.9, 1.0, fres);`);
+    };
     this.waterMat = mat;
     const g = new THREE.Group();
     for (const wt of this.meta.waters) {
@@ -143,7 +164,7 @@ export class World {
       this.farMeshes.set(key, m); this.farGroup.add(m);
     }
     // dove ci sono gia' gli edifici dettagliati quelli semplificati spariscono
-    for (const [key, m] of this.farMeshes) { const t = this.tiles.get(key); m.visible = !(t && 'buildings' in t.parts); }
+    for (const [key, m] of this.farMeshes) { const t = this.tiles.get(key); m.visible = !(t && t.parts.buildings); }
   }
 
   buildFarTile(key) {
@@ -184,6 +205,9 @@ export class World {
     return m;
   }
 
+  // acqua: tempo per le onde e colore del cielo per il riflesso
+  updateWater(time, sky) { if (this.waterU) { this.waterU.uTime.value = time % 10000; this.waterU.uSky.value.copy(sky); } }
+
   tileKeyAt(x, z) { const p = this.meta.proj; return Math.floor((z - p.zmin) / 1000) * 1000 + Math.floor((x - p.xmin) / 1000); }
 
   // aggiorna l'insieme di tessere necessarie attorno al giocatore
@@ -205,6 +229,15 @@ export class World {
       const t = this.tiles.get(j * 1000 + i);
       t.d = d;
       t.vegWanted = d < 1700;
+      // edifici dettagliati solo vicino: piu' in la' bastano quelli semplificati (se ci sono)
+      const detail = this.farIdx ? (this.settings.detailKm || 1.5) * 1000 : 1e9;
+      if (d < detail) { if (t.bldPending) { t.bldPending = false; delete t.parts.buildings; } }
+      else if (d > detail + 400 && t.parts.buildings && !t.gen) {
+        const o = t.parts.buildings;
+        this.root.remove(o); o.traverse((m) => { if (m.geometry) m.geometry.dispose(); });
+        t.parts.buildings = null; t.bldPending = true;
+      }
+      t.bldFar = d >= detail;
     }
     for (const [k, t] of this.tiles) {
       if (!want.has(k) && t.d > (rad + 0.9) * 1000) this.unload(t);
@@ -246,7 +279,14 @@ export class World {
       const x0 = p.xmin + t.i * 1000, z0 = p.zmin + t.j * 1000;
       const add = (name, obj) => { t.parts[name] = obj; if (obj) this.root.add(obj); };
       if (!('terrain' in t.parts)) { add('terrain', this.terrain.buildChunk(x0, z0, 1000, Math.max(5, this.terrain.step), this.terrainMat)); continue; }
-      if (!('roads' in t.parts)) { add('roads', this.roads.buildTile(t.key)); continue; }
+      if (!('roads' in t.parts)) {
+        // strade ed edifici si costruiscono a passi: si lavora finche' c'e' tempo in questo fotogramma
+        if (!t.gen) t.gen = this.roads.buildTileGen(t.key);
+        let r;
+        do { r = t.gen.next(); } while (!r.done && performance.now() - t0 < budget);
+        if (!r.done) return false;
+        t.gen = null; add('roads', r.value); continue;
+      }
       if (!('signs' in t.parts)) {
         const s = this.signage.build(t.key, t.data);
         for (const sg of s.signals) this.signals.push({ ...sg, tile: t.key });
@@ -254,9 +294,16 @@ export class World {
         add('signs', s.group); continue;
       }
       if (!('buildings' in t.parts)) {
-        if (t.data) { const b = this.buildings.build(t.data, this.collision, t.key); add('buildings', b.group); }
-        else add('buildings', null);
-        for (const rb of this.roads.roundabouts) if (this.roads.tileKey(rb.x, rb.z) === t.key) this.collision.addCircle(t.key, rb.x, rb.z, rb.r);
+        if (t.data && t.bldFar && this.farIdx && this.farIdx.has(t.key)) { t.parts.buildings = null; t.bldPending = true; continue; }   // lontano: restano i volumi semplici
+        if (t.data) {
+          // (le collisioni si registrano una volta sola, anche se il dettaglio viene tolto e rimesso)
+          if (!t.gen) { t.gen = this.buildings.buildGen(t.data, t.bldCol ? null : this.collision, t.key); t.bldCol = true; }
+          let r;
+          do { r = t.gen.next(); } while (!r.done && performance.now() - t0 < budget);
+          if (!r.done) return false;
+          t.gen = null; add('buildings', r.value.group);
+        } else add('buildings', null);
+        if (!t.rbDone) { t.rbDone = true; for (const rb of this.roads.roundabouts) if (this.roads.tileKey(rb.x, rb.z) === t.key) this.collision.addCircle(t.key, rb.x, rb.z, rb.r); }
         continue;
       }
       if (!('paths' in t.parts)) {

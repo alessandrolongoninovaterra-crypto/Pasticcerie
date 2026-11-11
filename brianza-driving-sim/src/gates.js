@@ -65,7 +65,7 @@ export function panel(g, ax, az, ya, bx, bz, yb, h0, h1, band, period, col, u0 =
 }
 
 // parallelepipedo orientato (asse x locale lungo (dx,dz)) con facce separate
-export function box(g, cx, cy, cz, sx, sy, sz, dx, dz, col) {
+export function box(g, cx, cy, cz, sx, sy, sz, dx, dz, col, topCol = null) {
   const hx = sx / 2, hz = sz / 2;
   const ex = [dx * hx, dz * hx], ez = [-dz * hz, dx * hz];
   const P = (i, j, k) => [cx + ex[0] * i + ez[0] * k, cy + j * sy, cz + ex[1] * i + ez[1] * k];
@@ -79,7 +79,9 @@ export function box(g, cx, cy, cz, sx, sy, sz, dx, dz, col) {
     [P(-1, 0, -1), P(-1, 0, 1), P(-1, 1, 1), P(-1, 1, -1)],
   ];
   faces.forEach((f, fi) => {
-    const s = sh[fi], ids = f.map((p) => g.v(p[0], p[1], p[2], col[0] * s, col[1] * s, col[2] * s));
+    if (fi === 1) return;                       // la faccia di sotto poggia a terra: non si vede mai
+    const c = fi === 0 && topCol ? topCol : col, s = fi === 0 && topCol ? 1 : sh[fi];
+    const ids = f.map((p) => g.v(p[0], p[1], p[2], c[0] * s, c[1] * s, c[2] * s));
     g.quad(ids[0], ids[1], ids[2], ids[3]);
   });
 }
@@ -104,8 +106,7 @@ export function buildFence(gs, gg, pts, kind, H, T, seed) {
       const y0 = T.height(x0, z0), y1 = T.height(x1, z1);
       if (kind === 4) {   // muretto intonacato con copertina
         const l = L / n, my = Math.min(y0, y1);
-        box(gs, (x0 + x1) / 2, my - 0.3, (z0 + z1) / 2, l + 0.02, base + 0.3 + Math.abs(y1 - y0) * 0.5, 0.28, dx, dz, wall);
-        box(gs, (x0 + x1) / 2, Math.max(y0, y1) + base - 0.02, (z0 + z1) / 2, l + 0.04, 0.06, 0.34, dx, dz, [0.74, 0.73, 0.7]);
+        box(gs, (x0 + x1) / 2, my - 0.3, (z0 + z1) / 2, l + 0.02, base + 0.3 + Math.abs(y1 - y0) * 0.5, 0.3, dx, dz, wall, [0.74, 0.73, 0.7]);
       }
       const band = kind === 5 ? 1 : kind === 6 ? 2 : 0;
       const col = kind === 6 ? WOOD : kind === 5 ? ZINC : iron;
@@ -113,7 +114,7 @@ export function buildFence(gs, gg, pts, kind, H, T, seed) {
     }
     // montanti (rete e ringhiera)
     if (kind === 5 || kind === 7) {
-      const m = Math.max(1, Math.round(L / 2.5));
+      const m = Math.max(1, Math.round(L / 3));
       for (let s = 0; s <= m; s++) {
         const px = ax + (bx - ax) * s / m, pz = az + (bz - az) * s / m;
         box(gs, px, T.height(px, pz) - 0.2, pz, 0.06, H + 0.25, 0.06, dx, dz, kind === 5 ? [0.36, 0.4, 0.36] : iron);
