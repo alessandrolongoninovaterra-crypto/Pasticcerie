@@ -245,11 +245,11 @@ sono il terreno). Se ci sono, la pipeline:
 **Area della mappa** (novembre 2026): i 15 comuni principali più un rettangolo fino a Lecco
 (lat 45,588–45,872, lon 9,128–9,415, circa 700 km² in 733 tessere da 1 km): laghi di Alserio,
 Pusiano, Annone, Garlate e Olginate, il ramo di Lecco del lago di Como, i Corni di Canzo e il San
-Martino. Edifici e altimetria DBGT in 96 comuni (province di Monza e Brianza, Como, Lecco e il
-bordo nord di Paderno Dugnano). Il pacchetto di Lecco importato era ritagliato sulla mappa
-precedente: Lecco città, Valmadrera, Civate, Galbiate, Malgrate e i comuni tagliati a metà
-(Sirone, Barzago, Bosisio Parini, Casatenovo) restano con gli edifici OSM finché non si ripassa il
-pacchetto in `riduci-dbgt.html`. Le curve di livello vengono semplificate (1,5 m in pianta) dal
+Martino. Edifici e altimetria DBGT in 132 comuni (province di Monza e Brianza, Como, Lecco e il
+bordo nord di Paderno Dugnano): tutti i comuni della mappa tranne Como città, che vi entra solo in
+minima parte. Sulle pareti di roccia (San Martino, Moregallo, Corni di Canzo) la griglia da 10 m
+non segue i salti verticali: le curve di livello lì si discostano anche di decine di metri e
+vengono scartate dalla correzione. Le curve di livello vengono semplificate (1,5 m in pianta) dal
 riduttore Python.
 
 L'altimetria è importata per le **province di Monza e Brianza e di Como** (e Cabiate dal pacchetto
