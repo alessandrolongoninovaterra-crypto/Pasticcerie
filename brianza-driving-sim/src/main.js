@@ -37,25 +37,45 @@ const G = { started: false, paused: false, mapOpen: false, camMode: 0, route: nu
 const focus = () => (G.foot.on ? G.foot : G.vehicle);
 window.BDS = G; // utile per il debug dalla console
 
+// Caricamento a fasi: tra una fase e l'altra si lascia respirare la pagina, cosi' barra e messaggi
+// si aggiornano anche sui computer lenti; un contatore mostra che il lavoro prosegue e un errore
+// indica la fase in cui e' avvenuto.
+const BOOT = { stage: '', t0: performance.now(), timer: 0 };
+function bootStatus() {
+  const s = Math.round((performance.now() - BOOT.t0) / 1000);
+  let hint = '';
+  if (s >= 25) hint = ' — sui computer meno potenti può servire fino a un minuto; chiudi le altre schede del browser';
+  $('loadmsg').textContent = BOOT.stage + (s >= 3 ? ` (${s} s)` : '') + hint;
+}
+function bootFail(e) {
+  clearInterval(BOOT.timer);
+  console.error(e);
+  const ua = navigator.userAgent.match(/(Edg|Chrome|Firefox|Safari)\/[\d.]+/);
+  $('loadmsg').textContent = `Errore durante "${BOOT.stage}": ${e && e.message ? e.message : e}` +
+    ` — browser: ${ua ? ua[0] : navigator.userAgent}. Usa Chrome, Edge o Firefox aggiornati su computer.`;
+  $('loadmsg').style.color = '#ff8a7a';
+}
+addEventListener('error', (ev) => { if (!G.meta || !G.router) bootFail(ev.error || ev.message); });
+
 async function boot() {
-  const setLoad = (f, msg) => { $('loadbar').style.width = (f * 100).toFixed(0) + '%'; if (msg) $('loadmsg').textContent = msg; };
-  setLoad(0.05, 'Caricamento della cartografia reale…');
+  const pause = () => new Promise((r) => setTimeout(r, 30));
+  const setLoad = (f, msg) => { $('loadbar').style.width = (f * 100).toFixed(0) + '%'; if (msg) { BOOT.stage = msg; bootStatus(); } };
+  BOOT.timer = setInterval(bootStatus, 1000);
+  setLoad(0.03, 'Caricamento della cartografia reale');
   let done = 0;
-  const step = (p) => p.then((r) => { done++; setLoad(0.05 + done / 4 * 0.6); return r; });
-  const [meta, roadsData, heightBuf, lcImg] = await Promise.all([
-    step(loadData('meta', 'data/meta.js')), step(loadData('roads', 'data/roads.js')),
-    step(loadData('height', 'data/height.js')), step(loadData('landcover', 'data/landcover.js')),
-  ]);
-  setLoad(0.7, 'Costruzione della rete stradale (' + roadsData.ways.length.toLocaleString('it') + ' vie OSM)…');
-  await new Promise((r) => setTimeout(r, 20));
+  const files = [['meta', 'data/meta.js'], ['roads', 'data/roads.js'], ['height', 'data/height.js'], ['landcover', 'data/landcover.js']];
+  const res = await Promise.all(files.map(([k, src]) => loadData(k, src).then((r) => { done++; setLoad(0.03 + done / 4 * 0.42, `Caricamento della cartografia reale: ${done} di 4 file`); return r; })));
+  const [meta, roadsData, heightBuf, lcImg] = res;
   G.meta = meta;
   G.proj = new Projection(meta.proj);
+  setLoad(0.5, 'Altimetria e colori del terreno'); await pause();
   G.terrain = new Terrain(meta, heightBuf, lcImg);
+  setLoad(0.62, `Costruzione della rete stradale (${roadsData.ways.length.toLocaleString('it')} vie OSM)`); await pause();
   G.roads = new RoadNetwork(roadsData, G.terrain, meta);
-  setLoad(0.9, 'Preparazione del navigatore…');
-  await new Promise((r) => setTimeout(r, 20));
+  setLoad(0.9, 'Preparazione del navigatore'); await pause();
   G.router = new Router(G.roads);
   setLoad(1, 'Pronto');
+  clearInterval(BOOT.timer);
   $('loading').classList.add('hidden');
   setupMenu();
 }
@@ -488,7 +508,7 @@ function updateHUD(dt) {
   if (wi < 0) { const nr = R.nearest(v.x, v.z, 25, (w) => w.drivable); if (nr) wi = nr.wi; }
   const comune = G.world.comuneAt(v.x, v.z);
   if (flying()) {
-    $('roadname').textContent = `In volo · ${Math.round(car.agl)} m dal suolo`;
+    $('roadname').textContent = car.crashed > 0 ? '💥 Incidente — si riparte in volo' : `In volo · ${Math.round(Math.max(0, car.agl))} m dal suolo`;
     $('limit').classList.add('hidden'); G.curLimit = 0;
   } else if (wi >= 0) {
     const w = R.ways[wi];
@@ -787,7 +807,4 @@ function loop(now) {
 }
 const tmpV2 = new THREE.Vector3();
 
-boot().catch((e) => {
-  console.error(e);
-  $('loadmsg').textContent = 'Errore: ' + e.message + ' — apri il gioco con un browser recente (Chrome, Edge, Firefox).';
-});
+boot().catch(bootFail);

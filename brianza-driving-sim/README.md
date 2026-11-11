@@ -242,14 +242,14 @@ sono il terreno). Se ci sono, la pipeline:
    terreno sotto la strada a quella quota (trincee, rilevati, rampe); ponti e gallerie sono esclusi;
 3. verifica il risultato sul 5% dei punti quotati tenuti da parte e stampa l'errore prima e dopo.
 
-**Area della mappa** (novembre 2026): i 15 comuni principali più un rettangolo fino a Lecco
-(lat 45,588–45,872, lon 9,128–9,415, circa 700 km² in 733 tessere da 1 km): laghi di Alserio,
-Pusiano, Annone, Garlate e Olginate, il ramo di Lecco del lago di Como, i Corni di Canzo e il San
-Martino. Edifici e altimetria DBGT in 132 comuni (province di Monza e Brianza, Como, Lecco e il
-bordo nord di Paderno Dugnano): tutti i comuni della mappa tranne Como città, che vi entra solo in
-minima parte. Sulle pareti di roccia (San Martino, Moregallo, Corni di Canzo) la griglia da 10 m
-non segue i salti verticali: le curve di livello lì si discostano anche di decine di metri e
-vengono scartate dalla correzione. Le curve di livello vengono semplificate (1,5 m in pianta) dal
+**Area della mappa** (novembre 2026): i 15 comuni principali più un rettangolo fino a Como, Lecco e
+Bellagio (lat 45,588–45,99, lon 9,06–9,415, circa 1.240 km² in 1.233 tessere da 1 km): laghi
+brianzoli, lago di Como con il ramo di Como e quello di Lecco fino a Bellagio, triangolo lariano,
+Corni di Canzo, San Martino e la Grigna sul bordo. Edifici e altimetria DBGT in 179 comuni
+(province di Monza e Brianza, Como, Lecco e Milano per la parte nella mappa). Sulle pareti di
+roccia la griglia da 10 m non segue i salti verticali: le curve di livello lì si discostano anche
+di decine di metri e vengono scartate dalla correzione. La mappa dei colori del terreno è a 8 m
+per pixel (3.445 × 5.594), sotto i limiti delle schede video e del browser. Le curve di livello vengono semplificate (1,5 m in pianta) dal
 riduttore Python.
 
 L'altimetria è importata per le **province di Monza e Brianza e di Como** (e Cabiate dal pacchetto
