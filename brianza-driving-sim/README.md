@@ -243,7 +243,7 @@ sono il terreno). Se ci sono, la pipeline:
 3. verifica il risultato sul 5% dei punti quotati tenuti da parte e stampa l'errore prima e dopo.
 
 L'altimetria è importata per le **province di Monza e Brianza e di Como** (e Cabiate dal pacchetto
-comunale): circa 2,9 milioni di punti a terra (punti quotati e vertici delle curve di livello),
+comunale; della provincia di Milano nella mappa cade solo la parte nord di Paderno Dugnano, importata): circa 2,9 milioni di punti a terra (punti quotati e vertici delle curve di livello),
 250.000 piedi di edifici e 770.000 campioni lungo gli assi stradali; 111.000 nodi stradali hanno la
 quota reale. Sui punti di verifica (146.000, dentro la mappa) l'errore medio del terreno passa da
 3,9 m a 0,6 m (95% dei punti: da 12,8 a 2,2 m). Le correzioni più grandi sono nelle valli (Lambro
