@@ -142,7 +142,7 @@ export class BuildingFactory {
         const j = (i + 1) % n;
         const ax = ring[i * 2], az = ring[i * 2 + 1], bx = ring[j * 2], bz = ring[j * 2 + 1];
         const len = Math.hypot(bx - ax, bz - az);
-        const u0 = per / 24, u1 = (per + len) / 24;
+        const u0 = per / 24;
         // allinea le finestre: numero intero di campate per facciata
         const bays = Math.max(1, Math.round(len / 3));
         const ue = u0 + bays / 8;

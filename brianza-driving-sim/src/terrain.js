@@ -87,7 +87,6 @@ export class Terrain {
 
   makeMaterial(detailTex) {
     const mat = new THREE.MeshLambertMaterial({ map: this.texture });
-    const p = this.proj;
     mat.onBeforeCompile = (sh) => {
       sh.uniforms.detailMap = { value: detailTex };
       sh.vertexShader = sh.vertexShader.replace('#include <common>', '#include <common>\nvarying vec3 vWPos;\nvarying float vUp;')

@@ -43,7 +43,7 @@ function plate(g, x, y, z, w, h, yaw, uv) {
 
 // ---------------------------------------------------------------- atlante dei segnali
 const STD = ['stop', 'giveway', 'roundabout', 'noentry', 'oneway', 'ped', 'bump', 'level', 'warn', 'parking', 'bus', 'fuel', 'camera', 'deadend',
-  's10', 's20', 's30', 's40', 's50', 's60', 's70', 's80', 's90', 's100', 's110', 's130', 'back'];
+  's10', 's20', 's30', 's40', 's50', 's60', 's70', 's80', 's90', 's100', 's110', 's130', 'back', 'curveR', 'curveL', 'steep', 'children'];
 function uvStd(name, silhouette = false) {
   const i = STD.indexOf(name), col = i % 8, row = Math.floor(i / 8) + (silhouette ? 4 : 0);
   return [col / 8, 1 - (row + 1) / 8, (col + 1) / 8, 1 - row / 8];
@@ -57,7 +57,7 @@ function drawStd(c, name) {
   const text = (t, size, col, y = m + 3) => { c.fillStyle = col; c.font = `bold ${size}px Arial`; c.textAlign = 'center'; c.textBaseline = 'middle'; c.fillText(t, m, y); };
   const RED = '#c8101a', BLUE = '#0a4fa6';
   const tri = () => { poly([[m, 6], [124, 118], [4, 118]], RED); poly([[m, 30], [103, 106], [25, 106]], '#fff'); };
-  if (name.startsWith('s')) { disc(62, RED); disc(47, '#fff'); const v = name.slice(1); text(v, v.length > 2 ? 46 : 58, '#111'); return; }
+  if (/^s\d+$/.test(name)) { disc(62, RED); disc(47, '#fff'); const v = name.slice(1); text(v, v.length > 2 ? 46 : 58, '#111'); return; }
   switch (name) {
     case 'stop': {
       const oct = (r) => Array.from({ length: 8 }, (_, i) => { const a = (i + 0.5) / 8 * Math.PI * 2; return [m + Math.cos(a) * r, m + Math.sin(a) * r]; });
@@ -86,6 +86,27 @@ function drawStd(c, name) {
     }
     case 'bump': tri(); c.fillStyle = '#111'; c.beginPath(); c.moveTo(36, 96); c.quadraticCurveTo(m, 56, 92, 96); c.closePath(); c.fill(); break;
     case 'warn': tri(); text('!', 56, '#111', 76); break;
+    case 'curveR': case 'curveL': {   // curva pericolosa
+      tri();
+      c.save(); if (name === 'curveL') { c.translate(S, 0); c.scale(-1, 1); }
+      c.strokeStyle = '#111'; c.lineWidth = 9; c.lineCap = 'butt';
+      c.beginPath(); c.moveTo(52, 102); c.lineTo(52, 84); c.quadraticCurveTo(52, 62, 78, 58); c.stroke();
+      poly([[92, 56], [74, 44], [74, 70]], '#111');
+      c.restore(); break;
+    }
+    case 'steep': {                    // discesa pericolosa
+      tri(); poly([[34, 100], [96, 100], [34, 66]], '#111');
+      c.fillStyle = '#111'; c.font = 'bold 20px Arial'; c.textAlign = 'center'; c.textBaseline = 'middle'; c.fillText('10%', 72, 74);
+      break;
+    }
+    case 'children': {                 // attenzione bambini
+      tri(); c.fillStyle = '#111'; c.strokeStyle = '#111'; c.lineWidth = 5; c.lineCap = 'round';
+      for (const [x, sc] of [[52, 1], [78, 0.82]]) {
+        c.beginPath(); c.arc(x, 62 + (1 - sc) * 14, 6 * sc, 0, 7); c.fill();
+        c.beginPath(); c.moveTo(x, 70); c.lineTo(x, 86); c.lineTo(x - 8 * sc, 102); c.moveTo(x, 86); c.lineTo(x + 8 * sc, 102); c.moveTo(x - 9 * sc, 78); c.lineTo(x + 9 * sc, 76); c.stroke();
+      }
+      c.lineCap = 'butt'; break;
+    }
     case 'level': {
       c.lineCap = 'butt';
       for (const s of [1, -1]) { c.save(); c.translate(m, m); c.rotate(s * 0.55); c.fillStyle = RED; c.fillRect(-62, -13, 124, 26); c.fillStyle = '#fff'; c.fillRect(-56, -8, 112, 16); c.fillStyle = RED; c.fillRect(-62, -13, 16, 26); c.fillRect(46, -13, 16, 26); c.restore(); }
@@ -148,7 +169,8 @@ function fitText(c, text, maxW, size, weight = 'bold') {
 
 export class Signage {
   constructor(roads, terrain, comuneAt, meta) {
-    this.roads = roads; this.terrain = terrain; this.comuneAt = comuneAt;
+    this.roads = roads; this.terrain = terrain; this.comuneAt = comuneAt; this.meta = meta;
+    this.inferred = {};   // cartelli dedotti: quanti per tipo e posizione dell'ultimo (per le verifiche)
     const M = roads.materials();
     this.markMat = M.mark; this.decalMat = M.decal;
     this.stdMat = new THREE.MeshLambertMaterial({ map: makeStdAtlas(), vertexColors: true, alphaTest: 0.5 });
@@ -326,12 +348,14 @@ export class Signage {
     const atlas = new TextAtlas();
     const lampPos = [], signals = [], cameras = [];
     const grey = [0.42, 0.43, 0.44];
-    const S = (name, size = 0.7) => ({ uv: uvStd(name), back: uvStd(name, true), w: size, h: size });
+    const S = (name, size = 0.7) => ({ uv: uvStd(name), back: uvStd(name, true), w: size, h: size, name });
+    const INF = new Set(['deadend', 'parking', 'curveR', 'curveL', 'steep', 'children']);
 
     // palo con cartelli impilati, letto dal traffico che viaggia in direzione (dx,dz)
     const post = (x, z, dx, dz, items, base = 2.0) => {
       items = items.filter((i) => i && i.uv);
       if (!items.length) return;
+      for (const it of items) if (INF.has(it.name)) { const e = this.inferred[it.name] || (this.inferred[it.name] = { n: 0 }); e.n++; e.x = x; e.z = z; e.dx = dx; e.dz = dz; }
       const yaw = Math.atan2(-dx, -dz);
       const y0 = T.height(x, z);
       const total = items.reduce((s, i) => s + i.h + 0.06, 0);
@@ -428,6 +452,7 @@ export class Signage {
     };
 
     const doneNode = new Set(), doneName = new Set(), doneRef = new Set();
+    const donePark = new Set(), curveDone = new Map(), steepDone = new Map();
     let plateCount = 0;
 
     for (const packed of segs) {
@@ -554,6 +579,65 @@ export class Signage {
         }
       }
 
+      // --- strada senza uscita: all'imbocco delle vie che finiscono in un vicolo cieco
+      if (!w.oneway && w.cls >= CLS.UNCLASSIFIED && w.cls <= CLS.LIVING && w.len > 50 && !(w.flags & (F.PRIVATE | F.ROUNDABOUT))) {
+        const n0 = w.nodes[0], n1 = w.nodes[w.nodes.length - 1];
+        if (k === 0 && R.degMain[n0] >= 3 && R.degree[n1] === 1) {
+          const [px, pz] = R.pointAt(w, Math.min(9, w.len * 0.2));
+          post(px + rx * side, pz + rz * side, sx, sz, [S('deadend', 0.6)]);
+        }
+        if (k === last && R.degMain[n1] >= 3 && R.degree[n0] === 1) {
+          const [px, pz] = R.pointAt(w, w.len - Math.min(9, w.len * 0.2));
+          post(px - rx * side, pz - rz * side, -sx, -sz, [S('deadend', 0.6)]);
+        }
+      }
+
+      // --- parcheggio: dove una corsia di parcheggio si stacca da una strada
+      if (w.flags & F.AISLE) {
+        for (const [nd, at, ddx, ddz] of [[w.nodes[0], k === 0, sx, sz], [w.nodes[w.nodes.length - 1], k === last, -sx, -sz]]) {
+          if (!at) continue;
+          let fromRoad = false;
+          for (let o = R.adjStart[nd]; o < R.adjStart[nd + 1]; o++) { const w2 = R.ways[R.adjWay[o]]; if (w2 !== w && w2.drivable && !(w2.flags & F.AISLE) && w2.cls <= CLS.SERVICE) fromRoad = true; }
+          const cell = Math.round(R.nx[nd] / 70) + '_' + Math.round(R.nz[nd] / 70);
+          if (!fromRoad || donePark.has(cell)) continue;
+          donePark.add(cell);
+          post(R.nx[nd] + ddx * 3 - ddz * (hw + 0.8), R.nz[nd] + ddz * 3 + ddx * (hw + 0.8), ddx, ddz, [S('parking', 0.6)]);
+        }
+      }
+
+      // --- curva pericolosa e discesa ripida sulle strade extraurbane (dalla geometria e dalle quote reali)
+      if (w.cls <= CLS.UNCLASSIFIED && w.limit >= 50 && !(w.flags & (F.ROUNDABOUT | F.LINK | F.TUNNEL)) && w.len > 160) {
+        const s0 = w.cum[k];
+        const dirAt = (s) => { const p = R.pointAt(w, s - 12), q = R.pointAt(w, s + 12); const l = Math.hypot(q[0] - p[0], q[1] - p[1]) || 1; return [(q[0] - p[0]) / l, (q[1] - p[1]) / l]; };
+        const bendAt = (s) => { if (s < 40 || s > w.len - 40) return 0; const d0 = dirAt(s - 22), d1 = dirAt(s + 22); return Math.atan2(d0[0] * d1[1] - d0[1] * d1[0], d0[0] * d1[0] + d0[1] * d1[1]); };
+        const lastC = curveDone.get(wi);
+        if (s0 > 75 && s0 < w.len - 75 && R.degMain[a] < 3 && (lastC === undefined || Math.abs(s0 - lastC) > 150) && !T.isUrban(ax, az)) {
+          const th = bendAt(s0);
+          // apice della curva: svolta di oltre ~32 gradi in 45 m (raggio sotto gli 80 m) e massimo locale
+          if (Math.abs(th) > 0.56 && Math.abs(th) >= Math.abs(bendAt(s0 - 12)) && Math.abs(th) >= Math.abs(bendAt(s0 + 12))) {
+            curveDone.set(wi, s0);
+            // th > 0: la strada gira a destra per chi la percorre in avanti (sinistra = (dz, -dx))
+            const p1 = R.pointAt(w, s0 - 65), d1 = dirAt(s0 - 65);
+            post(p1[0] - d1[1] * side, p1[1] + d1[0] * side, d1[0], d1[1], [S(th > 0 ? 'curveR' : 'curveL', 0.8)]);
+            if (!w.oneway) {
+              const p2 = R.pointAt(w, s0 + 65), d2 = dirAt(s0 + 65);
+              post(p2[0] + d2[1] * side, p2[1] - d2[0] * side, -d2[0], -d2[1], [S(th > 0 ? 'curveL' : 'curveR', 0.8)]);
+            }
+          }
+        }
+        const lastS = steepDone.get(wi);
+        if (!w.abs && s0 > 30 && s0 < w.len - 130 && (lastS === undefined || Math.abs(s0 - lastS) > 450)) {
+          const hAt = (s) => { const p = R.pointAt(w, s); return T.height(p[0], p[1]); };
+          const h0 = hAt(s0), drop = h0 - hAt(s0 + 110), before = hAt(Math.max(0, s0 - 90)) - h0;
+          // inizio di una discesa (o, nell'altro senso, cima di una salita) oltre il 9%
+          if (Math.abs(drop) > 10 && Math.abs(before) < 4.5) {
+            steepDone.set(wi, s0);
+            if (drop > 0) post(ax + rx * side, az + rz * side, sx, sz, [S('steep', 0.8)]);
+            else if (!w.oneway) { const p2 = R.pointAt(w, s0 + 110), d2 = dirAt(Math.min(w.len - 15, s0 + 110)); post(p2[0] + d2[1] * side, p2[1] - d2[0] * side, -d2[0], -d2[1], [S('steep', 0.8)]); }
+          }
+        }
+      }
+
       // --- tabelle di direzione dal tag OSM destination (svincoli)
       if (k === 0 && w.dest && w.len > 30) {
         const parts = w.dest.split('|');
@@ -609,6 +693,21 @@ export class Signage {
           if (nr && nr.d < R.ways[nr.wi].width / 2 + 0.4) continue;
           lampPos.push([px, T.height(px, pz), pz, Math.atan2(rz * sd, -rx * sd)]);
         }
+      }
+    }
+
+    // --- attenzione bambini: sulla strada davanti alle scuole (dai luoghi OSM)
+    const x0t = this.meta.proj.xmin + (tk % 1000) * 1000, z0t = this.meta.proj.zmin + Math.floor(tk / 1000) * 1000;
+    for (const lm of this.meta.landmarks) {
+      if (lm[0] !== 11 || lm[1] < x0t || lm[1] >= x0t + 1000 || lm[2] < z0t || lm[2] >= z0t + 1000) continue;
+      const nr = R.nearest(lm[1], lm[2], 90, (w) => w.drivable && w.cls >= CLS.TERTIARY && w.cls <= CLS.LIVING && !(w.flags & F.PRIVATE));
+      if (!nr) continue;
+      const w = R.ways[nr.wi], sC = w.cum[nr.k] + (w.cum[nr.k + 1] - w.cum[nr.k]) * nr.t, sd = w.width / 2 + 0.9;
+      for (const [s, sg] of [[sC - 45, 1], [sC + 45, -1]]) {
+        if (s < 5 || s > w.len - 5 || (sg < 0 && w.oneway)) continue;
+        const p = R.pointAt(w, s), q = R.pointAt(w, s + sg * 4);
+        const l = Math.hypot(q[0] - p[0], q[1] - p[1]) || 1, dx = (q[0] - p[0]) / l, dz = (q[1] - p[1]) / l;
+        post(p[0] - dz * sd, p[1] + dx * sd, dx, dz, [S('children', 0.75)]);
       }
     }
 

@@ -216,6 +216,7 @@ junctions = {}        # osm id -> (nome, ref) degli svincoli
 points = []           # elementi puntuali: (tipo, x, z, testo)
 paths = []            # percorsi pedonali/ciclabili: (tipo, larghezza, punti)
 barriers = []         # muri, siepi, guardrail, recinzioni: (tipo, altezza, punti)
+fence_areas = []      # aree di solito recintate (scuole, cimiteri, campi sportivi...): (tipo, altezza, anello)
 gate_nodes = {}       # osm id -> dict del cancello (nodi barrier=gate/lift_gate/...)
 gate_ctx = {}         # osm id -> contesto dalla via che lo contiene
 gate_lines = []       # cancelli mappati come linea (barrier=gate su una via)
@@ -327,6 +328,29 @@ def gate_context(r, t, pts_ll, i):
                'driveway', 'parking_aisle') and gate_access(t) < 1,
            'foot': hw in ('footway', 'path', 'cycleway', 'steps', 'bridleway')}
     gate_ctx[r] = ctx
+
+
+def fenced_area(t):
+    """(tipo di recinzione, altezza) per le aree che nella realta' sono quasi sempre recintate,
+    oppure None. Tipi come le recinzioni: 0 muro, 4 cancellata su muretto, 5 rete, 7 ringhiera."""
+    am, le, lu = t.get('amenity'), t.get('leisure'), t.get('landuse')
+    if am in ('school', 'kindergarten', 'college'):
+        return 4, 1.8
+    if lu == 'cemetery' or am == 'grave_yard':
+        return 0, 2.4
+    if t.get('power') == 'substation' or t.get('man_made') in ('wastewater_plant', 'water_works'):
+        return 5, 2.2
+    if le == 'pitch' and t.get('sport') in ('soccer', 'tennis', 'basketball', 'multi', 'volleyball', 'padel', 'five-a-side', 'futsal'):
+        return 5, 3.0 if t.get('sport') in ('tennis', 'padel') else 2.2
+    if le in ('stadium', 'sports_centre', 'track'):
+        return 5, 2.2
+    if le == 'playground':
+        return 7, 1.0
+    if le == 'dog_park':
+        return 5, 1.5
+    if le == 'swimming_pool' and t.get('access') not in ('private',):
+        return 5, 1.6
+    return None
 
 
 def split_at_gates(pts_ll):
@@ -653,6 +677,12 @@ for o in fp:
         if code and t.get('name'):
             cx, cz = centroid(outers[0])
             landmarks.append([code, round(cx, 1), round(cz, 1), t['name'], ''])
+
+        fa = fenced_area(t)
+        if fa and t.get('fenced') != 'no' and t.get('barrier') is None:
+            for r in outers:
+                if len(r) >= 4 and 60 < abs(ring_area(r)) and len(r) < 400:
+                    fence_areas.append((fa[0], fa[1], r))
 
         if t.get('amenity') == 'parking' and t.get('parking') not in ('underground', 'multi-storey', 'rooftop', 'carports', 'garage_boxes'):
             for r in outers:
@@ -1620,6 +1650,62 @@ for kind, pw, pts, brg in paths:
     k = tile_of(*pts[len(pts) // 2])
     if k and len(pts) >= 2:
         tiles[k]['pa'].append([kind, int(pw * 10), brg] + enc_ring(pts))
+# ---- recinzioni dedotte: perimetro delle aree di solito recintate (scuole, cimiteri, campi
+# sportivi, cabine elettriche, parchi giochi...). Si lascia il varco dove passano strade e vialetti,
+# non si attraversano gli edifici e non si raddoppiano muri e recinzioni gia' mappati in OSM.
+n_fence_add = 0
+if fence_areas:
+    try:
+        from shapely.geometry import LineString as _LS, Polygon as _FP
+        from shapely.strtree import STRtree as _FT
+        from shapely.ops import unary_union as _uu
+        obst = []
+        for w in road_ways:
+            pts_ = [node_xy[r] for r in w['ids']]
+            if len(pts_) >= 2:
+                obst.append(_LS(pts_).buffer((w['width'] or 6.0) / 2 + 1.6, cap_style=2))
+        for kind_, pw_, pts_, brg_ in paths:
+            if len(pts_) >= 2:
+                obst.append(_LS(pts_).buffer(pw_ / 2 + 0.7, cap_style=2))
+        for kind_, bh_, pts_ in barriers:
+            if len(pts_) >= 2 and kind_ != 3:
+                obst.append(_LS(pts_).buffer(2.5))
+        for b in buildings:
+            try:
+                obst.append(_FP(b['r']).buffer(0.4))
+            except Exception:
+                pass
+        otree = _FT(obst)
+        new_b = []
+        for kind_, bh_, ring in fence_areas:
+            try:
+                line = _LS(ring if ring[0] == ring[-1] else ring + [ring[0]])
+                if line.length > 2500 or line.length < 20:
+                    continue
+                near = [obst[i] for i in otree.query(line)]
+                rest = line.difference(_uu(near)) if near else line
+            except Exception:
+                continue
+            for g_ in ([rest] if rest.geom_type == 'LineString' else getattr(rest, 'geoms', [])):
+                if g_.geom_type != 'LineString' or g_.length < 4:
+                    continue
+                pts_ = dp_simplify(list(g_.coords), 0.3)
+                if len(pts_) >= 2:
+                    new_b.append((kind_, bh_, pts_))
+                    # una recinzione nuova fa da ostacolo per quelle dopo (aree che si toccano)
+        # perimetri in comune tra aree vicine: si tiene un solo tratto
+        seen_mid = set()
+        for kind_, bh_, pts_ in new_b:
+            m_ = pts_[len(pts_) // 2]
+            key_ = (round(m_[0] / 3), round(m_[1] / 3))
+            if key_ in seen_mid:
+                continue
+            seen_mid.add(key_)
+            barriers.append((kind_, bh_, pts_)); n_fence_add += 1
+    except ImportError:
+        print('recinzioni dedotte: shapely non disponibile, saltate')
+print('recinzioni dedotte dal perimetro delle aree recintate:', n_fence_add, 'tratti da', len(fence_areas), 'aree')
+
 for kind, bh, pts in barriers:
     k = tile_of(*pts[len(pts) // 2])
     if k and len(pts) >= 2:

@@ -445,15 +445,33 @@ export class World {
     return g;
   }
 
-  updateLabels(cam) {
+  // Etichette dei luoghi: solo le piu' vicine e senza sovrapposizioni sullo schermo (prima in
+  // citta' se ne accavallavano una decina). In volo il raggio si allarga.
+  updateLabels(cam, high = false) {
+    const cand = [], R = high ? 1100 : 520;
     for (const t of this.tiles.values()) {
       const g = t.parts.labels;
       if (!g) continue;
       for (const sp of g.children) {
+        sp.visible = false;
+        if (!this.labelsOn) continue;
         const d = sp.position.distanceTo(cam.position);
-        sp.visible = this.labelsOn && d < 650 && d > 15;
-        if (sp.visible) { const s = Math.max(1, d / 120); sp.scale.set(sp.scale.x / sp.scale.y * 3.2 * s, 3.2 * s, 1); }
+        if (d < R && d > 15) cand.push([d, sp]);
       }
+    }
+    cand.sort((p, q) => p[0] - q[0]);
+    const boxes = [], v = this._lv || (this._lv = new THREE.Vector3());
+    for (const [d, sp] of cand) {
+      if (boxes.length >= 7) break;
+      v.copy(sp.position).project(cam);
+      if (v.z > 1 || Math.abs(v.x) > 1.05 || Math.abs(v.y) > 1.05) continue;
+      const sc = Math.max(1, d / 120), asp = sp.userData.asp || (sp.userData.asp = sp.scale.x / sp.scale.y);
+      // ingombro sullo schermo in coordinate normalizzate (approssimato dalla distanza)
+      const hh = 3.2 * sc / d * 1.9, hw = hh * asp * 0.56;
+      if (boxes.some((bx) => Math.abs(bx[0] - v.x) < bx[2] + hw && Math.abs(bx[1] - v.y) < bx[3] + hh)) continue;
+      boxes.push([v.x, v.y, hw, hh]);
+      sp.visible = true;
+      sp.scale.set(asp * 3.2 * sc, 3.2 * sc, 1);
     }
   }
 }

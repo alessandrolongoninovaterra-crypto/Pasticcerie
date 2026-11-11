@@ -140,6 +140,17 @@ segnaletica, edifici, fisica, navigatore, comportamento di pedoni e traffico) è
   paesi si vedono come volumi semplici (un parallelepipedo orientato per edificio, con altezza e
   colore del tetto; `data/far.js`, 166.000 edifici in 2,2 MB), fino a 5–7 km in volo e 3 km a
   terra. In quota la foschia si allontana, così dall'aereo si vedono i paesi vicini.
+- **Cartelli dedotti** (dove OSM non li mappa): strada senza uscita all'imbocco dei vicoli ciechi,
+  parcheggio dove una corsia di parcheggio si stacca dalla strada, curva pericolosa (svolta oltre
+  ~32° in 45 m, fuori dai centri abitati), discesa ripida oltre il 9% (dalle quote reali),
+  attenzione bambini davanti alle scuole.
+- **Recinzioni dedotte**: lungo il perimetro delle aree che nella realtà sono quasi sempre recintate
+  (scuole, cimiteri, campi sportivi, stadi, cabine elettriche, depuratori, parchi giochi, aree
+  cani), con il varco dove passano strade e vialetti, senza attraversare edifici e senza
+  raddoppiare muri e recinzioni già mappati (5.600 tratti da 3.200 aree).
+- **Schermo sgombro**: la barra dei comandi compare per pochi secondi (all'avvio, cambiando
+  veicolo, uscendo dalla pausa) e poi sparisce; le etichette dei luoghi mostrano solo le 7 più
+  vicine, senza sovrapposizioni.
 - **Prestazioni** (novembre 2026): curve delle strade con freccia di 12 cm (non 4), passo adattivo
   di asfalto e marciapiedi (10 m dove il terreno è regolare), segnaletica continua non spezzata,
   recinzioni senza facce nascoste e senza ombre, edifici dettagliati solo entro 1,5–2,2 km (oltre

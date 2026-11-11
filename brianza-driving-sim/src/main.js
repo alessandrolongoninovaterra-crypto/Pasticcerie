@@ -269,6 +269,16 @@ function makePlayer(spec = CARS[G.carIdx], color = null) {
   $('helpbar').textContent = spec.kind === 'plane'
     ? 'W/S manetta · ↑/↓ cabra/picchia · A/D vira · Spazio freni a terra · R riparti in volo · C visuale · F scendi (a terra)'
     : 'F scendi/sali · E clacson · M mappa · C visuale · mouse: telecamera · Esc pausa';
+  flashHelp(spec.kind === 'plane' ? 20000 : 12000);
+}
+
+// la barra dei comandi non resta fissa sullo schermo: compare quando serve e poi sparisce
+let helpT = 0;
+function flashHelp(ms = 8000) {
+  const el = $('helpbar');
+  el.style.transition = 'opacity .6s'; el.style.opacity = '0.85';
+  clearTimeout(helpT);
+  helpT = setTimeout(() => { el.style.opacity = '0'; }, ms);
 }
 
 // comandi dell'aereo: W/S spostano la manetta, frecce su/giu' l'equilibratore, A/D o frecce gli alettoni
@@ -295,6 +305,7 @@ function exitCar() {
   if (G.camMode === 1 || G.camMode === 2) G.camMode = 0;
   G.orbit.yaw = 0; G.camInit = true;
   showToast('A piedi — F per salire su un veicolo', 1800);
+  flashHelp(6000);
 }
 
 function enterCar() {
@@ -657,6 +668,7 @@ function setupPauseUI() {
 function togglePause(on) {
   G.paused = on;
   $('pause').classList.toggle('hidden', !on);
+  if (!on && G.started) flashHelp(6000);
   if (on) { $('ptime').value = String(G.sky.speed); }
 }
 
@@ -824,7 +836,7 @@ function loop(now) {
   G.world.signage.update(now / 1000, G.sky.night);
   G.traffic.setNight(G.sky.night);
   updateCamera(dt, inp.keys.has('KeyV'));
-  G.world.updateLabels(G.camera);
+  G.world.updateLabels(G.camera, flying());
   updateHUD(dt);
   updateNav(dt);
   checkInfractions(v, Math.abs(v.u) * 3.6, now);
