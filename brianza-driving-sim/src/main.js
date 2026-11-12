@@ -820,12 +820,17 @@ function loop(now) {
   for (const w of m.wheels) { w.pivot.rotation.x = v.wheelSpinAngle || 0; if (w.front) w.pivot.rotation.y = v.steer; }
   if (m.prop) m.prop.rotation.z = v.propAngle || 0;
   if (m.steeringWheel) m.steeringWheel.rotation.z = -v.steer * 7;
-  const lights = !f.on && (G.lightsOn || G.sky.night > 0.55);
+  const lights = !f.on && (G.lightsOn || G.sky.night > 0.55 || (G.tunnelK || 0) > 0.5);
   if (m.headlight) m.headlight.intensity = lights ? 70 : 0;
   if (m.tailGlow) m.tailGlow.intensity = v.brake > 0.05 && !f.on ? 2.2 : lights ? 0.6 : 0;
   // cielo e luci
   tmpV2.set(p.x, flying() ? v.y - v.agl : p.y, p.z);   // ombre centrate sul suolo anche in volo
   G.sky.update(dt, tmpV2);
+  // in galleria: niente sole, poca luce ambiente (si vedono le lampade), fari accesi
+  const rd = !f.on && v.surface && v.surface.road ? G.roads.ways[v.surface.road.wi] : null;
+  const inT = rd && (rd.flags & 8) && G.terrain.height(v.x, v.z) - v.y > 4 ? 1 : 0;
+  G.tunnelK = (G.tunnelK || 0) + (inT - (G.tunnelK || 0)) * Math.min(1, dt * 2.5);
+  if (G.tunnelK > 0.01) { G.sky.sun.intensity *= 1 - 0.92 * G.tunnelK; G.sky.hemi.intensity *= 1 - 0.6 * G.tunnelK; G.scene.fog.color.multiplyScalar(1 - 0.88 * G.tunnelK); }
   G.world.updateWater(now / 1000, G.scene.fog.color);
   autoQuality(frame);
   // in quota l'aria e' piu' limpida: la foschia si allontana e si vedono i paesi vicini

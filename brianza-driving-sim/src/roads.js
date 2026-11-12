@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { GeoBuilder, canvasTexture } from './geo.js';
+import { GeoBuilder, canvasTexture, hash } from './geo.js';
 import { buildFence, fenceMaterials } from './gates.js';
 
 // Classi stradali (come tools/build_data.py)
@@ -37,6 +37,9 @@ export class RoadNetwork {
     let x = 0, z = 0;
     for (let i = 0; i < nn0; i++) { x += data.nodes[i * 2]; z += data.nodes[i * 2 + 1]; nx[i] = x / 10; nz[i] = z / 10; }
     for (let i = 0; i < data.dh.length; i += 2) dh[data.dh[i]] = data.dh[i + 1] / 10;
+    // quota della strada nelle gallerie (profilo dell'intera catena, calcolato dalla pipeline)
+    const th = new Map();
+    for (let i = 0; data.th && i < data.th.length; i += 2) th.set(data.th[i], data.th[i + 1] / 10);
 
     // vie
     this.ways = data.ways.map((a) => {
@@ -78,6 +81,7 @@ export class RoadNetwork {
         const f = w.nodes[0], l = w.nodes[n - 1];
         w.h0 = terrain.height(this.nx[f], this.nz[f]) + this.dh[f];
         w.h1 = terrain.height(this.nx[l], this.nz[l]) + this.dh[l];
+        if (w.flags & F.TUNNEL) { if (th.has(f)) w.h0 = th.get(f); if (th.has(l)) w.h1 = th.get(l); }
       }
     }
     // limiti di velocita' (indicativi se non mappati in OSM)
@@ -384,6 +388,8 @@ export class RoadNetwork {
     });
     const th = this.terrain.height(x, z);
     if (best && bestH >= th - 0.6) return { h: bestH, road: best };
+    // in galleria (anche dove la copertura e' di pochi decimetri, agli imbocchi) chi e' gia' alla quota della strada ci resta
+    if (best && (this.ways[best.wi].flags & F.TUNNEL) && yRef < bestH + 3) return { h: bestH, road: best };
     if (best && th > yRef + 1.3) return { h: bestH, road: best }; // galleria
     return { h: th, road: null };
   }
@@ -541,6 +547,9 @@ export class RoadNetwork {
       mark: po(new THREE.MeshLambertMaterial({ color: 0xf2f2ee, vertexColors: true }), -4, -8),
       decal: po(new THREE.MeshLambertMaterial({ map: decals, color: 0xf2f2ee, transparent: true, alphaTest: 0.35, depthWrite: false }), -5, -10),
       wall: new THREE.MeshLambertMaterial({ color: 0xa8a49a, side: THREE.DoubleSide }),
+      // interno delle gallerie: non riceve la luce del sole (colori gia' scuri nei vertici), lampade luminose
+      tube: new THREE.MeshBasicMaterial({ vertexColors: true, side: THREE.DoubleSide }),
+      tlamp: new THREE.MeshBasicMaterial({ color: 0xffe9b0, side: THREE.DoubleSide }),
       barrier: new THREE.MeshLambertMaterial({ vertexColors: true, side: THREE.DoubleSide }),
       guard: new THREE.MeshLambertMaterial({ color: 0xc8ccd0, side: THREE.DoubleSide }),
       island: new THREE.MeshLambertMaterial({ vertexColors: true }),
@@ -568,7 +577,10 @@ export class RoadNetwork {
   wayColor(w) {
     if (w.flags & F.NOCAR || w.surf === 1) return [1, 1, 1];
     if (w.flags & F.UNPAVED) return [0.95, 0.82, 0.62];
-    return ROAD_COL[w.cls];
+    // ogni via ha un asfalto leggermente diverso (piu' o meno recente), come nella realta'
+    if (w.tint === undefined) w.tint = 0.92 + 0.16 * hash(w.nodes[0] * 31 + w.nodes.length);
+    const c = ROAD_COL[w.cls];
+    return [c[0] * w.tint, c[1] * w.tint, c[2] * w.tint];
   }
 
   // quota di un punto della carreggiata (anche ai bordi)
@@ -605,6 +617,7 @@ export class RoadNetwork {
     const segs = this.tileSegs.get(tk) || [];
     const M = this.materials();
     const road = new GeoBuilder(true, true), stone = new GeoBuilder(true, true), mark = new GeoBuilder(true, false), wall = new GeoBuilder(false, false), guard = new GeoBuilder(false, false);
+    const tube = new GeoBuilder(true, false), tlamp = new GeoBuilder(false, false);
     const walk = new GeoBuilder(true, true), decal = new GeoBuilder(true, true);
     const T = this.terrain;
     const STEP = 5;
@@ -641,7 +654,8 @@ export class RoadNetwork {
         }
         if (flat) nsub = n2;
       }
-      const col = this.wayColor(w);
+      const tunnel = !!(w.flags & F.TUNNEL);
+      const col = tunnel ? this.wayColor(w).map((c) => c * 0.5) : this.wayColor(w);   // in galleria l'asfalto non e' al sole
       const isStone = w.surf === 1 || !!(w.flags & F.NOCAR);
       const g = isStone ? stone : road;
       const uvS = isStone ? 0.6 : 0.2;
@@ -660,6 +674,56 @@ export class RoadNetwork {
         if (prevL >= 0) g.quad(prevL, prevR, ir, il);
         prevL = il; prevR = ir;
         edges.push([lx, hl, lz, qx, hr, qz, ox, oz]);
+      }
+      // galleria: volta e pareti lungo la strada, lampade al soffitto, portali agli imbocchi veri
+      if (tunnel) {
+        const hx = hw + 0.7;
+        // sezione: [scostamento laterale, altezza, luminosita'] da sinistra a destra
+        const SEC = [[-hx, 0, 0.3], [-hx, 1.2, 0.3], [-hx, 3.4, 0.17], [-hx * 0.5, 5.2, 0.13], [0, 5.8, 0.12], [hx * 0.5, 5.2, 0.13], [hx, 3.4, 0.17], [hx, 1.2, 0.3], [hx, 0, 0.3]];
+        const ringAt = (e, grow = 0) => {
+          const cx = (e[0] + e[3]) / 2, cy = (e[1] + e[4]) / 2, cz = (e[2] + e[5]) / 2;
+          return SEC.map(([o, y]) => [cx + e[6] * (o + Math.sign(o) * grow), cy + y + (y > 0 ? grow : 0) - 0.05, cz + e[7] * (o + Math.sign(o) * grow)]);
+        };
+        let prevIds = null, prevOut = null, prevCover = 99;
+        edges.forEach((e, si) => {
+          const pts = ringAt(e);
+          const ids = pts.map((q, i) => tube.v(q[0], q[1], q[2], SEC[i][2], SEC[i][2], SEC[i][2] * 1.05));
+          if (prevIds) for (let i = 0; i < ids.length - 1; i++) tube.quad(prevIds[i], prevIds[i + 1], ids[i + 1], ids[i]);
+          prevIds = ids;
+          // dove la copertura di terreno e' poca il tubo si vede anche da fuori: guscio in cemento e spalle
+          const cx = (e[0] + e[3]) / 2, cz = (e[2] + e[5]) / 2, cover = T.height(cx, cz) - (e[1] + e[4]) / 2;
+          const out = cover < 8.5 || prevCover < 8.5 ? ringAt(e, 0.3) : null;
+          if (out) {
+            const yb = (e[1] + e[4]) / 2 - 0.6;
+            out.unshift([cx - e[6] * (hx + 6.5), yb + 2.2, cz - e[7] * (hx + 6.5)]);
+            out.push([cx + e[6] * (hx + 6.5), yb + 2.2, cz + e[7] * (hx + 6.5)]);
+            if (prevOut) for (let i = 0; i < out.length - 1; i++) {
+              const a0 = wall.v(...prevOut[i]), a1 = wall.v(...prevOut[i + 1]), b1 = wall.v(...out[i + 1]), b0 = wall.v(...out[i]);
+              wall.quad(a0, a1, b1, b0);
+            }
+          }
+          prevOut = out; prevCover = cover;
+          // lampade: due file alterne di plafoniere
+          if (si > 0 && (si + k) % 2 === 0) {
+            const p = pts[4], f = si % 4 === 0 ? 0.3 : -0.3;
+            const lx0 = p[0] + e[6] * hw * f, lz0 = p[2] + e[7] * hw * f, y = p[1] - 0.75;   // sotto la volta
+            const i0 = tlamp.v(lx0 - sx * 0.7 - e[6] * 0.16, y, lz0 - sz * 0.7 - e[7] * 0.16), i1 = tlamp.v(lx0 + sx * 0.7 - e[6] * 0.16, y, lz0 + sz * 0.7 - e[7] * 0.16);
+            const i2 = tlamp.v(lx0 + sx * 0.7 + e[6] * 0.16, y, lz0 + sz * 0.7 + e[7] * 0.16), i3 = tlamp.v(lx0 - sx * 0.7 + e[6] * 0.16, y, lz0 - sz * 0.7 + e[7] * 0.16);
+            tlamp.quad(i0, i1, i2, i3);
+          }
+        });
+        // portale: parete in cemento attorno all'apertura, dove la galleria incontra la strada all'aperto
+        for (const [nd, at, e] of [[w.nodes[0], k === 0, edges[0]], [w.nodes[w.nodes.length - 1], k === w.nodes.length - 2, edges[edges.length - 1]]]) {
+          if (!at) continue;
+          let inner = false;
+          for (let o = this.adjStart[nd]; o < this.adjStart[nd + 1]; o++) if (this.adjWay[o] !== wi && this.ways[this.adjWay[o]].flags & F.TUNNEL) inner = true;
+          if (inner) continue;
+          const A = ringAt(e, 0.02), cx = (e[0] + e[3]) / 2, cy = (e[1] + e[4]) / 2, cz = (e[2] + e[5]) / 2;
+          const P = (o, y) => wall.v(cx + e[6] * o, cy + y, cz + e[7] * o);
+          const a = A.map((q) => wall.v(q[0], q[1], q[2]));
+          const BL = P(-hx - 4.5, -0.6), TL = P(-hx - 4.5, 7.6), TR = P(hx + 4.5, 7.6), BR = P(hx + 4.5, -0.6);
+          for (const tri of [[BL, a[0], a[2]], [BL, a[2], TL], [TL, a[2], a[3]], [TL, a[3], a[4]], [TL, a[4], TR], [TR, a[4], a[5]], [TR, a[5], a[6]], [TR, a[6], BR], [BR, a[6], a[8]]]) wall.tri(tri[0], tri[1], tri[2]);
+        }
       }
       // raccordo tondo agli estremi delle vie (incroci ad angolo, vicoli ciechi)
       for (const [kk, nd] of [[0, a], [w.nodes.length - 1, b]]) {
@@ -731,6 +795,7 @@ export class RoadNetwork {
         }
       }
       this.buildSidewalk(walk, wi, k, edges, nsub, L);
+      this.buildVerge(road, wi, k, edges, nsub, L);
       this.buildMarkings(mark, wi, k);
     }
     // isole delle rotatorie: cordolo, corona sormontabile in porfido, aiuola
@@ -767,6 +832,8 @@ export class RoadNetwork {
     if (!mark.empty) group.add(mark.mesh(M.mark));
     if (!decal.empty) group.add(decal.mesh(M.decal));
     if (!wall.empty) group.add(wall.mesh(M.wall, true));
+    if (!tube.empty) group.add(tube.mesh(M.tube));
+    if (!tlamp.empty) group.add(tlamp.mesh(M.tlamp));
     if (!guard.empty) group.add(guard.mesh(M.guard));
     if (!isl.empty) group.add(isl.mesh(M.island));
     return group;
@@ -814,6 +881,32 @@ export class RoadNetwork {
             if (sg > 0) g.quad(prev[q], prev[q + 1], cur[q + 1], cur[q]); else g.quad(prev[q], cur[q], cur[q + 1], prev[q + 1]);
           }
         }
+        prev = cur;
+      }
+    }
+  }
+
+  // banchina: fuori dai centri abitati, dove non c'e' marciapiede, una fascia di ghiaia che sfuma
+  // nell'erba invece del taglio netto tra asfalto e prato
+  buildVerge(g, wi, k, edges, nsub, L) {
+    const w = this.ways[wi];
+    if (w.cls > CLS.UNCLASSIFIED || w.cls < CLS.TRUNK || w.abs || !w.drivable || w.flags & (F.ROUNDABOUT | F.UNPAVED | F.NOCAR) || w.surf === 1) return;
+    const a = w.nodes[k], b = w.nodes[k + 1];
+    if (this.dh[a] > 0.3 || this.dh[b] > 0.3) return;
+    if (this.sidewalkSides(w, (this.nx[a] + this.nx[b]) / 2, (this.nz[a] + this.nz[b]) / 2)) return;
+    const Z = this.zones(w).walk, T = this.terrain, VW = 0.9;
+    const ci = [0.8, 0.76, 0.68], co = [0.5, 0.56, 0.38];
+    for (let side = 0; side < 2; side++) {
+      const sg = side ? 1 : -1;
+      let prev = null;
+      for (let s = 0; s <= nsub; s++) {
+        const cum = w.cum[k] + s / nsub * L, e = edges[s];
+        const ix = e[side * 3], iy = e[side * 3 + 1], iz = e[side * 3 + 2];
+        const ox = ix + e[6] * sg * VW, oz = iz + e[7] * sg * VW;
+        const nearJ = cum - Z.pc[k] < 40 || Z.nc[k + 1] - cum < 40;
+        if (nearJ && this.coveredBy(wi, (ix + ox) / 2, (iz + oz) / 2, 0.6)) { prev = null; continue; }
+        const cur = [g.v(ix, iy - 0.02, iz, ci[0], ci[1], ci[2], ix * 0.9, iz * 0.9), g.v(ox, T.height(ox, oz) + 0.04, oz, co[0], co[1], co[2], ox * 0.9, oz * 0.9)];
+        if (prev) { if (sg > 0) g.quad(prev[0], prev[1], cur[1], cur[0]); else g.quad(prev[0], cur[0], cur[1], prev[1]); }
         prev = cur;
       }
     }

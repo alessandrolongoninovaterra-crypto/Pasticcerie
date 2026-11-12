@@ -1048,36 +1048,92 @@ if alti['pts'] or alti['roads']:
         for r in badn:
             del node_h[r]
         print('altimetria DBGT: nodi strada con quota incoerente ignorati', len(badn))
-    # scavo/riporto: le celle sotto la strada prendono la quota della strada
+    # strade senza quota DBGT: profilo del terreno corretto, lisciato lungo la via (media su ~25 m)
+    n_dbgt_nodes = len(node_h)
+    acc_h = {}
+    for w in road_ways:
+        if w['flags'] & (F_BRIDGE | F_TUNNEL) or w['layer'] != 0 or w['cls'] > 9:
+            continue
+        ids = w['ids']
+        if all(r in node_h for r in ids):
+            continue
+        xs_ = np.array([node_xy[r][0] for r in ids]); zs_ = np.array([node_xy[r][1] for r in ids])
+        th_ = _bilin(G, x0g, z0g, STEP2, xs_, zs_)
+        cum_ = np.concatenate([[0.0], np.cumsum(np.hypot(np.diff(xs_), np.diff(zs_)))])
+        if cum_[-1] > 12 and len(ids) > 1:
+            # ricampiona ogni 5 m, media mobile triangolare, torna sui nodi
+            s_ = np.arange(0.0, cum_[-1] + 5, 5.0)
+            hs_ = _bilin(G, x0g, z0g, STEP2, np.interp(s_, cum_, xs_), np.interp(s_, cum_, zs_))
+            ker = np.array([1, 2, 3, 2, 1], float); ker /= ker.sum()
+            hs_ = np.convolve(np.pad(hs_, 2, mode='edge'), ker, mode='valid')
+            th_ = np.interp(cum_, s_, hs_)
+        for r, hv in zip(ids, th_):
+            if r not in node_h:
+                acc_h.setdefault(r, []).append(float(hv))
+    for r, v in acc_h.items():
+        node_h[r] = sum(v) / len(v)
+    # profilo lungo ogni via: prima si tolgono i valori isolati (sui tornanti la quota DBGT puo' essere
+    # quella del ramo accanto), poi si liscia su ~25 m; ai nodi in comune tra piu' vie si fa la media
+    acc_h = {}
+    for w in road_ways:
+        if w['flags'] & (F_BRIDGE | F_TUNNEL) or w['layer'] != 0 or w['cls'] > 9:
+            continue
+        ids = w['ids']
+        if len(ids) < 2 or any(r not in node_h for r in ids):
+            continue
+        hv = np.array([node_h[r] for r in ids])
+        if len(hv) >= 3:
+            med = np.median(np.vstack([np.concatenate([[hv[0]], hv[:-1]]), hv, np.concatenate([hv[1:], [hv[-1]]])]), axis=0)
+            hv = np.where(np.abs(hv - med) > 1.0, med, hv)
+        xs_ = np.array([node_xy[r][0] for r in ids]); zs_ = np.array([node_xy[r][1] for r in ids])
+        cum_ = np.concatenate([[0.0], np.cumsum(np.hypot(np.diff(xs_), np.diff(zs_)))])
+        if cum_[-1] > 12 and np.all(np.diff(cum_) > 0):
+            s_ = np.arange(0.0, cum_[-1] + 5, 5.0)
+            hs_ = np.interp(s_, cum_, hv)
+            ker = np.array([1, 2, 3, 2, 1], float); ker /= ker.sum()
+            hs_ = np.convolve(np.pad(hs_, 2, mode='edge'), ker, mode='valid')
+            hv = np.interp(cum_, s_, hs_)
+        for r, h_ in zip(ids, hv):
+            acc_h.setdefault(r, []).append(float(h_))
+    for r, v in acc_h.items():
+        node_h[r] = sum(v) / len(v)
+    # scavo/riporto: il terreno sotto ogni strada prende la quota della strada per una fascia larga
+    # quanto serve perche' la carreggiata cada tutta su celle spianate (mezza larghezza + 8 m):
+    # cosi' la strada non fa gobbe passando da una cella all'altra, e a mezza costa nasce lo
+    # sbancamento che c'e' anche nella realta'
     smp = []
     for w in road_ways:
         if w['flags'] & (F_BRIDGE | F_TUNNEL) or w['layer'] != 0 or w['cls'] > 9:
             continue
-        rad_ = max(4.0, (w['width'] or 7.0) / 2 + 2.0)
+        rad_ = (w['width'] or 7.0) / 2 + 8.0
         for a_, b_ in zip(w['ids'], w['ids'][1:]):
             if a_ not in node_h or b_ not in node_h:
                 continue
             (ax, az), (bx, bz) = node_xy[a_], node_xy[b_]
-            n = max(1, int(math.dist((ax, az), (bx, bz)) // 2.5))
+            n = max(1, int(math.dist((ax, az), (bx, bz)) // 3.0))
             for k in range(n + 1):
                 t_ = k / n
                 smp.append((ax + (bx - ax) * t_, az + (bz - az) * t_, node_h[a_] + (node_h[b_] - node_h[a_]) * t_, rad_))
     if smp:
-        A_ = np.array(smp)
-        tsum = np.zeros_like(G); wsum = np.zeros_like(G)
+        A_ = np.array(smp); del smp
+        tsum = np.zeros(nx2 * nz2); wsum = np.zeros(nx2 * nz2)
         ci = np.round((A_[:, 0] - x0g) / STEP2).astype(int); cj = np.round((A_[:, 1] - z0g) / STEP2).astype(int)
-        for di in (-1, 0, 1):
-            for dj in (-1, 0, 1):
+        for di in (-2, -1, 0, 1, 2):
+            for dj in (-2, -1, 0, 1, 2):
                 ii = np.clip(ci + di, 0, nx2 - 1); jj = np.clip(cj + dj, 0, nz2 - 1)
                 d = np.hypot(gxs[ii] - A_[:, 0], gzs[jj] - A_[:, 1])
                 m = d < A_[:, 3]
-                wgt = 1.0 / (d[m] ** 2 + 1.0)
-                np.add.at(tsum, (jj[m], ii[m]), wgt * A_[m, 2]); np.add.at(wsum, (jj[m], ii[m]), wgt)
-        sel = wsum > 0
-        moved = np.abs(G[sel] - tsum[sel] / wsum[sel])
-        G[sel] = tsum[sel] / wsum[sel]
-        print('altimetria DBGT: nodi strada con quota reale', len(node_h), '- celle sotto le strade', int(sel.sum()),
-              'spostate in media di %.2f m (max %.1f)' % (moved.mean(), moved.max()))
+                # peso che cala in fretta con la distanza: dove due strade vicine hanno quote diverse vince la piu' vicina
+                wgt = 1.0 / (d[m] ** 4 + 1.0)
+                flat = jj[m] * nx2 + ii[m]
+                tsum += np.bincount(flat, weights=wgt * A_[m, 2], minlength=nx2 * nz2)
+                wsum += np.bincount(flat, weights=wgt, minlength=nx2 * nz2)
+        sel = (wsum > 0).reshape(nz2, nx2) & ~MASK
+        tgt = (tsum / np.maximum(wsum, 1e-12)).reshape(nz2, nx2)
+        moved = np.abs(G[sel] - tgt[sel])
+        G[sel] = tgt[sel]
+        print('altimetria DBGT: nodi strada con quota reale', n_dbgt_nodes, '+ lisciati dal terreno', len(node_h) - n_dbgt_nodes,
+              '- celle spianate sotto le strade', int(sel.sum()), 'spostate in media di %.2f m (95%% %.1f, max %.1f)' % (moved.mean(), np.percentile(moved, 95), moved.max()))
     HMETA = {'nx': nx2, 'nz': nz2, 'step': STEP2, 'x0': x0g, 'z0': z0g, 'scale': 0.1}
     HGRID = G.astype(np.float32)
     HEIGHT_CHANGED = True
@@ -1467,6 +1523,99 @@ for pk in parkings:
         stalls.extend(sv for i, sv in enumerate(chunk) if i in keep)
 print('stalli', len(stalls), 'mappati/corsie/strada/piazzale', n_src, 'aree', len(parkings))
 
+# ------------------------------------------------------------------ gallerie: profilo e imbocchi
+# Una galleria e' spesso spezzata in piu' vie OSM: la quota si fissa agli imbocchi veri (dove la
+# galleria incontra una strada all'aperto) e si interpola lungo tutta la catena, cosi' la strada non
+# risale in superficie a ogni giunzione. Dove la copertura di terreno sopra la strada e' sotto i
+# 7 m (i tratti vicini agli imbocchi e i sottopassi) il terreno va "aperto": lo si segna in una
+# maschera che finisce nella mappa dei colori con un colore riservato (HOLE_RGB).
+HOLE_RGB = (255, 0, 255)
+tunnel_h = {}      # osm id del nodo -> quota della strada in galleria
+tunnel_holes = []  # [(larghezza m, [(x, z)...])] tratti da aprire nel terreno
+t_ways = [w for w in road_ways if w['flags'] & F_TUNNEL]
+if t_ways:
+    open_nodes = set()
+    for w in road_ways:
+        if not (w['flags'] & F_TUNNEL):
+            open_nodes.update(w['ids'])
+    tadj = defaultdict(list)
+    for w in t_ways:
+        for a_, b_ in zip(w['ids'], w['ids'][1:]):
+            d_ = math.dist(node_xy[a_], node_xy[b_])
+            tadj[a_].append((b_, d_)); tadj[b_].append((a_, d_))
+    seen_t = set()
+    n_comp = n_portal = 0
+    for start in list(tadj):
+        if start in seen_t:
+            continue
+        comp, stack = [], [start]
+        seen_t.add(start)
+        while stack:
+            u = stack.pop(); comp.append(u)
+            for v_, _ in tadj[u]:
+                if v_ not in seen_t:
+                    seen_t.add(v_); stack.append(v_)
+        portals = [u for u in comp if u in open_nodes or len(tadj[u]) == 1]
+        n_comp += 1; n_portal += len(portals)
+        dists = []
+        for p_ in portals:
+            dist = {p_: 0.0}; hp = [(0.0, p_)]
+            while hp:
+                d_, u = heapq.heappop(hp)
+                if d_ > dist.get(u, 1e18):
+                    continue
+                for v_, w_ in tadj[u]:
+                    nd_ = d_ + w_
+                    if nd_ < dist.get(v_, 1e18):
+                        dist[v_] = nd_; heapq.heappush(hp, (nd_, v_))
+            dists.append((terrain_h(*node_xy[p_]) + dh.get(p_, 0.0), dist))
+        for u in comp:
+            near = sorted((dist.get(u, 1e18), hq) for hq, dist in dists)[:2]
+            if not near:
+                tunnel_h[u] = terrain_h(*node_xy[u])
+            elif len(near) == 1 or near[0][0] + near[1][0] < 1e-6:
+                tunnel_h[u] = near[0][1]
+            else:
+                (d1, h1), (d2, h2) = near
+                tunnel_h[u] = (h1 * d2 + h2 * d1) / (d1 + d2)
+        # una galleria non sta mai sopra il terreno: dove la linea retta tra gli imbocchi uscirebbe
+        # all'aperto (avvallamenti a meta' percorso) la strada segue il terreno, e i nodi vicini si
+        # abbassano quanto serve per non superare il 7% di pendenza. Gli imbocchi restano fermi.
+        pset = set(portals)
+        for u in comp:
+            if u not in pset:
+                tunnel_h[u] = min(tunnel_h[u], terrain_h(*node_xy[u]) - 0.3)
+        hp = [(tunnel_h[u], u) for u in comp]
+        heapq.heapify(hp)
+        while hp:
+            hu, u = heapq.heappop(hp)
+            if hu > tunnel_h[u] + 1e-9:
+                continue
+            for v_, w_ in tadj[u]:
+                lim = hu + 0.07 * w_
+                if v_ not in pset and tunnel_h[v_] > lim + 1e-6:
+                    tunnel_h[v_] = lim; heapq.heappush(hp, (lim, v_))
+    for w in t_ways:
+        ids = w['ids']; wd = max(12.0, (w['width'] or 7.0) + 7.0)
+        run = []
+        for a_, b_ in zip(ids, ids[1:]):
+            (ax, az), (bx, bz) = node_xy[a_], node_xy[b_]
+            n_ = max(1, int(math.dist((ax, az), (bx, bz)) // 4))
+            for k_ in range(n_ + 1):
+                t_ = k_ / n_
+                x_, z_ = ax + (bx - ax) * t_, az + (bz - az) * t_
+                cover = terrain_h(x_, z_) - (tunnel_h[a_] + (tunnel_h[b_] - tunnel_h[a_]) * t_)
+                if -1.5 < cover < 7.0:      # il terreno entrerebbe nel tubo: qui va aperto
+                    run.append((x_, z_))
+                else:
+                    if len(run) >= 2:
+                        tunnel_holes.append((wd, run))
+                    run = []
+        if len(run) >= 2:
+            tunnel_holes.append((wd, run))
+    print('gallerie: vie', len(t_ways), 'catene', n_comp, 'imbocchi', n_portal, 'tratti da aprire nel terreno', len(tunnel_holes),
+          '(%.1f km)' % (sum(sum(math.dist(a_, b_) for a_, b_ in zip(r_, r_[1:])) for _, r_ in tunnel_holes) / 1000))
+
 # ------------------------------------------------------------------ scrittura strade
 nodes_flat = []
 px = pz = 0
@@ -1492,8 +1641,13 @@ for r, v in dh.items():
     if v > 0.05 and r in node_index:
         dh_flat += [node_index[r], int(round(v * 10))]
 
+th_flat = []
+for r, v in tunnel_h.items():
+    if r in node_index:
+        th_flat += [node_index[r], int(round(v * 10))]
+
 sz = write_js(os.path.join(OUT, 'roads.js'), 'roads', {
-    'names': names.list, 'nodes': nodes_flat, 'ways': ways_flat, 'ntags': ntags, 'dh': dh_flat,
+    'names': names.list, 'nodes': nodes_flat, 'ways': ways_flat, 'ntags': ntags, 'dh': dh_flat, 'th': th_flat,
     'rails': rails, 'mj': mj, 'wayHead': 16})
 print('roads.js', sz, 'nodi', len(node_list))
 
@@ -1548,7 +1702,15 @@ d = ImageDraw.Draw(img)
 for col, width, pts in lc_lines:
     d.line(to_px(pts), fill=col, width=max(1, int(round(width / MPP))))
 buf = io.BytesIO()
-img.quantize(colors=48, method=Image.Quantize.MEDIANCUT, dither=Image.Dither.NONE).save(buf, 'PNG', optimize=True)
+imq = img.quantize(colors=47, method=Image.Quantize.MEDIANCUT, dither=Image.Dither.NONE)
+if tunnel_holes:
+    # colore riservato per le aperture delle gallerie: una voce in piu' nella tavolozza
+    pal = imq.getpalette()[:47 * 3] + list(HOLE_RGB)
+    imq.putpalette(pal + [0] * (768 - len(pal)))
+    hd = ImageDraw.Draw(imq)
+    for wd, run in tunnel_holes:
+        hd.line(to_px(run), fill=47, width=max(2, int(round(wd / MPP))))
+imq.save(buf, 'PNG', optimize=True)
 png = buf.getvalue()
 lcjs = os.path.join(OUT, 'landcover.js')
 with open(lcjs, 'w') as f:
@@ -1769,7 +1931,7 @@ for lm in landmarks:
 config_comuni = CFG['comuni'] + [c for c in CFG.get('featured_extra', []) if c in {x['n'] for x in comuni}]
 meta = {
     'proj': P.meta(), 'height': HMETA, 'tile': TILE, 'tilesX': TX, 'tilesZ': TZ, 'tiles': tile_keys,
-    'landcover': {'w': LW, 'h': LH, 'mpp': MPP, 'palette': {k: v[1] for k, v in LC.items()}, 'default': LC_DEFAULT},
+    'landcover': {'w': LW, 'h': LH, 'mpp': MPP, 'palette': dict({k: v[1] for k, v in LC.items()}, tunnel=HOLE_RGB), 'default': LC_DEFAULT},
     'comuni': comuni, 'featured': config_comuni, 'dbgt': dbgt_comuni, 'places': places, 'landmarks': lm_out, 'waters': waters,
     'rivers': rivers, 'power': power_lines,
     'source': 'Dati (c) OpenStreetMap contributors, ODbL. Altimetria: Terrarium tiles (Mapzen / AWS Open Data).'

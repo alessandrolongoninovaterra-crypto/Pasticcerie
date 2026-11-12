@@ -140,6 +140,22 @@ segnaletica, edifici, fisica, navigatore, comportamento di pedoni e traffico) è
   paesi si vedono come volumi semplici (un parallelepipedo orientato per edificio, con altezza e
   colore del tetto; `data/far.js`, 166.000 edifici in 2,2 MB), fino a 5–7 km in volo e 3 km a
   terra. In quota la foschia si allontana, così dall'aereo si vedono i paesi vicini.
+- **Gallerie**: la pipeline calcola il profilo di ogni galleria sull'intera catena di vie OSM (quota
+  fissa agli imbocchi veri, mai sopra il terreno, pendenza massima 7%) e segna nella mappa dei
+  colori, con un colore riservato, dove il terreno va aperto (copertura sotto i 7 m: imbocchi e
+  sottopassi). Il gioco disegna volta e pareti lungo la strada, lampade al soffitto, portali in
+  cemento agli imbocchi e, dove il tubo affiora, il guscio esterno; dentro, il sole si spegne, la
+  foschia si scurisce e si accendono i fari (344 tratti, 299 gallerie, 619 imbocchi).
+- **Strade lisce**: il terreno viene spianato sotto ogni strada per mezza larghezza + 8 m sul
+  profilo della via (quota DBGT dove c'è, altrimenti terreno lisciato su ~25 m; valori isolati
+  scartati): la carreggiata non fa più gobbe passando da una cella all'altra (punti lisci dal 91%
+  al 95,8%; restano i raccordi tra strade ripide a quote diverse).
+- **Palazzi**: numero intero di piani per edificio (finestre allineate in alto e in basso), piano
+  terra distinto (portoni, garage, ingressi vetrati), stili condominio con balconi e palazzina
+  moderna oltre a casa con persiane e capannone, base dei muri più scura, file di coppi sui tetti a
+  falde (da vicino).
+- **Strade**: tinta dell'asfalto leggermente diversa da via a via, banchina di ghiaia che sfuma
+  nell'erba sulle strade extraurbane senza marciapiede.
 - **Cartelli dedotti** (dove OSM non li mappa): strada senza uscita all'imbocco dei vicoli ciechi,
   parcheggio dove una corsia di parcheggio si stacca dalla strada, curva pericolosa (svolta oltre
   ~32° in 45 m, fuori dai centri abitati), discesa ripida oltre il 9% (dalle quote reali),

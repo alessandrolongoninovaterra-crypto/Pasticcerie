@@ -9,67 +9,128 @@ const ROOF_TILE = ['#b8694a', '#a9603f', '#c27752', '#9e5b43', '#b5704f', '#a46a
 const ROOF_FLAT = ['#8d8a84', '#7d7b77', '#9a968e', '#6f6e6a'];
 const tmpC = new THREE.Color();
 
+// Facciate: ogni immagine ha 8 x 8 campate da 3 m. La riga in basso e' il PIANO TERRA (portoni,
+// garage, ingressi), quelle sopra i piani tipo: l'edificio le usa dal basso, con un numero intero
+// di piani, cosi' le finestre sono allineate sia alla gronda sia a terra.
+// Stili: res (casa con persiane), condo (condominio con balconi), modern (palazzina recente),
+// ind (capannone / commerciale), plain (muro cieco: chiese, torri, box).
 function makeFacadeTextures() {
   const S = 512, bay = S / 8;
   const mk = () => { const c = document.createElement('canvas'); c.width = c.height = S; return c; };
-  const res = mk(), ind = mk(), emiR = mk(), emiI = mk(), plain = mk();
-  const r = res.getContext('2d'), e = emiR.getContext('2d'), n = ind.getContext('2d'), ei = emiI.getContext('2d'), p = plain.getContext('2d');
-  for (const c of [r, n, p]) { c.fillStyle = '#ffffff'; c.fillRect(0, 0, S, S); }
-  for (const c of [e, ei]) { c.fillStyle = '#000'; c.fillRect(0, 0, S, S); }
-  // intonaco leggermente irregolare
-  for (const c of [r, n, p]) {
+  const cv = { res: mk(), condo: mk(), modern: mk(), ind: mk(), plain: mk(), emiR: mk(), emiC: mk(), emiM: mk(), emiI: mk() };
+  const x2 = Object.fromEntries(Object.entries(cv).map(([k, c]) => [k, c.getContext('2d')]));
+  for (const k of ['res', 'condo', 'modern', 'ind', 'plain']) {
+    const c = x2[k]; c.fillStyle = '#ffffff'; c.fillRect(0, 0, S, S);
+    // intonaco leggermente irregolare
     for (let i = 0; i < 2500; i++) { c.fillStyle = `rgba(0,0,0,${Math.random() * 0.05})`; c.fillRect(Math.random() * S, Math.random() * S, 3 + Math.random() * 8, 3 + Math.random() * 8); }
   }
+  for (const k of ['emiR', 'emiC', 'emiM', 'emiI']) { x2[k].fillStyle = '#000'; x2[k].fillRect(0, 0, S, S); }
   const shutters = ['#3f6b3a', '#4d5f2f', '#6b4a2b', '#355e4e', '#5a3d27'];
+  const lit = (e, x, y, w, h, p = 0.35) => { e.fillStyle = Math.random() < p ? (Math.random() < 0.5 ? '#ffd890' : '#fff0c0') : '#000'; e.fillRect(x, y, w, h); };
+  const glass = (c, x, y, w, h) => { c.fillStyle = '#2f3438'; c.fillRect(x, y, w, h); c.fillStyle = '#5c6a72'; c.fillRect(x + 2, y + 2, w / 2 - 3, h - 4); c.fillRect(x + w / 2 + 1, y + 2, w / 2 - 3, h - 4); };
   for (let fy = 0; fy < 8; fy++) for (let bx = 0; bx < 8; bx++) {
-    const x0 = bx * bay, y0 = fy * bay;
-    // residenziale: finestra con persiane
+    const x0 = bx * bay, y0 = fy * bay, ground = fy === 7;
+    const { res: r, condo: c, modern: m, ind: n } = x2;
+    // marcapiano: una linea sottile tra un piano e l'altro
+    for (const q of [r, c]) { q.fillStyle = 'rgba(0,0,0,0.07)'; q.fillRect(x0, y0, bay, 2); }
+    if (ground) {
+      // --- piano terra
+      // casa: portone ogni 4 campate, finestre con inferriata altrove, zoccolo scuro
+      r.fillStyle = 'rgba(60,50,40,0.28)'; r.fillRect(x0, y0 + bay * 0.8, bay, bay * 0.2);
+      if (bx % 4 === 1) {
+        r.fillStyle = '#d8d2c4'; r.fillRect(x0 + bay * 0.26, y0 + bay * 0.2, bay * 0.48, bay * 0.8);
+        r.fillStyle = shutters[(bx + 2) % shutters.length]; r.beginPath(); r.roundRect(x0 + bay * 0.3, y0 + bay * 0.24, bay * 0.4, bay * 0.76, [bay * 0.2, bay * 0.2, 0, 0]); r.fill();
+        r.fillStyle = 'rgba(0,0,0,0.3)'; r.fillRect(x0 + bay * 0.495, y0 + bay * 0.3, 1.5, bay * 0.7);
+      } else {
+        const ww = bay * 0.3, wh = bay * 0.4, wx = x0 + (bay - ww) / 2, wy = y0 + bay * 0.26;
+        r.fillStyle = '#d8d2c4'; r.fillRect(wx - 3, wy - 3, ww + 6, wh + 7); glass(r, wx, wy, ww, wh);
+        r.strokeStyle = 'rgba(20,20,20,0.7)'; r.lineWidth = 1; for (let i = 1; i < 5; i++) { r.beginPath(); r.moveTo(wx + ww * i / 5, wy); r.lineTo(wx + ww * i / 5, wy + wh); r.stroke(); }
+        lit(x2.emiR, wx, wy, ww, wh, 0.25);
+      }
+      // condominio: ingresso vetrato ogni 4 campate, serrande dei box altrove
+      c.fillStyle = 'rgba(70,70,70,0.3)'; c.fillRect(x0, y0, bay, bay);
+      if (bx % 4 === 2) { c.fillStyle = '#39424a'; c.fillRect(x0 + bay * 0.2, y0 + bay * 0.22, bay * 0.6, bay * 0.78); c.fillStyle = '#7d8f9c'; c.fillRect(x0 + bay * 0.24, y0 + bay * 0.26, bay * 0.24, bay * 0.74); c.fillRect(x0 + bay * 0.52, y0 + bay * 0.26, bay * 0.24, bay * 0.74); lit(x2.emiC, x0 + bay * 0.24, y0 + bay * 0.26, bay * 0.52, bay * 0.7, 0.8); }
+      else { c.fillStyle = '#b9bcbd'; c.fillRect(x0 + bay * 0.12, y0 + bay * 0.3, bay * 0.76, bay * 0.7); c.fillStyle = 'rgba(0,0,0,0.18)'; for (let i = 0; i < 9; i++) c.fillRect(x0 + bay * 0.12, y0 + bay * (0.33 + i * 0.075), bay * 0.76, 1.5); }
+      // palazzina moderna: vetrata continua
+      m.fillStyle = '#3d4850'; m.fillRect(x0 + 3, y0 + bay * 0.18, bay - 6, bay * 0.82); m.fillStyle = '#8fa3b0'; m.fillRect(x0 + 6, y0 + bay * 0.22, bay - 12, bay * 0.74);
+      lit(x2.emiM, x0 + 6, y0 + bay * 0.22, bay - 12, bay * 0.74, 0.5);
+      // capannone: portone carrabile ogni 4 campate, zoccolo
+      n.fillStyle = 'rgba(0,0,0,0.12)'; n.fillRect(x0, y0 + bay * 0.75, bay, bay * 0.25);
+      if (bx % 4 === 0) { n.fillStyle = '#6d7479'; n.fillRect(x0 + bay * 0.08, y0 + bay * 0.08, bay * 0.84, bay * 0.92); n.fillStyle = 'rgba(0,0,0,0.2)'; for (let i = 0; i < 8; i++) n.fillRect(x0 + bay * 0.08, y0 + bay * (0.12 + i * 0.11), bay * 0.84, 1.5); }
+      continue;
+    }
+    // --- piani tipo
+    // casa: finestra con persiane
     const ww = bay * 0.34, wh = bay * 0.52, wx = x0 + (bay - ww) / 2, wy = y0 + bay * 0.22;
     r.fillStyle = '#d8d2c4'; r.fillRect(wx - 3, wy - 3, ww + 6, wh + 7);
-    r.fillStyle = '#2f3438'; r.fillRect(wx, wy, ww, wh);
-    r.fillStyle = '#5c6a72'; r.fillRect(wx + 2, wy + 2, ww / 2 - 3, wh - 4); r.fillRect(wx + ww / 2 + 1, wy + 2, ww / 2 - 3, wh - 4);
+    glass(r, wx, wy, ww, wh);
     const open = Math.random();
-    const sc = shutters[(bx * 7 + fy * 3) % shutters.length];
-    r.fillStyle = sc;
+    r.fillStyle = shutters[(bx * 7 + fy * 3) % shutters.length];
     if (open < 0.6) { r.fillRect(wx - ww / 2 - 2, wy, ww / 2, wh); r.fillRect(wx + ww + 2, wy, ww / 2, wh); }
     else if (open < 0.85) { r.fillRect(wx, wy, ww, wh); }
     r.fillStyle = 'rgba(0,0,0,0.25)';
     for (let k = 0; k < 6; k++) r.fillRect(wx - ww / 2 - 2, wy + k * wh / 6, ww * 2 + 4, 1);
-    if (open < 0.85 || Math.random() < 0.3) {
-      const lit = Math.random() < 0.35;
-      e.fillStyle = lit ? (Math.random() < 0.5 ? '#ffd890' : '#fff0c0') : '#000';
-      if (open >= 0.6 && open < 0.85) e.fillStyle = '#000';
-      e.fillRect(wx, wy, ww, wh);
+    if (open < 0.6 || open >= 0.85) lit(x2.emiR, wx, wy, ww, wh);
+    // condominio: portafinestra e balcone con parapetto (a campate alterne finestra semplice)
+    if ((bx + fy) % 3 !== 0) {
+      const dw = bay * 0.4, dh = bay * 0.66, dx = x0 + (bay - dw) / 2, dy = y0 + bay * 0.2;
+      c.fillStyle = '#e4e0d6'; c.fillRect(dx - 3, dy - 3, dw + 6, dh + 3); glass(c, dx, dy, dw, dh);
+      lit(x2.emiC, dx, dy, dw, dh);
+      c.fillStyle = 'rgba(0,0,0,0.3)'; c.fillRect(x0 + 3, y0 + bay * 0.88, bay - 6, 4);          // ombra sotto la soletta
+      c.fillStyle = '#c9c6bd'; c.fillRect(x0 + 2, y0 + bay * 0.84, bay - 4, 4);                  // soletta
+      c.fillStyle = 'rgba(40,44,48,0.75)'; c.fillRect(x0 + 2, y0 + bay * 0.56, bay - 4, 2.5);     // corrimano
+      for (let i = 0; i <= 10; i++) c.fillRect(x0 + 2 + (bay - 6) * i / 10, y0 + bay * 0.56, 1.5, bay * 0.28);
+    } else {
+      const w2 = bay * 0.34, h2 = bay * 0.44, wx2 = x0 + (bay - w2) / 2, wy2 = y0 + bay * 0.26;
+      c.fillStyle = '#e4e0d6'; c.fillRect(wx2 - 3, wy2 - 3, w2 + 6, h2 + 7); glass(c, wx2, wy2, w2, h2); lit(x2.emiC, wx2, wy2, w2, h2);
+      c.fillStyle = '#8f9499'; c.fillRect(wx2, wy2, w2, h2 * (Math.random() < 0.5 ? 0.35 : 0.1));   // tapparella
     }
+    // moderna: finestre larghe a nastro, senza persiane
+    m.fillStyle = '#3d4850'; m.fillRect(x0 + bay * 0.1, y0 + bay * 0.24, bay * 0.8, bay * 0.5);
+    m.fillStyle = '#7f95a3'; m.fillRect(x0 + bay * 0.13, y0 + bay * 0.27, bay * 0.35, bay * 0.44); m.fillRect(x0 + bay * 0.52, y0 + bay * 0.27, bay * 0.35, bay * 0.44);
+    m.fillStyle = 'rgba(0,0,0,0.1)'; m.fillRect(x0, y0 + bay * 0.82, bay, 2);
+    lit(x2.emiM, x0 + bay * 0.13, y0 + bay * 0.27, bay * 0.74, bay * 0.44, 0.4);
     // industriale / commerciale: nastro di finestre e pannelli
     n.fillStyle = 'rgba(0,0,0,0.08)'; n.fillRect(x0, y0, 2, bay);
     if (fy % 2 === 0) {
       n.fillStyle = '#4b5a63'; n.fillRect(x0 + 3, y0 + bay * 0.3, bay - 6, bay * 0.3);
-      ei.fillStyle = Math.random() < 0.25 ? '#e8f0ff' : '#000'; ei.fillRect(x0 + 3, y0 + bay * 0.3, bay - 6, bay * 0.3);
+      x2.emiI.fillStyle = Math.random() < 0.25 ? '#e8f0ff' : '#000'; x2.emiI.fillRect(x0 + 3, y0 + bay * 0.3, bay - 6, bay * 0.3);
     }
   }
-  const tex = (c, srgb = true) => {
+  const tex = (c) => {
     const t = new THREE.CanvasTexture(c);
     t.wrapS = t.wrapT = THREE.RepeatWrapping; t.anisotropy = 8;
-    if (srgb) t.colorSpace = THREE.SRGBColorSpace;
+    t.colorSpace = THREE.SRGBColorSpace;
     return t;
   };
-  return { res: tex(res), ind: tex(ind), plain: tex(plain), emiR: tex(emiR), emiI: tex(emiI) };
+  return Object.fromEntries(Object.entries(cv).map(([k, c]) => [k, tex(c)]));
 }
 
 export class BuildingFactory {
   constructor(terrain) {
     this.terrain = terrain;
     const t = makeFacadeTextures();
+    const wall = (map, emi) => new THREE.MeshLambertMaterial({ map, vertexColors: true, emissiveMap: emi, emissive: 0xffffff, emissiveIntensity: 0 });
     this.mats = {
-      res: new THREE.MeshLambertMaterial({ map: t.res, vertexColors: true, emissiveMap: t.emiR, emissive: 0xffffff, emissiveIntensity: 0 }),
-      ind: new THREE.MeshLambertMaterial({ map: t.ind, vertexColors: true, emissiveMap: t.emiI, emissive: 0xffffff, emissiveIntensity: 0 }),
+      res: wall(t.res, t.emiR), condo: wall(t.condo, t.emiC), modern: wall(t.modern, t.emiM), ind: wall(t.ind, t.emiI),
       plain: new THREE.MeshLambertMaterial({ map: t.plain, vertexColors: true }),
       roof: new THREE.MeshLambertMaterial({ vertexColors: true, side: THREE.DoubleSide }),
     };
+    // tetti a falde: file di coppi (bande lungo le linee di livello della falda), da vicino
+    this.mats.roof.onBeforeCompile = (sh) => {
+      sh.vertexShader = sh.vertexShader.replace('#include <common>', '#include <common>\nvarying vec3 vRW;\nvarying float vRUp;')
+        .replace('#include <beginnormal_vertex>', '#include <beginnormal_vertex>\nvRUp = abs(normalize(mat3(modelMatrix) * objectNormal).y);')
+        .replace('#include <worldpos_vertex>', '#include <worldpos_vertex>\nvRW = (modelMatrix * vec4(transformed, 1.0)).xyz;');
+      sh.fragmentShader = sh.fragmentShader.replace('#include <common>', '#include <common>\nvarying vec3 vRW;\nvarying float vRUp;')
+        .replace('#include <color_fragment>', `#include <color_fragment>
+          float pitch = smoothstep(0.995, 0.96, vRUp) * clamp(1.0 - distance(cameraPosition, vRW) / 260.0, 0.0, 1.0);
+          float rowsT = 0.84 + 0.16 * smoothstep(0.0, 0.35, fract(vRW.y * 2.6));
+          float colsT = 0.94 + 0.06 * step(0.5, fract((vRW.x + vRW.z) * 2.4));
+          diffuseColor.rgb *= mix(1.0, rowsT * colsT, pitch);`);
+    };
   }
 
-  setNight(f) { this.mats.res.emissiveIntensity = f * 0.55; this.mats.ind.emissiveIntensity = f * 0.4; }
+  setNight(f) { for (const k of ['res', 'condo', 'modern']) this.mats[k].emissiveIntensity = f * 0.55; this.mats.ind.emissiveIntensity = f * 0.4; }
 
   build(tile, collision, tileKey) {
     const g = this.buildGen(tile, collision, tileKey);
@@ -81,7 +142,7 @@ export class BuildingFactory {
   // costruzione a passi (vedi RoadNetwork.buildTileGen): una pausa ogni 12 edifici
   *buildGen(tile, collision, tileKey) {
     const T = this.terrain;
-    const gb = { res: new GeoBuilder(), ind: new GeoBuilder(), plain: new GeoBuilder() };
+    const gb = { res: new GeoBuilder(), condo: new GeoBuilder(), modern: new GeoBuilder(), ind: new GeoBuilder(), plain: new GeoBuilder() };
     const roof = new GeoBuilder(true, false);
     const names = tile.s;
     const labels = [];
@@ -131,7 +192,14 @@ export class BuildingFactory {
       }
       const base = minT - 0.6 + minH;
       const eave = (minT + maxT) / 2 + H;
-      const style = (kind === 3 || kind === 4) ? 'ind' : (kind === 5 || kind === 6 || kind === 8 || kind === 9 || kind === 10) ? 'plain' : 'res';
+      // piani interi: l'altezza di interpiano si adatta (2,7-3,4 m) e le finestre restano allineate
+      const floors = Math.max(1, Math.round(H / 3.05));
+      let style = (kind === 3 || kind === 4) ? 'ind' : (kind === 5 || kind === 6 || kind === 8 || kind === 9 || kind === 10) ? 'plain' : 'res';
+      if (style === 'res') {
+        if (floors >= 4 && area > 160) style = rnd2 < 0.75 ? 'condo' : 'modern';      // palazzi: quasi sempre condomini con balconi
+        else if (floors >= 2 && area > 110 && rnd < 0.16) style = 'modern';          // qualche palazzina recente
+        else if (floors === 3 && area > 220 && rnd2 < 0.45) style = 'condo';
+      }
       let col;
       if (colTag && /^#?[0-9a-f]{6}$|^[a-z]+$/i.test(colTag)) { try { tmpC.set(colTag); col = tmpC.clone(); } catch (e) { col = null; } }
       if (!col) col = new THREE.Color(style === 'ind' ? INDUSTRIAL[Math.floor(rnd2 * INDUSTRIAL.length)] : kind === 8 || kind === 5 ? (rnd2 < 0.5 ? '#d8c9a8' : '#c9a77f') : PLASTER[Math.floor(rnd2 * PLASTER.length)]);
@@ -146,11 +214,13 @@ export class BuildingFactory {
         // allinea le finestre: numero intero di campate per facciata
         const bays = Math.max(1, Math.round(len / 3));
         const ue = u0 + bays / 8;
-        const vTop = 0, vBot = (eave - base) / 24;
-        const a = g.v(ax, base, az, col.r, col.g, col.b, u0, vBot);
+        // v = 0 al piano di campagna (riga del piano terra), floors/8 alla gronda
+        const vTop = floors / 8, vBot = vTop * (base - (eave - H)) / H;
+        // base dei muri piu' scura (ombra di contatto col suolo)
+        const a = g.v(ax, base, az, col.r * 0.78, col.g * 0.78, col.b * 0.78, u0, vBot);
         const b = g.v(ax, eave, az, col.r, col.g, col.b, u0, vTop);
         const c = g.v(bx, eave, bz, col.r, col.g, col.b, ue, vTop);
-        const d = g.v(bx, base, bz, col.r, col.g, col.b, ue, vBot);
+        const d = g.v(bx, base, bz, col.r * 0.78, col.g * 0.78, col.b * 0.78, ue, vBot);
         g.quad(a, b, c, d);
         per += len;
       }
@@ -165,7 +235,7 @@ export class BuildingFactory {
       if (name && (kind === 5 || kind === 8 || type === 7)) labels.push({ name, x: cx, z: cz, y: eave + 4 });
     }
     const group = new THREE.Group();
-    for (const k of ['res', 'ind', 'plain']) if (!gb[k].empty) { yield; group.add(gb[k].mesh(this.mats[k], true)); }
+    for (const k of ['res', 'condo', 'modern', 'ind', 'plain']) if (!gb[k].empty) { yield; group.add(gb[k].mesh(this.mats[k], true)); }
     yield;
     if (!roof.empty) group.add(roof.mesh(this.mats.roof, true));
     return { group, labels };

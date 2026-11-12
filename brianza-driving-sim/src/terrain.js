@@ -94,6 +94,11 @@ export class Terrain {
         .replace('#include <worldpos_vertex>', '#include <worldpos_vertex>\nvWPos = (modelMatrix * vec4(transformed, 1.0)).xyz;');
       sh.fragmentShader = sh.fragmentShader.replace('#include <common>', '#include <common>\nvarying vec3 vWPos;\nvarying float vUp;\nuniform sampler2D detailMap;')
         .replace('#include <map_fragment>', `#include <map_fragment>
+          // imbocchi delle gallerie: il colore riservato (magenta) apre il terreno; sul bordo, dove
+          // il filtro lo mescola ai colori vicini, lo si toglie per non lasciare aloni
+          float hole = min(diffuseColor.r, diffuseColor.b) - diffuseColor.g;
+          if (hole > 0.5) discard;
+          if (hole > 0.04) diffuseColor.rgb = clamp((diffuseColor.rgb - hole * vec3(1.0, 0.0, 1.0)) / (1.0 - hole), 0.0, 1.0);
           float d1 = texture2D(detailMap, vWPos.xz * 0.11).r;
           float d2 = texture2D(detailMap, vWPos.xz * 0.013).g;
           diffuseColor.rgb *= 0.72 + 0.32 * d1 + 0.22 * (d2 - 0.5);
