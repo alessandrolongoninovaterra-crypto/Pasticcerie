@@ -31,6 +31,22 @@ In alternativa: `python3 -m http.server 8080` e apri <http://localhost:8080>.
 > in `index.html`, prima di `dist/game.js`:
 > `<script>window.BDS_START = { lat: 45.68210, lon: 9.21141 };</script>`
 
+### Gamepad
+
+Funziona qualsiasi gamepad riconosciuto dal browser (il browser lo rende visibile solo dopo la prima
+pressione di un tasto). Con i controller "standard" (Xbox, PlayStation, Switch Pro riconosciuti come
+tali) si gioca subito: stick sinistro sterzo / alettoni (indietro = cabra), RT/LT gas e freno (con
+l'aereo: manetta su/giù), A freno a mano, B scendi/sali, Y visuale, X fari, LB riparti, View mappa,
+Menu pausa, pressione dello stick sinistro clacson. Per i gamepad non standard c'è una mappatura di
+base (riconosce da solo i grilletti montati come assi).
+
+**Per cambiare i comandi**: menu iniziale o pausa (Esc) → **🎮 Gamepad** → *Configura i comandi*.
+Il gioco chiede un comando alla volta (sterzo, acceleratore, freno, cabra, freno a mano, visuale,
+scendi, mappa, clacson, fari, riparti, pausa): si muove lo stick o si preme il tasto voluto, oppure
+si salta. Vanno bene assi, grilletti analogici e tasti. La configurazione si salva nel browser per
+quel modello di gamepad; *Ripristina predefiniti* la cancella. Nella stessa finestra si vedono in
+tempo reale i valori di assi e tasti.
+
 ### Aereo da turismo
 
 L'ultima scelta del menu è un piccolo monomotore ad ala alta (modello originale, non riproduce un

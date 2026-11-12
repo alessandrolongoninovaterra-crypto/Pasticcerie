@@ -7,7 +7,7 @@ import { Sky } from './sky.js';
 import { CARS, buildCarModel, drawCluster } from './cars.js';
 import { Vehicle } from './vehicle.js';
 import { Plane, buildPlaneModel, drawPlaneCluster } from './plane.js';
-import { Input } from './input.js';
+import { Input, PadWizard, PAD_ACTIONS } from './input.js';
 import { Traffic } from './traffic.js';
 import { Router, routeProgress } from './router.js';
 import { Maps } from './maps.js';
@@ -118,6 +118,7 @@ function startOptions() {
 
 function setupMenu() {
   const menu = $('menu');
+  if (!G.padUI) { G.padUI = true; setupPadUI(); }
   menu.classList.remove('hidden');
   if (G.meta.dbgt && G.meta.dbgt.length && !$('dbgtcredit')) {
     const p = document.createElement('div'); p.id = 'dbgtcredit';
@@ -190,7 +191,7 @@ function ensureGame() {
     G.orbit.idle = 0; drag = [e.clientX, e.clientY];
   });
   G.maps = new Maps(G.world, G.meta);
-  G.input = new Input();
+  G.input = G.input || new Input();
   G.audio = new EngineAudio();
   addEventListener('resize', () => {
     renderer.setSize(innerWidth, innerHeight);
@@ -286,7 +287,7 @@ function planeInput(ctl) {
   const k = G.input.keys;
   return {
     throttle: Math.max(k.has('KeyW') ? 1 : 0, ctl.padThr || 0), brake: Math.max(k.has('KeyS') ? 1 : 0, ctl.padBrk || 0),
-    pitch: Math.max(-1, Math.min(1, (k.has('ArrowUp') ? 1 : 0) - (k.has('ArrowDown') ? 1 : 0) - (ctl.stickY || 0))),
+    pitch: Math.max(-1, Math.min(1, (k.has('ArrowUp') ? 1 : 0) - (k.has('ArrowDown') ? 1 : 0) + (ctl.padPitch || 0))),
     steer: ctl.steer, handbrake: ctl.handbrake,
   };
 }
@@ -650,6 +651,58 @@ function setupMapUI() {
   });
 }
 
+// ------------------------------------------------------------------ gamepad: stato e configurazione guidata
+function padConnected() { return navigator.getGamepads ? [...navigator.getGamepads()].filter((g) => g && g.connected) : []; }
+let padLiveT = 0, wizard = null;
+function renderPadCfg() {
+  const inp = G.input, pads = padConnected();
+  if (!pads.length) {
+    $('padstatus').textContent = 'Nessun gamepad rilevato. Collegalo e premi un tasto qualsiasi: il browser lo rende visibile solo dopo la prima pressione.';
+    $('padmap').innerHTML = ''; return;
+  }
+  const gp = pads[0], { map, kind } = inp.mapFor(gp);
+  $('padstatus').textContent = `Collegato: ${gp.id} — mappatura ${kind}.` + (pads.length > 1 ? ` (${pads.length} gamepad: si configura il primo)` : '');
+  $('padmap').innerHTML = PadWizard.describe(map).map((t) => `<div>${t}</div>`).join('');
+}
+function openPadCfg() {
+  G.input = G.input || new Input();
+  $('padcfg').classList.remove('hidden');
+  $('padwiz').classList.add('hidden'); $('padbtns').classList.remove('hidden');
+  renderPadCfg();
+  clearInterval(padLiveT);
+  padLiveT = setInterval(() => {       // valori correnti di assi e tasti, per capire cosa vede il browser
+    const gp = padConnected()[0];
+    if (!gp) { $('padlive').textContent = ''; renderPadCfg(); return; }
+    const pressed = gp.buttons.map((b, i) => ((typeof b === 'object' ? b.value : b) > 0.5 ? i : -1)).filter((i) => i >= 0);
+    $('padlive').textContent = 'assi: ' + gp.axes.map((a, i) => `${i}:${a.toFixed(2)}`).join(' ') + (pressed.length ? '  tasti premuti: ' + pressed.join(',') : '');
+    if (!wizard && !$('padstatus').textContent.startsWith('Collegato')) renderPadCfg();
+  }, 120);
+}
+function closePadCfg() {
+  if (wizard) { wizard.cancel(); wizard = null; }
+  clearInterval(padLiveT);
+  $('padcfg').classList.add('hidden');
+}
+function setupPadUI() {
+  G.input = G.input || new Input();
+  $('padbtn').onclick = openPadCfg; $('padbtn2').onclick = openPadCfg;
+  $('padclose').onclick = closePadCfg;
+  $('padreset').onclick = () => { const gp = padConnected()[0]; if (gp) { G.input.setPadMap(gp.id, null); renderPadCfg(); } };
+  $('padstart').onclick = () => {
+    wizard = new PadWizard(G.input, {
+      prompt: (text, i, n) => { $('padstep').textContent = `Comando ${i} di ${n}`; $('padprompt').textContent = text; },
+      done: () => { wizard = null; $('padwiz').classList.add('hidden'); $('padbtns').classList.remove('hidden'); renderPadCfg(); $('padstatus').textContent += ' Configurazione salvata.'; },
+      status: (t) => { $('padstatus').textContent = t; },
+    });
+    if (wizard.start()) { $('padwiz').classList.remove('hidden'); $('padbtns').classList.add('hidden'); } else wizard = null;
+  };
+  $('padskip').onclick = () => wizard && wizard.skip();
+  $('padcancel').onclick = () => { if (wizard) { wizard.cancel(); wizard = null; } $('padwiz').classList.add('hidden'); $('padbtns').classList.remove('hidden'); renderPadCfg(); };
+  G.input.onPadConnect = (gp, m) => {
+    if (G.started) showToast(`🎮 ${gp.id.split('(')[0].trim()} collegato — mappatura ${m.kind.split(' (')[0]}` + (m.kind.startsWith('di base') ? ': configuralo con Esc → 🎮 Gamepad' : ''), 4000);
+  };
+}
+
 function setupPauseUI() {
   $('resume').onclick = () => togglePause(false);
   $('tomenu').onclick = () => { togglePause(false); G.started = false; $('hud').classList.add('hidden'); setupMenu(); };
@@ -750,8 +803,8 @@ function loop(now) {
   let dt = Math.min(0.05, frame); last = now;
   if (!G.renderer) return;
   if (G.mapOpen) {
-    G.input.read(dt);
-    if (G.input.consume('KeyM') || G.input.consume('Escape')) closeMap();
+    const mc = G.input.read(dt);
+    if (G.input.consume('KeyM') || G.input.consume('Escape') || mc.actions.has('map') || mc.actions.has('pause')) closeMap();
     if (G.mapDirty) { G.maps.drawBig(G.started ? focus() : null, G.route, G.dest || (G.mapMode === 'start' ? null : G.mapSel)); G.mapDirty = false; }
     if (G.mapSel && G.mapMode === 'start' && !G.started) { /* evidenzia */ }
     return;
@@ -760,23 +813,25 @@ function loop(now) {
   const inp = G.input;
   if (inp.consume('Escape')) togglePause(!G.paused);
   if (G.paused) {
+    if (inp.read(dt).actions.has('pause') && $('padcfg').classList.contains('hidden')) togglePause(false);
     const snap = inp.axesSnapshot();
     $('axes').textContent = snap ? `${snap.id}: ` + snap.axes.map((a, i) => `${i}:${a.toFixed(2)}`).join('  ') : 'Nessun dispositivo rilevato: collega il volante e premi un pedale.';
     return;
   }
   const ctl = inp.read(dt);
-  if (inp.consume('KeyC') || ctl.buttons.has(3)) { G.camMode = (G.camMode + 1) % 4; showToast(CAM_NAMES[G.camMode], 1000); }
-  if (inp.consume('KeyM') || ctl.buttons.has(8)) { openMap('dest'); return; }
+  if (ctl.actions.has('pause')) { togglePause(true); return; }
+  if (inp.consume('KeyC') || ctl.actions.has('camera')) { G.camMode = (G.camMode + 1) % 4; showToast(CAM_NAMES[G.camMode], 1000); }
+  if (inp.consume('KeyM') || ctl.actions.has('map')) { openMap('dest'); return; }
   if (inp.consume('KeyN')) $('mini-wrap').classList.toggle('hidden');
-  if (inp.consume('KeyH') || ctl.buttons.has(2)) { G.lightsOn = !G.lightsOn; showToast(G.lightsOn ? 'Fari accesi' : 'Fari spenti', 900); }
-  if (inp.consume('KeyR') && !G.foot.on) respawnOnRoad();
+  if (inp.consume('KeyH') || ctl.actions.has('lights')) { G.lightsOn = !G.lightsOn; showToast(G.lightsOn ? 'Fari accesi' : 'Fari spenti', 900); }
+  if ((inp.consume('KeyR') || ctl.actions.has('reset')) && !G.foot.on) respawnOnRoad();
   if (inp.consume('KeyK')) { G.world.labelsOn = !G.world.labelsOn; showToast(G.world.labelsOn ? 'Nomi dei luoghi visibili' : 'Nomi dei luoghi nascosti', 1000); }
   if (inp.consume('KeyT')) { const sp = [30, 300, 0, 1]; G.sky.speed = sp[(sp.indexOf(G.sky.speed) + 1) % sp.length]; showToast('Velocità del tempo: ' + (G.sky.speed ? G.sky.speed + '×' : 'ferma'), 1000); }
   if (inp.consume('Equal') || inp.consume('NumpadAdd')) G.sky.hours = (G.sky.hours + 1) % 24;
   if (inp.consume('Minus') || inp.consume('NumpadSubtract')) G.sky.hours = (G.sky.hours + 23) % 24;
 
-  if (inp.consume('KeyF') || inp.consume('Enter') || ctl.buttons.has(1)) { if (G.foot.on) enterCar(); else exitCar(); }
-  const horn = !G.foot.on && (inp.keys.has('KeyE') || !!ctl.hornPad);
+  if (inp.consume('KeyF') || inp.consume('Enter') || ctl.actions.has('exit')) { if (G.foot.on) enterCar(); else exitCar(); }
+  const horn = !G.foot.on && (inp.keys.has('KeyE') || ctl.horn);
   G.audio.horn(horn);
 
   const v = G.vehicle, f = G.foot, p = focus();

@@ -99,6 +99,16 @@
   #pause h2 { margin-top: 0; }
   #pause .btns { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 16px; }
   #wheelcal { font-size: 13px; color: #c9d6df; margin-top: 10px; }
+  #padcfg { position: fixed; inset: 0; z-index: 45; background: rgba(5,8,10,0.7); display: flex; align-items: center; justify-content: center; }
+  #padcfg .panel { padding: 22px 26px; width: min(600px, 92vw); max-height: 90vh; overflow: auto; }
+  #padcfg h2 { margin-top: 0; }
+  #padstatus { color: var(--muted); font-size: 14px; margin-bottom: 10px; }
+  #padstep { color: var(--muted); font-size: 13px; }
+  #padprompt { font-size: 22px; font-weight: 600; margin: 8px 0 12px; min-height: 60px; }
+  #padmap { font-size: 13px; color: #c9d6df; columns: 2; column-gap: 24px; margin: 10px 0; }
+  #padmap div { break-inside: avoid; }
+  #padlive { font: 12px Consolas, monospace; color: var(--muted); margin-top: 6px; word-break: break-all; }
+  #padcfg .btns { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 14px; }
   #wheelcal .ax { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-top: 8px; }
   #axes { font: 12px Consolas, monospace; color: var(--muted); margin-top: 6px; }
   @media (max-width: 760px) { #nav { width: auto; right: 18px; } #mini-wrap { width: 170px; height: 170px; bottom: 120px; } #road { min-width: 0; max-width: 60vw; } #limit { right: 18px; bottom: 150px; } #gps { display: none; } }
@@ -130,6 +140,7 @@
     <div class="start-row">
       <button class="primary" id="go">▶ Parti</button>
       <button id="pickstart">Scegli la partenza sulla mappa…</button>
+      <button id="padbtn">🎮 Gamepad</button>
       <span id="pickinfo" style="color:var(--muted);font-size:14px"></span>
     </div>
     <h2>Comandi</h2>
@@ -144,7 +155,7 @@
       <div><kbd>R</kbd> rimetti in strada</div><div><kbd>T</kbd> velocità del tempo · <kbd>+</kbd>/<kbd>-</kbd> ora</div>
       <div><kbd>K</kbd> nomi dei luoghi</div><div><kbd>Esc</kbd> pausa / opzioni / volante</div>
       <div>✈ Aereo: <kbd>W</kbd><kbd>S</kbd> manetta · <kbd>↑</kbd><kbd>↓</kbd> cabra/picchia · <kbd>A</kbd><kbd>D</kbd> vira</div>
-      <div>Gamepad: grilletti RT/LT, stick sinistro</div><div>Volante: configurabile in pausa</div>
+      <div>🎮 Gamepad: stick sinistro sterzo, RT/LT gas/freno, A freno a mano, B scendi, Y visuale, Start pausa — configurabile</div><div>Volante: configurabile in pausa</div>
     </div>
     <div class="credits">Cartografia © OpenStreetMap contributors (ODbL) — strade, edifici, boschi, laghi e confini comunali reali. Altimetria: Terrarium (Mapzen / AWS Open Data, da SRTM/EU-DEM). Limiti di velocità: da OSM quando presenti, altrimenti indicativi secondo il Codice della Strada.</div>
   </div>
@@ -179,6 +190,25 @@
   <div id="maphint" class="panel">Trascina per spostare · rotella per lo zoom · clic per selezionare</div>
 </div>
 
+<div id="padcfg" class="hidden">
+  <div class="panel">
+    <h2>🎮 Gamepad</h2>
+    <div id="padstatus">Collega il gamepad e premi un tasto qualsiasi: il browser lo rende visibile solo dopo la prima pressione.</div>
+    <div id="padwiz" class="hidden">
+      <div id="padstep"></div>
+      <div id="padprompt"></div>
+      <div class="btns"><button id="padskip">Salta questo comando</button><button id="padcancel">Annulla</button></div>
+    </div>
+    <div id="padmap"></div>
+    <div id="padlive"></div>
+    <div class="btns" id="padbtns">
+      <button class="primary" id="padstart">Configura i comandi</button>
+      <button id="padreset">Ripristina predefiniti</button>
+      <button id="padclose">Chiudi</button>
+    </div>
+  </div>
+</div>
+
 <div id="pause" class="hidden">
   <div class="panel">
     <h2>Pausa</h2>
@@ -202,6 +232,7 @@
     <div class="btns">
       <button class="primary" id="resume">Riprendi</button>
       <button id="tomenu">Cambia auto / partenza</button>
+      <button id="padbtn2">🎮 Gamepad</button>
     </div>
   </div>
 </div>
