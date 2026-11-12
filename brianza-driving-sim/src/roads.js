@@ -173,6 +173,149 @@ export class RoadNetwork {
     this.buildStreetIndex(meta);
   }
 
+  // ---------------------------------------------------------------- profilo longitudinale liscio
+  // Ogni via (tranne ponti e gallerie, che hanno gia' un profilo proprio) riceve un profilo di quota
+  // campionato ogni 4 m e lisciato con una media mobile su circa +-20 m: la strada non copia piu'
+  // gli scalini della griglia del terreno (celle da 10 m). Agli incroci tutte le vie passano per la
+  // stessa quota. Il calcolo si fa su richiesta, zona per zona (ensureRegion prima di costruire una
+  // tessera, oppure alla prima richiesta di quota su una via), sempre dal terreno originale.
+  rawProfile(w) {
+    if (w.raw) return w.raw;
+    const T = this.terrain, PSTEP = 4, RAD = 5;          // media mobile di 11 campioni (44 m), applicata due volte
+    const N = Math.max(2, Math.ceil(w.len / PSTEP) + 1), st = w.len / (N - 1) || 1;
+    let raw = new Float32Array(N);
+    let k = 0;
+    for (let i = 0; i < N; i++) {
+      const sv = i * st;
+      while (k < w.nodes.length - 2 && w.cum[k + 1] < sv) k++;
+      const a = w.nodes[k], b = w.nodes[k + 1], L = w.cum[k + 1] - w.cum[k] || 1, t = Math.min(1, Math.max(0, (sv - w.cum[k]) / L));
+      raw[i] = T.heightOrig(this.nx[a] + (this.nx[b] - this.nx[a]) * t, this.nz[a] + (this.nz[b] - this.nz[a]) * t) + this.dh[a] + (this.dh[b] - this.dh[a]) * t;
+    }
+    for (let pass = 0; pass < 2 && N > 2; pass++) {   // bordi: si ripete il valore estremo
+      const out = new Float32Array(N);
+      let acc = 0;
+      for (let i = -RAD; i <= RAD; i++) acc += raw[Math.min(N - 1, Math.max(0, i))];
+      for (let i = 0; i < N; i++) {
+        out[i] = acc / (2 * RAD + 1);
+        acc += raw[Math.min(N - 1, i + RAD + 1)] - raw[Math.min(N - 1, Math.max(0, i - RAD))];
+      }
+      raw = out;
+    }
+    w.raw = raw; w.pstep = st;
+    return raw;
+  }
+
+  // quota comune di un nodo d'incrocio: estremo di un ponte/galleria se c'e', altrimenti la media
+  // dei profili lisciati di tutte le vie che vi passano
+  nodeHeight(nd) {
+    let sum = 0, cnt = 0;
+    for (let o = this.adjStart[nd]; o < this.adjStart[nd + 1]; o++) {
+      const w = this.ways[this.adjWay[o]], pos = this.adjPos[o];
+      if (w.abs) {
+        if (pos === 0) return w.h0;
+        if (pos === w.nodes.length - 1) return w.h1;
+        continue;
+      }
+      const r = this.rawProfile(w), f = Math.min(r.length - 1, w.cum[pos] / w.pstep), i = Math.min(r.length - 2, Math.floor(f));
+      sum += r.length < 2 ? r[0] : r[i] + (r[i + 1] - r[i]) * (f - i); cnt++;
+    }
+    return cnt ? sum / cnt : 0;
+  }
+
+  ensureProfile(w) {
+    if (w.prof || w.abs) return;
+    const raw = this.rawProfile(w), N = raw.length, P = new Float32Array(raw);
+    const anc = [];
+    for (let k = 0; k < w.nodes.length; k++) {
+      const nd = w.nodes[k];
+      if (k === 0 || k === w.nodes.length - 1 || this.degree[nd] !== 2) {
+        const f = Math.min(N - 1, w.cum[k] / w.pstep), i = Math.min(N - 2, Math.floor(f));
+        anc.push([w.cum[k], this.nodeHeight(nd) - (N < 2 ? raw[0] : raw[i] + (raw[i + 1] - raw[i]) * (f - i))]);
+      }
+    }
+    let j = 0;
+    for (let i = 0; i < N; i++) {     // correzione a rampa lineare tra un ancoraggio e l'altro
+      const sv = i * w.pstep;
+      while (j < anc.length - 2 && anc[j + 1][0] < sv) j++;
+      const [s0, d0] = anc[j], [s1, d1] = anc[Math.min(j + 1, anc.length - 1)];
+      const t = s1 > s0 ? Math.min(1, Math.max(0, (sv - s0) / (s1 - s0))) : 0;
+      P[i] += d0 + (d1 - d0) * t;
+    }
+    w.prof = P;
+  }
+
+  // profili e terreno di tutte le vie che passano nella tessera tk e nelle otto vicine. Con un
+  // tempo limite (deadline, da performance.now) lavora a rate: restituisce false se non ha finito.
+  ensureRegion(tk, deadline = Infinity) {
+    if (!this.regionDone) { this.regionDone = new Set(); this.regionQ = new Map(); }
+    if (this.regionDone.has(tk)) return true;
+    let q = this.regionQ.get(tk);
+    if (!q) {
+      const seen = new Set(), i0 = tk % 1000, j0 = Math.floor(tk / 1000);
+      q = [];
+      for (let dj = -1; dj <= 1; dj++) for (let di = -1; di <= 1; di++) {
+        for (const packed of this.tileSegs.get((j0 + dj) * 1000 + i0 + di) || []) {
+          const wi = Math.floor(packed / 16384);
+          if (!seen.has(wi)) { seen.add(wi); q.push(wi); }
+        }
+      }
+      this.regionQ.set(tk, q);
+    }
+    while (q.length) {
+      const w = this.ways[q.pop()];
+      if (!w.abs && !w.carved) { this.ensureProfile(w); this.carveWay(w); w.carved = true; }
+      if (performance.now() > deadline) return !q.length && (this.regionDone.add(tk), this.regionQ.delete(tk), true);
+    }
+    this.regionDone.add(tk); this.regionQ.delete(tk);
+    return true;
+  }
+
+  // quota del profilo alla distanza s dall'inizio della via
+  profAt(w, s) {
+    const P = w.prof;
+    if (P.length < 2) return P[0];
+    const f = Math.min(P.length - 1, Math.max(0, s / w.pstep)), i = Math.min(P.length - 2, Math.floor(f));
+    return P[i] + (P[i + 1] - P[i]) * (f - i);
+  }
+
+  // Il terreno sotto le strade e' gia' spianato dalla pipeline (profilo quasi uguale a questo).
+  // Qui resta da evitare che sporga dentro la carreggiata: gli angoli delle celle che contengono un
+  // punto della strada (anche a 14 m dall'asse, lungo la diagonale della cella da 10 m) si
+  // abbassano, se serve, alla quota della strada nel punto piu' vicino. Solo abbassamenti: nasce lo
+  // sbancamento del versante, non un terrapieno. Le rampe dei cavalcavia restano con i loro muri.
+  carveWay(w) {
+    const T = this.terrain, H = T.h, nx = T.nx, nz = T.nz, step = T.step, x0 = T.x0, z0 = T.z0;
+    let nLow = 0;
+    {
+      if (!w.prof) return;
+      const hw = w.width / 2 + 0.6, nd = w.nodes, P = w.prof, ps = w.pstep;
+      for (let k = 0; k < nd.length - 1; k++) {
+        const a = nd[k], b = nd[k + 1];
+        if (this.dh[a] > 0.3 || this.dh[b] > 0.3) continue;
+        const ax = this.nx[a], az = this.nz[a], L = w.cum[k + 1] - w.cum[k];
+        if (L < 0.01) continue;
+        const dx = (this.nx[b] - ax) / L, dz = (this.nz[b] - az) / L, n = Math.max(1, Math.ceil(L / 3));
+        for (let si = 0; si <= n; si++) {
+          const d = L * si / n, s = w.cum[k] + d, x = ax + dx * d, z = az + dz * d;
+          // quota e pendenza del profilo in s (per la quota nel punto piu' vicino a ogni angolo)
+          const f = Math.min(P.length - 1, Math.max(0, s / ps)), i0 = Math.min(P.length - 2, Math.floor(f));
+          const h = P[i0] + (P[i0 + 1] - P[i0]) * (f - i0) - 0.03, g = (P[i0 + 1] - P[i0]) / ps;
+          for (let q = -1; q <= 1; q++) {
+            const px = x - dz * hw * q, pz = z + dx * hw * q;
+            const i = Math.floor((px - x0) / step), j = Math.floor((pz - z0) / step);
+            if (i < 0 || j < 0 || i >= nx - 1 || j >= nz - 1) continue;
+            for (let c = 0; c < 4; c++) {
+              const ii = i + (c & 1), jj = j + (c >> 1), o = jj * nx + ii;
+              const hc = h + g * ((x0 + ii * step - x) * dx + (z0 + jj * step - z) * dz);
+              if (H[o] > hc) { H[o] = hc; nLow++; }
+            }
+          }
+        }
+      }
+    }
+    this.loweredCorners = (this.loweredCorners || 0) + nLow;
+  }
+
   tileKey(x, z) { return Math.floor((z - this.zmin) / this.tileSize) * 1000 + Math.floor((x - this.xmin) / this.tileSize); }
 
   // corsie per senso di marcia e larghezza della carreggiata dai tag OSM
@@ -350,8 +493,8 @@ export class RoadNetwork {
       const s = w.cum[k] + t * (w.cum[k + 1] - w.cum[k]);
       return w.h0 + (w.h1 - w.h0) * (w.len > 0 ? s / w.len : 0) + LIFT;
     }
-    const a = w.nodes[k], b = w.nodes[k + 1];
-    return this.terrain.height(x, z) + this.dh[a] + (this.dh[b] - this.dh[a]) * t + LIFT;
+    if (!w.prof) this.ensureProfile(w);
+    return this.profAt(w, w.cum[k] + t * (w.cum[k + 1] - w.cum[k])) + LIFT;
   }
 
   segmentsNear(x, z, r, cb) {
@@ -379,13 +522,25 @@ export class RoadNetwork {
   // superficie guidabile sotto un punto: strada (anche su ponti) o terreno
   surfaceAt(x, z, yRef = 1e9) {
     let best = null, bestH = -1e9;
+    const cand = this._cand || (this._cand = []);
+    cand.length = 0;
     this.segmentsNear(x, z, 8, (wi, k) => {
       const w = this.ways[wi];
       const pr = this.projectOnSeg(wi, k, x, z);
-      if (pr.d > w.width / 2 + 0.35) return;
+      const lim = w.width / 2 + 0.35;
+      if (pr.d > lim) return;
       const h = this.heightOn(wi, k, pr.t, x, z);
-      if (h <= yRef + 1.3 && (h > bestH + 0.01 || (Math.abs(h - bestH) <= 0.01 && best && pr.d < best.d))) { bestH = h; best = { wi, k, t: pr.t, d: pr.d }; }
+      if (h > yRef + 1.3) return;
+      cand.push(h, Math.max(0.03, 1 - pr.d / lim));
+      if (h > bestH + 0.01 || (Math.abs(h - bestH) <= 0.01 && best && pr.d < best.d)) { bestH = h; best = { wi, k, t: pr.t, d: pr.d }; }
     });
+    // incroci: dove due vie alla stessa quota si sovrappongono si usa la media pesata (vicinanza
+    // all'asse di ciascuna), cosi' passando dall'una all'altra non ci sono scalini
+    if (cand.length > 2) {
+      let sw = 0, sh = 0;
+      for (let i = 0; i < cand.length; i += 2) if (bestH - cand[i] < 0.8) { sh += cand[i] * cand[i + 1]; sw += cand[i + 1]; }
+      if (sw > 0) bestH = sh / sw;
+    }
     const th = this.terrain.height(x, z);
     if (best && bestH >= th - 0.6) return { h: bestH, road: best };
     // in galleria (anche dove la copertura e' di pochi decimetri, agli imbocchi) chi e' gia' alla quota della strada ci resta
@@ -586,9 +741,7 @@ export class RoadNetwork {
   // quota di un punto della carreggiata (anche ai bordi)
   edgeH(wi, k, t, x, z) {
     const w = this.ways[wi];
-    if (w.abs) return this.heightOn(wi, k, t, x, z);
-    const a = w.nodes[k], b = w.nodes[k + 1];
-    return this.terrain.height(x, z) + this.dh[a] + (this.dh[b] - this.dh[a]) * t + LIFT;
+    return this.heightOn(wi, k, t, x, z);   // la carreggiata e' piana in senso trasversale
   }
 
   // simbolo dipinto: centro (x,z), direzione di marcia (dx,dz), dimensioni in metri

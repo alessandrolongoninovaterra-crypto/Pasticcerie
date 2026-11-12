@@ -8,6 +8,9 @@ export class Terrain {
     const u16 = new Uint16Array(heightBuf);
     this.h = new Float32Array(u16.length);
     for (let i = 0; i < u16.length; i++) this.h[i] = u16[i] * hm.scale;
+    // copia originale (in decimetri): i profili delle strade si calcolano sempre da questa, cosi' il
+    // risultato non dipende dall'ordine in cui le zone vengono adattate
+    this.h0 = u16; this.hScale = hm.scale;
     this.proj = meta.proj;
     // copertura del suolo: immagine RGB proiettata sul terreno
     const lc = meta.landcover;
@@ -43,6 +46,20 @@ export class Terrain {
     this.classCache = new Map();
     this.palette = Object.entries(lc.palette).map(([k, c]) => ({ k, c }));
     this.palette.push({ k: 'default', c: lc.default });
+  }
+
+  // quota del terreno originale (senza gli abbassamenti fatti sotto le strade)
+  heightOrig(x, z) {
+    let gx = (x - this.x0) / this.step, gz = (z - this.z0) / this.step;
+    let ix = Math.floor(gx), iz = Math.floor(gz);
+    if (ix < 0) ix = 0; else if (ix > this.nx - 2) ix = this.nx - 2;
+    if (iz < 0) iz = 0; else if (iz > this.nz - 2) iz = this.nz - 2;
+    let fx = gx - ix, fz = gz - iz;
+    fx = fx < 0 ? 0 : fx > 1 ? 1 : fx; fz = fz < 0 ? 0 : fz > 1 ? 1 : fz;
+    const i = iz * this.nx + ix, h = this.h0, k = this.hScale;
+    if (fx + fz <= 1) return (h[i] + (h[i + 1] - h[i]) * fx + (h[i + this.nx] - h[i]) * fz) * k;
+    const h11 = h[i + this.nx + 1];
+    return (h11 + (h[i + this.nx] - h11) * (1 - fx) + (h[i + 1] - h11) * (1 - fz)) * k;
   }
 
   height(x, z) {

@@ -146,10 +146,16 @@ segnaletica, edifici, fisica, navigatore, comportamento di pedoni e traffico) è
   sottopassi). Il gioco disegna volta e pareti lungo la strada, lampade al soffitto, portali in
   cemento agli imbocchi e, dove il tubo affiora, il guscio esterno; dentro, il sole si spegne, la
   foschia si scurisce e si accendono i fari (344 tratti, 299 gallerie, 619 imbocchi).
-- **Strade lisce**: il terreno viene spianato sotto ogni strada per mezza larghezza + 8 m sul
-  profilo della via (quota DBGT dove c'è, altrimenti terreno lisciato su ~25 m; valori isolati
-  scartati): la carreggiata non fa più gobbe passando da una cella all'altra (punti lisci dal 91%
-  al 95,8%; restano i raccordi tra strade ripide a quote diverse).
+- **Strade lisce**: ogni via (tranne ponti e gallerie, che hanno un profilo proprio) ha un profilo
+  di quota suo, campionato ogni 4 m dal terreno e lisciato con una media mobile su circa ±20 m;
+  agli incroci tutte le vie passano per la stessa quota (gli estremi di ponti e gallerie restano
+  fissi) e dove due vie si sovrappongono l'auto usa la media pesata delle due quote. La carreggiata
+  è piana in senso trasversale. Il terreno sotto la strada è già spianato dalla pipeline; il gioco
+  abbassa in più gli angoli delle celle da 10 m che toccano la carreggiata, così il terreno non
+  sporge sull'asfalto (sbancamento del versante, mai terrapieni). Il calcolo si fa zona per zona,
+  appena prima di costruirla, sempre dal terreno originale. Risultato: 99,9% dei punti lisci
+  lungo le vie (prima 95,8%), terreno sopra l'asfalto nello 0,2% dei punti (prima 2,2%); restano i
+  raccordi delle rampe dei cavalcavia.
 - **Palazzi**: numero intero di piani per edificio (finestre allineate in alto e in basso), piano
   terra distinto (portoni, garage, ingressi vetrati), stili condominio con balconi e palazzina
   moderna oltre a casa con persiane e capannone, base dei muri più scura, file di coppi sui tetti a

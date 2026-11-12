@@ -278,7 +278,7 @@ export class World {
       const p = this.meta.proj;
       const x0 = p.xmin + t.i * 1000, z0 = p.zmin + t.j * 1000;
       const add = (name, obj) => { t.parts[name] = obj; if (obj) this.root.add(obj); };
-      if (!('terrain' in t.parts)) { add('terrain', this.terrain.buildChunk(x0, z0, 1000, Math.max(5, this.terrain.step), this.terrainMat)); continue; }
+      if (!('terrain' in t.parts)) { if (!this.roads.ensureRegion(t.key, t0 + budget)) return false; add('terrain', this.terrain.buildChunk(x0, z0, 1000, Math.max(5, this.terrain.step), this.terrainMat)); continue; }
       if (!('roads' in t.parts)) {
         // strade ed edifici si costruiscono a passi: si lavora finche' c'e' tempo in questo fotogramma
         if (!t.gen) t.gen = this.roads.buildTileGen(t.key);
