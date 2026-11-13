@@ -313,9 +313,9 @@ attorno agli edifici (codici del Catalogo dei dati territoriali, D.M. 10/11/2011
 Box, tettoie e baracche (`EDI_MIN`) sono già tra le unità volumetriche. Esempio, Cabiate (3,2 km²):
 8.370 alberi, 5.923 recinzioni e muri, 2.552 cortili, 3.393 aree verdi; il file compatto passa da
 0,35 a 0,65 MB.
-Con Monza e Brianza e Como complete: 607.000 alberi, 635.000 recinzioni e muri, 32.000 muri di
-sostegno, 275.000 cortili, 265.000 aree verdi, 117.000 carreggiate, 12.000 manufatti, 52.000
-lampioni e 14.000 pali di linea.
+Con Monza e Brianza, Como e Lecco complete (189 comuni): 908.000 alberi, 781.000 recinzioni e
+muri, 48.500 muri di sostegno, oltre 300.000 cortili e 330.000 aree verdi; prima di Lecco: 607.000
+alberi, 635.000 recinzioni e muri, 12.000 manufatti, 52.000 lampioni e 14.000 pali di linea.
 Solo la provincia di Monza e Brianza (parte nella mappa): 440.000 alberi, 385.000 recinzioni e muri,
 180.000 cortili, 158.000 aree verdi, 68.000 carreggiate, 30.000 aree pedonali, 6.900 manufatti,
 35.000 pali; i file compatti passano da 14 a 49 MB (tre parti). Per non appesantire la grafica gli
@@ -326,8 +326,8 @@ La pipeline tiene i dati in forma compatta: legge i file DBGT un record alla vol
 dettagli in tabelle di numeri invece che come oggetti singoli, disegna la mappa dei colori
 direttamente con la tavolozza fissa della copertura del suolo (un byte per pixel) e calcola
 l'ingombro degli ostacoli solo dove serve; la correzione dell'altimetria (20 milioni di quote, quasi
-tutte dalle curve di livello) lavora a blocchi. Con Monza e Brianza e Como complete il picco di
-memoria è ~7,7 GB (prima oltre 11 GB solo con Monza e Brianza), con risultati identici byte per
+tutte dalle curve di livello) lavora a blocchi. Con Monza e Brianza, Como e Lecco complete il
+picco di memoria è ~9,1 GB (7,7 GB senza Lecco; prima oltre 11 GB solo con Monza e Brianza), con risultati identici byte per
 byte; i passaggi pesanti stampano `[memoria]` con il picco raggiunto.
 
 ### Altimetria dal DBGT
@@ -387,7 +387,7 @@ La pipeline: `extract_bbox.py` (confini comunali → ritaglio), `build_elevation
 (altimetria), `build_data.py` (strade, edifici a tessere, copertura del suolo, POI, nella cartella
 di stadio `.work/stage`), `bake.mjs` (taglio a tessere per il gioco, vedi sotto).
 Per altre regioni cambia `source_pbf_url` con un altro estratto OSM. Con i pacchetti DBGT completi di
-Monza e Brianza e Como servono circa 8 GB di memoria.
+Monza e Brianza, Como e Lecco servono circa 9–10 GB di memoria.
 
 ## Struttura dei dati
 
