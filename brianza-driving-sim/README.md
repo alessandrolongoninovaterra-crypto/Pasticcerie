@@ -172,6 +172,13 @@ segnaletica, edifici, fisica, navigatore, comportamento di pedoni e traffico) è
   pipeline (`tools/bake.mjs`, con lo stesso codice del gioco). Risultato: 99,9% dei punti lisci
   lungo le vie (prima 95,8%), terreno sopra l'asfalto nello 0,03% dei punti (prima 2,2%); restano i
   raccordi delle rampe dei cavalcavia.
+- **Chiese e grattacieli** (novembre 2026): le chiese hanno facciate in pietra con finestroni ad arco,
+  vetrate, oculi e lesene, e colori da intonaco, pietra o mattone. Le cattedrali sono in marmo chiaro
+  con terrazze di pietra e pinnacoli fitti lungo la gronda (le guglie del Duomo di Milano), le chiese
+  medie hanno pinnacoli più radi. I campanili (anche quelli che il DBGT separa dalla chiesa come
+  volume alto e stretto) hanno la cella campanaria con le aperture ad arco e la cuspide in rame o in
+  coppi. Gli edifici oltre 38 m hanno facciate continue in vetro (Porta Nuova, CityLife) con le luci
+  degli uffici di notte; i palazzi dai tre piani hanno il cornicione in aggetto.
 - **Palazzi**: numero intero di piani per edificio (finestre allineate in alto e in basso), piano
   terra distinto (portoni, garage, ingressi vetrati), stili condominio con balconi e palazzina
   moderna oltre a casa con persiane e capannone, base dei muri più scura, file di coppi sui tetti a

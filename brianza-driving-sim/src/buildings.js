@@ -7,6 +7,7 @@ const PLASTER = ['#eadcbc', '#e9cf9f', '#dcab6e', '#f1e8d6', '#ddb7a2', '#cdbb9f
 const INDUSTRIAL = ['#c6c6c0', '#a8aeb0', '#d4cfc2', '#b9b4a6', '#9aa3a6', '#cfd2cf'];
 const ROOF_TILE = ['#b8694a', '#a9603f', '#c27752', '#9e5b43', '#b5704f', '#a46a52', '#8f5d4c'];
 const ROOF_FLAT = ['#8d8a84', '#7d7b77', '#9a968e', '#6f6e6a'];
+const CHURCH = ['#e8dcc4', '#d9c09a', '#c98f6a', '#b9a58a', '#efe6d2', '#a95b43', '#ddd2bd'];   // intonaci, pietra, mattone
 const tmpC = new THREE.Color();
 
 // Facciate: ogni immagine ha 8 x 8 campate da 3 m. La riga in basso e' il PIANO TERRA (portoni,
@@ -17,14 +18,54 @@ const tmpC = new THREE.Color();
 function makeFacadeTextures() {
   const S = 512, bay = S / 8;
   const mk = () => { const c = document.createElement('canvas'); c.width = c.height = S; return c; };
-  const cv = { res: mk(), condo: mk(), modern: mk(), ind: mk(), plain: mk(), emiR: mk(), emiC: mk(), emiM: mk(), emiI: mk() };
+  const cv = { res: mk(), condo: mk(), modern: mk(), ind: mk(), plain: mk(), church: mk(), glass: mk(), emiR: mk(), emiC: mk(), emiM: mk(), emiI: mk(), emiCh: mk(), emiG: mk() };
   const x2 = Object.fromEntries(Object.entries(cv).map(([k, c]) => [k, c.getContext('2d')]));
   for (const k of ['res', 'condo', 'modern', 'ind', 'plain']) {
     const c = x2[k]; c.fillStyle = '#ffffff'; c.fillRect(0, 0, S, S);
     // intonaco leggermente irregolare
     for (let i = 0; i < 2500; i++) { c.fillStyle = `rgba(0,0,0,${Math.random() * 0.05})`; c.fillRect(Math.random() * S, Math.random() * S, 3 + Math.random() * 8, 3 + Math.random() * 8); }
   }
-  for (const k of ['emiR', 'emiC', 'emiM', 'emiI']) { x2[k].fillStyle = '#000'; x2[k].fillRect(0, 0, S, S); }
+  for (const k of ['emiR', 'emiC', 'emiM', 'emiI', 'emiCh', 'emiG']) { x2[k].fillStyle = '#000'; x2[k].fillRect(0, 0, S, S); }
+  // chiesa: tutta l'altezza del muro e' una sola immagine (vedi buildGen): conci di pietra, lesene
+  // a campate alterne, finestroni ad arco con vetrate scure, oculo in alto, zoccolo
+  {
+    const c = x2.church, e = x2.emiCh;
+    c.fillStyle = '#ffffff'; c.fillRect(0, 0, S, S);
+    for (let y = 0; y < S; y += 16) { c.fillStyle = 'rgba(0,0,0,0.06)'; c.fillRect(0, y, S, 1.5); for (let x = (y / 16) % 2 ? 0 : 24; x < S; x += 48) c.fillRect(x, y, 1.5, 16); }
+    for (let bx = 0; bx < 8; bx++) {
+      const x0 = bx * bay;
+      if (bx % 2 === 1) {      // lesena / contrafforte
+        c.fillStyle = 'rgba(0,0,0,0.12)'; c.fillRect(x0 + bay * 0.3, 0, bay * 0.4, S);
+        c.fillStyle = 'rgba(255,255,255,0.35)'; c.fillRect(x0 + bay * 0.3, 0, 3, S);
+        continue;
+      }
+      const wx = x0 + bay * 0.24, ww = bay * 0.52, wy = S * 0.3, wh = S * 0.38;
+      c.fillStyle = 'rgba(0,0,0,0.18)'; c.beginPath(); c.roundRect(wx - 4, wy - 4, ww + 8, wh + 8, [ww / 2 + 4, ww / 2 + 4, 0, 0]); c.fill();
+      c.fillStyle = '#2b3140'; c.beginPath(); c.roundRect(wx, wy, ww, wh, [ww / 2, ww / 2, 0, 0]); c.fill();
+      // vetrata: piombi e qualche tessera colorata
+      for (let k = 0; k < 14; k++) { c.fillStyle = ['#5a3a5e', '#3d4f7a', '#7a4a32', '#3f6650'][k % 4]; c.fillRect(wx + 3 + (k % 3) * (ww - 6) / 3, wy + ww / 2 + Math.floor(k / 3) * (wh - ww / 2) / 5, (ww - 6) / 3 - 2, (wh - ww / 2) / 5 - 2); }
+      c.fillStyle = 'rgba(200,200,200,0.5)'; c.fillRect(wx + ww / 2 - 1, wy + 4, 2, wh - 4);
+      e.fillStyle = '#806040'; e.beginPath(); e.roundRect(wx, wy, ww, wh, [ww / 2, ww / 2, 0, 0]); e.fill();
+      // oculo
+      c.fillStyle = 'rgba(0,0,0,0.2)'; c.beginPath(); c.arc(x0 + bay / 2, S * 0.17, bay * 0.2, 0, 7); c.fill();
+      c.fillStyle = '#2f3542'; c.beginPath(); c.arc(x0 + bay / 2, S * 0.17, bay * 0.15, 0, 7); c.fill();
+    }
+    c.fillStyle = 'rgba(60,50,40,0.25)'; c.fillRect(0, S * 0.9, S, S * 0.1);        // zoccolo
+    c.fillStyle = 'rgba(0,0,0,0.15)'; c.fillRect(0, S * 0.04, S, 6);                 // cornice sotto la gronda
+  }
+  // grattacielo: facciata continua in vetro, montanti ogni 1,5 m, fascia marcapiano per piano
+  {
+    const c = x2.glass, e = x2.emiG;
+    for (let fy = 0; fy < 8; fy++) for (let bx = 0; bx < 16; bx++) {
+      const x0 = bx * bay / 2, y0 = fy * bay;
+      const t = 0.85 + Math.random() * 0.15;
+      c.fillStyle = `rgb(${Math.round(92 * t)},${Math.round(118 * t)},${Math.round(138 * t)})`; c.fillRect(x0, y0, bay / 2, bay);
+      c.fillStyle = 'rgba(255,255,255,0.12)'; c.fillRect(x0 + 2, y0 + 4, bay / 4, bay * 0.6);
+      c.fillStyle = '#2c3237'; c.fillRect(x0, y0, 2, bay);
+      e.fillStyle = Math.random() < 0.35 ? (Math.random() < 0.5 ? '#e8f0ff' : '#fff0c8') : '#000'; e.fillRect(x0 + 2, y0 + bay * 0.15, bay / 2 - 4, bay * 0.7);
+    }
+    for (let fy = 0; fy < 8; fy++) { c.fillStyle = '#3a4146'; c.fillRect(0, fy * bay, S, bay * 0.12); }
+  }
   const shutters = ['#3f6b3a', '#4d5f2f', '#6b4a2b', '#355e4e', '#5a3d27'];
   const lit = (e, x, y, w, h, p = 0.35) => { e.fillStyle = Math.random() < p ? (Math.random() < 0.5 ? '#ffd890' : '#fff0c0') : '#000'; e.fillRect(x, y, w, h); };
   const glass = (c, x, y, w, h) => { c.fillStyle = '#2f3438'; c.fillRect(x, y, w, h); c.fillStyle = '#5c6a72'; c.fillRect(x + 2, y + 2, w / 2 - 3, h - 4); c.fillRect(x + w / 2 + 1, y + 2, w / 2 - 3, h - 4); };
@@ -114,6 +155,7 @@ export class BuildingFactory {
     this.mats = {
       res: wall(t.res, t.emiR), condo: wall(t.condo, t.emiC), modern: wall(t.modern, t.emiM), ind: wall(t.ind, t.emiI),
       plain: new THREE.MeshLambertMaterial({ map: t.plain, vertexColors: true }),
+      church: wall(t.church, t.emiCh), glass: wall(t.glass, t.emiG),
       roof: new THREE.MeshLambertMaterial({ vertexColors: true, side: THREE.DoubleSide }),
     };
     // tetti a falde: file di coppi (bande lungo le linee di livello della falda), da vicino
@@ -130,7 +172,7 @@ export class BuildingFactory {
     };
   }
 
-  setNight(f) { for (const k of ['res', 'condo', 'modern']) this.mats[k].emissiveIntensity = f * 0.55; this.mats.ind.emissiveIntensity = f * 0.4; }
+  setNight(f) { for (const k of ['res', 'condo', 'modern', 'glass']) this.mats[k].emissiveIntensity = f * 0.55; this.mats.ind.emissiveIntensity = f * 0.4; this.mats.church.emissiveIntensity = f * 0.3; }
 
   build(tile, collision, tileKey) {
     const g = this.buildGen(tile, collision, tileKey);
@@ -142,7 +184,7 @@ export class BuildingFactory {
   // costruzione a passi (vedi RoadNetwork.buildTileGen): una pausa ogni 12 edifici
   *buildGen(tile, collision, tileKey) {
     const T = this.terrain;
-    const gb = { res: new GeoBuilder(), condo: new GeoBuilder(), modern: new GeoBuilder(), ind: new GeoBuilder(), plain: new GeoBuilder() };
+    const gb = { res: new GeoBuilder(), condo: new GeoBuilder(), modern: new GeoBuilder(), ind: new GeoBuilder(), plain: new GeoBuilder(), church: new GeoBuilder(), glass: new GeoBuilder() };
     const roof = new GeoBuilder(true, false);
     const names = tile.s;
     const labels = [];
@@ -194,7 +236,12 @@ export class BuildingFactory {
       const eave = (minT + maxT) / 2 + H;
       // piani interi: l'altezza di interpiano si adatta (2,7-3,4 m) e le finestre restano allineate
       const floors = Math.max(1, Math.round(H / 3.05));
-      let style = (kind === 3 || kind === 4) ? 'ind' : (kind === 5 || kind === 6 || kind === 8 || kind === 9 || kind === 10) ? 'plain' : 'res';
+      // campanile: torre vera o volume alto e stretto dentro una chiesa (il DBGT divide la chiesa in volumi)
+      const tower = kind === 8 || (kind === 5 && H > 22 && area < 260 && H > 2 * Math.sqrt(area));
+      const church = kind === 5 && !tower;
+      let style = (kind === 3 || kind === 4) ? 'ind' : church ? 'church' : (kind === 5 || kind === 6 || kind === 8 || kind === 9 || kind === 10) ? 'plain' : 'res';
+      // grattacieli: facciata continua in vetro (Porta Nuova, CityLife, torri per uffici)
+      if (H > 38 && area > 250 && !church && !tower && kind !== 9 && (style === 'res' || style === 'ind' || rnd < 0.7)) style = 'glass';
       if (style === 'res') {
         if (floors >= 4 && area > 160) style = rnd2 < 0.75 ? 'condo' : 'modern';      // palazzi: quasi sempre condomini con balconi
         else if (floors >= 2 && area > 110 && rnd < 0.16) style = 'modern';          // qualche palazzina recente
@@ -202,7 +249,15 @@ export class BuildingFactory {
       }
       let col;
       if (colTag && /^#?[0-9a-f]{6}$|^[a-z]+$/i.test(colTag)) { try { tmpC.set(colTag); col = tmpC.clone(); } catch (e) { col = null; } }
-      if (!col) col = new THREE.Color(style === 'ind' ? INDUSTRIAL[Math.floor(rnd2 * INDUSTRIAL.length)] : kind === 8 || kind === 5 ? (rnd2 < 0.5 ? '#d8c9a8' : '#c9a77f') : PLASTER[Math.floor(rnd2 * PLASTER.length)]);
+      if (!col) {
+        let hex;
+        if (style === 'ind') hex = INDUSTRIAL[Math.floor(rnd2 * INDUSTRIAL.length)];
+        else if (style === 'glass') hex = '#e6eef2';
+        else if (church) hex = area > 1200 || H > 30 ? '#fbf6ee' : CHURCH[Math.floor(rnd2 * CHURCH.length)];   // le cattedrali in marmo chiaro
+        else if (tower) hex = CHURCH[Math.floor(rnd2 * CHURCH.length)];
+        else hex = PLASTER[Math.floor(rnd2 * PLASTER.length)];
+        col = new THREE.Color(hex);
+      }
       col.convertSRGBToLinear();
       const g = gb[style];
       let per = 0;
@@ -215,7 +270,7 @@ export class BuildingFactory {
         const bays = Math.max(1, Math.round(len / 3));
         const ue = u0 + bays / 8;
         // v = 0 al piano di campagna (riga del piano terra), floors/8 alla gronda
-        const vTop = floors / 8, vBot = vTop * (base - (eave - H)) / H;
+        const vTop = style === 'church' ? 1 : floors / 8, vBot = vTop * (base - (eave - H)) / H;
         // base dei muri piu' scura (ombra di contatto col suolo)
         const a = g.v(ax, base, az, col.r * 0.78, col.g * 0.78, col.b * 0.78, u0, vBot);
         const b = g.v(ax, eave, az, col.r, col.g, col.b, u0, vTop);
@@ -226,19 +281,97 @@ export class BuildingFactory {
       }
       // tetto
       let rc;
-      const pitched = (kind === 1 || (kind === 2 && (area < 1400 || levels <= 4)) || kind === 5 || kind === 9 || (kind === 7 && area < 900) || (kind === 6 && area > 18)) && roofShape !== 1;
+      const pitched = (kind === 1 || (kind === 2 && (area < 1400 || levels <= 4)) || church || kind === 9 || (kind === 7 && area < 900) || (kind === 6 && area > 18)) && roofShape !== 1 && style !== 'glass';
       if (roofTag && /^#?[0-9a-f]{6}$|^[a-z]+$/i.test(roofTag)) { try { rc = new THREE.Color(roofTag); } catch (e) { rc = null; } }
-      if (!rc) rc = new THREE.Color(pitched ? ROOF_TILE[Math.floor(rnd * ROOF_TILE.length)] : ROOF_FLAT[Math.floor(rnd * ROOF_FLAT.length)]);
+      if (!rc) rc = new THREE.Color(church && (area > 1200 || H > 30) ? '#cfc9bd' : pitched ? ROOF_TILE[Math.floor(rnd * ROOF_TILE.length)] : ROOF_FLAT[Math.floor(rnd * ROOF_FLAT.length)]);   // cattedrali: terrazze in marmo
       rc.convertSRGBToLinear();
       this.roof(roof, ring, n, eave, pitched, rc, area, kind, col, rnd2);
+      if (tower) this.towerTop(roof, ring, n, eave, col, area, rnd);
+      if (church && area > 350 && H > 12) this.pinnacles(roof, ring, n, eave, col, area > 1500 || H > 30);
+      if ((style === 'res' || style === 'condo' || style === 'modern') && floors >= 3) this.cornice(roof, ring, n, eave, col);
       if (collision) collision.addPolygon(tileKey, Float32Array.from(ring), eave + (pitched ? 3 : 1));
       if (name && (kind === 5 || kind === 8 || type === 7)) labels.push({ name, x: cx, z: cz, y: eave + 4 });
     }
     const group = new THREE.Group();
-    for (const k of ['res', 'condo', 'modern', 'ind', 'plain']) if (!gb[k].empty) { yield; group.add(gb[k].mesh(this.mats[k], true)); }
+    for (const k of ['res', 'condo', 'modern', 'ind', 'plain', 'church', 'glass']) if (!gb[k].empty) { yield; group.add(gb[k].mesh(this.mats[k], true)); }
     yield;
     if (!roof.empty) group.add(roof.mesh(this.mats.roof, true));
     return { group, labels };
+  }
+
+  // cornicione dei palazzi: fascia in aggetto sotto la gronda, un po' piu' chiara del muro
+  cornice(g, ring, n, eave, col) {
+    const out = this.offsetRing(ring, n, -0.38);
+    if (!out) return;
+    const c = col.clone().multiplyScalar(1.08), d = col.clone().multiplyScalar(0.62), y0 = eave - 0.55, y1 = eave - 0.05;
+    for (let i = 0; i < n; i++) {
+      const j = (i + 1) % n;
+      const ax = ring[i * 2], az = ring[i * 2 + 1], bx = ring[j * 2], bz = ring[j * 2 + 1];
+      const oax = out[i * 2], oaz = out[i * 2 + 1], obx = out[j * 2], obz = out[j * 2 + 1];
+      // fronte
+      const f = [g.v(oax, y0, oaz, c.r, c.g, c.b), g.v(obx, y0, obz, c.r, c.g, c.b), g.v(obx, y1, obz, c.r, c.g, c.b), g.v(oax, y1, oaz, c.r, c.g, c.b)];
+      g.quad(f[0], f[1], f[2], f[3]);
+      // sotto (in ombra) e sopra
+      const u = [g.v(ax, y0, az, d.r, d.g, d.b), g.v(bx, y0, bz, d.r, d.g, d.b), g.v(obx, y0, obz, d.r, d.g, d.b), g.v(oax, y0, oaz, d.r, d.g, d.b)];
+      g.quad(u[0], u[1], u[2], u[3]);
+      const t = [g.v(oax, y1, oaz, c.r, c.g, c.b), g.v(obx, y1, obz, c.r, c.g, c.b), g.v(bx, y1, bz, c.r, c.g, c.b), g.v(ax, y1, az, c.r, c.g, c.b)];
+      g.quad(t[0], t[1], t[2], t[3]);
+    }
+  }
+
+  // pinnacoli lungo la gronda delle chiese grandi (le guglie dei duomi); gotico = piu' alti e fitti
+  pinnacles(g, ring, n, eave, col, gothic) {
+    const c = col.clone().multiplyScalar(1.05), sh = col.clone().multiplyScalar(0.8);
+    const step = gothic ? 5.5 : 9, hgt = gothic ? 5.5 : 3, w = gothic ? 0.45 : 0.35;
+    let count = 0;
+    for (let i = 0; i < n && count < 120; i++) {
+      const j = (i + 1) % n;
+      const ax = ring[i * 2], az = ring[i * 2 + 1], bx = ring[j * 2], bz = ring[j * 2 + 1];
+      const L = Math.hypot(bx - ax, bz - az);
+      if (L < 3) continue;
+      const m = Math.max(1, Math.round(L / step));
+      for (let k = 0; k < m && count < 120; k++, count++) {      // uno per spigolo: l'ultimo e' il primo del lato dopo
+        const x = ax + (bx - ax) * k / m, z = az + (bz - az) * k / m;
+        // basamento quadrato e cuspide a piramide
+        const P = [[x - w, z - w], [x + w, z - w], [x + w, z + w], [x - w, z + w]], yb = eave - 0.3, ym = eave + hgt * 0.35, top = eave + hgt;
+        for (let q = 0; q < 4; q++) {
+          const [px, pz] = P[q], [qx, qz] = P[(q + 1) % 4], cc = q % 2 ? c : sh;
+          const a = g.v(px, yb, pz, cc.r, cc.g, cc.b), b = g.v(qx, yb, qz, cc.r, cc.g, cc.b), e = g.v(qx, ym, qz, cc.r, cc.g, cc.b), f = g.v(px, ym, pz, cc.r, cc.g, cc.b);
+          g.quad(a, b, e, f); g.quad(a, f, e, b);
+          const t = g.v(x, top, z, cc.r, cc.g, cc.b), f2 = g.v(px, ym, pz, cc.r, cc.g, cc.b), e2 = g.v(qx, ym, qz, cc.r, cc.g, cc.b);
+          g.tri(f2, e2, t); g.tri(f2, t, e2);
+        }
+      }
+    }
+  }
+
+  // campanile: cella campanaria (aperture scure ad arco su ogni lato) e cuspide a piramide
+  towerTop(g, ring, n, eave, col, area, rnd) {
+    let cx = 0, cz = 0;
+    for (let i = 0; i < n; i++) { cx += ring[i * 2]; cz += ring[i * 2 + 1]; }
+    cx /= n; cz /= n;
+    const dark = [0.08, 0.08, 0.09];
+    for (let i = 0; i < n; i++) {
+      const j = (i + 1) % n;
+      const ax = ring[i * 2], az = ring[i * 2 + 1], bx = ring[j * 2], bz = ring[j * 2 + 1];
+      const L = Math.hypot(bx - ax, bz - az);
+      if (L < 2) continue;
+      const nx = (bz - az) / L, nz = -(bx - ax) / L;              // normale esterna (anello antiorario)
+      const o = 0.04, ow = Math.min(1.6, L * 0.32), mx = (ax + bx) / 2 + nx * o, mz = (az + bz) / 2 + nz * o, dx = (bx - ax) / L, dz = (bz - az) / L;
+      const y0 = eave - 4.2, y1 = eave - 1.6, ya = eave - 0.9;
+      const p = [g.v(mx - dx * ow / 2, y0, mz - dz * ow / 2, ...dark), g.v(mx + dx * ow / 2, y0, mz + dz * ow / 2, ...dark), g.v(mx + dx * ow / 2, y1, mz + dz * ow / 2, ...dark), g.v(mx - dx * ow / 2, y1, mz - dz * ow / 2, ...dark)];
+      g.quad(p[0], p[1], p[2], p[3]); g.quad(p[0], p[3], p[2], p[1]);
+      const t = g.v(mx, ya, mz, ...dark);
+      g.tri(p[3], p[2], t); g.tri(p[3], t, p[2]);
+    }
+    // cuspide: rame verde oppure coppi
+    const rc = new THREE.Color(rnd < 0.4 ? '#6f9a83' : rnd < 0.75 ? '#a9603f' : '#8d8a84').convertSRGBToLinear();
+    const top = eave + Math.max(3.5, Math.sqrt(area) * 1.1);
+    for (let i = 0; i < n; i++) {
+      const j = (i + 1) % n, s = i % 2 ? 1 : 0.82;
+      const a = g.v(ring[i * 2], eave, ring[i * 2 + 1], rc.r * s, rc.g * s, rc.b * s), b = g.v(ring[j * 2], eave, ring[j * 2 + 1], rc.r * s, rc.g * s, rc.b * s), t = g.v(cx, top, cz, rc.r * s, rc.g * s, rc.b * s);
+      g.tri(a, b, t); g.tri(a, t, b);
+    }
   }
 
   // anello spostato di d verso l'interno (d<0: verso l'esterno); null se degenera
