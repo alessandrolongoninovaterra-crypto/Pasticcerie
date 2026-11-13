@@ -92,7 +92,7 @@ export class Traffic {
     if (!atEnd && R.degree[B] < 3) { c.next = { wi: c.wi, k: nextK, dir: c.dir, turn: 0 }; return; }
     const opts = [];
     const inAng = Math.atan2(R.nx[B] - R.nx[A], R.nz[B] - R.nz[A]);
-    for (let o = R.adjStart[B]; o < R.adjStart[B + 1]; o++) {
+    for (let o = R.adjHead[B]; o >= 0; o = R.adjNext[o]) {
       const wi = R.adjWay[o], p = R.adjPos[o], w2 = R.ways[wi];
       if (!w2.drivable || w2.cls > CLS.LIVING || (w2.flags & F.PRIVATE)) continue;
       if (c.type === 'bus' && w2.cls > CLS.UNCLASSIFIED) continue;

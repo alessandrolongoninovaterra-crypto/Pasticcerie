@@ -36,6 +36,7 @@ const G = { started: false, paused: false, mapOpen: false, camMode: 0, route: nu
 // posizione "viva" del giocatore: l'auto oppure la persona a piedi
 const focus = () => (G.foot.on ? G.foot : G.vehicle);
 window.BDS = G; // utile per il debug dalla console
+window.BDS_LOAD = loadData;
 if (new URLSearchParams(location.search).get('auto') === '0') G.autoOff = true;
 
 // Caricamento a fasi: tra una fase e l'altra si lascia respirare la pagina, cosi' barra e messaggi
@@ -64,17 +65,23 @@ async function boot() {
   BOOT.timer = setInterval(bootStatus, 1000);
   setLoad(0.03, 'Caricamento della cartografia reale');
   let done = 0;
-  const files = [['meta', 'data/meta.js'], ['roads', 'data/roads.js'], ['height', 'data/height.js'], ['landcover', 'data/landcover.js']];
-  const res = await Promise.all(files.map(([k, src]) => loadData(k, src).then((r) => { done++; setLoad(0.03 + done / 4 * 0.42, `Caricamento della cartografia reale: ${done} di 4 file`); return r; })));
-  const [meta, roadsData, heightBuf, lcImg] = res;
+  // all'avvio solo l'indispensabile: indice, panoramica del terreno e rete del navigatore; il resto
+  // (quote, colori, strade, edifici) arriva a tessere attorno al punto di partenza
+  const files = [['meta', 'data/meta.js'], ['overview', 'data/overview.js'], ['net', 'data/net.js']];
+  const res = await Promise.all(files.map(([k, src]) => loadData(k, src).then((r) => { done++; setLoad(0.03 + done / 3 * 0.5, `Caricamento della cartografia reale: ${done} di 3 file`); return r; })));
+  const [meta, overview, netData] = res;
+  if (!meta.stream) throw new Error('dati nel vecchio formato: rigenerali con tools/run_pipeline.sh');
   G.meta = meta;
   G.proj = new Projection(meta.proj);
-  setLoad(0.5, 'Altimetria e colori del terreno'); await pause();
-  G.terrain = new Terrain(meta, heightBuf, lcImg);
-  setLoad(0.62, `Costruzione della rete stradale (${roadsData.ways.length.toLocaleString('it')} vie OSM)`); await pause();
-  G.roads = new RoadNetwork(roadsData, G.terrain, meta);
+  setLoad(0.6, 'Panoramica del terreno'); await pause();
+  G.terrain = new Terrain(meta, overview);
+  await G.terrain.init();
+  G.roads = new RoadNetwork(meta, G.terrain);
+  setLoad(0.75, `Rete del navigatore (${(netData.w.length / 12).toLocaleString('it')} strade)`); await pause();
+  G.net = new RoadNetwork(meta, null, 128);
+  G.net.addNav(netData);
   setLoad(0.9, 'Preparazione del navigatore'); await pause();
-  G.router = new Router(G.roads);
+  G.router = new Router(G.net);
   setLoad(1, 'Pronto');
   clearInterval(BOOT.timer);
   $('loading').classList.add('hidden');
@@ -83,7 +90,7 @@ async function boot() {
 
 // ------------------------------------------------------------------ menu
 function findStreet(name, comune) {
-  const R = G.roads, arr = R.streets.get(name) || [];
+  const R = G.net, arr = R.streets.get(name) || [];
   let best = null;
   for (const s of arr) {
     const c = G.world.comuneAt(s.x, s.z);
@@ -190,7 +197,7 @@ function ensureGame() {
     G.orbit.yaw -= (e.clientX - drag[0]) * 0.006; G.orbit.pitch = Math.max(-0.25, Math.min(1.1, G.orbit.pitch + (e.clientY - drag[1]) * 0.004));
     G.orbit.idle = 0; drag = [e.clientX, e.clientY];
   });
-  G.maps = new Maps(G.world, G.meta);
+  G.maps = new Maps(G.world, G.meta, G.net);
   G.input = G.input || new Input();
   G.audio = new EngineAudio();
   addEventListener('resize', () => {
@@ -204,8 +211,10 @@ function ensureGame() {
   requestAnimationFrame(loop);
 }
 
+// punto di partenza sulla rete del navigatore (le strade vere non sono ancora caricate: appena lo
+// sono, snapToLane rimette il veicolo esattamente in corsia)
 function spawnPoint(id) {
-  const R = G.roads, W = G.world;
+  const R = G.net, W = G.world;
   const along = (wi, frac, preferSouth = false) => {
     const w = R.ways[wi];
     const [x, z, k] = R.pointAt(w, w.len * frac);
@@ -394,10 +403,7 @@ function startGame() {
   G.settings.viewTiles = (QUALITY[$('quality').value] || QUALITY.mid).viewTiles;
   G.settings.farKm = (QUALITY[$('quality').value] || QUALITY.mid).farKm;
   G.settings.detailKm = (QUALITY[$('quality').value] || QUALITY.mid).detailKm;
-  if (G.settings.farKm > 0 && !G.world.farIdx && !G.farLoading) {   // edifici in lontananza: si caricano in sottofondo
-    G.farLoading = true;
-    loadData('far', 'data/far.js').then((d) => G.world.initFar(d)).catch(() => { /* dati non presenti: si gioca senza */ });
-  }
+  if (G.settings.farKm > 0) G.world.initFar();   // edifici in lontananza: blocchi caricati in sottofondo
   G.traffic.target = +$('traffic').value;
   $('ptraffic').value = $('traffic').value;
   G.sky.hours = +$('tod').value;
@@ -417,6 +423,25 @@ function startGame() {
   G.loadingWorld = true;
   showToast('Caricamento della zona…', 1500);
   G.audio.start();
+}
+
+// dopo il caricamento della zona: dalla rete semplificata del navigatore alla corsia vera
+function snapToLane(v) {
+  const R = G.roads, fx = Math.sin(v.h), fz = Math.cos(v.h);
+  let best = null, bs = 1e9;
+  R.segmentsNear(v.x, v.z, 8, (wi, k) => {
+    const w = R.ways[wi];
+    if (!w.drivable) return;
+    const pr = R.projectOnSeg(wi, k, v.x, v.z), L = Math.hypot(pr.dx, pr.dz) || 1;
+    const al = Math.abs(pr.dx * fx + pr.dz * fz) / L;
+    const sc = pr.d + (1 - al) * 20;
+    if (sc < bs) { bs = sc; best = { wi, pr }; }
+  });
+  if (!best) return;
+  const w = R.ways[best.wi], pr = best.pr;
+  const dir = w.oneway || pr.dx * fx + pr.dz * fz >= 0 ? 1 : -1;
+  const h = Math.atan2(pr.dx * dir, pr.dz * dir), off = R.laneCenter(w, dir);
+  v.place(pr.px - Math.cos(h) * off, pr.pz + Math.sin(h) * off, h);
 }
 
 function respawnOnRoad() {
@@ -575,8 +600,8 @@ function closeMap() {
 function selectPoint(x, z, label) {
   G.mapSel = [x, z];
   const c = G.world.comuneAt(x, z);
-  const nr = G.roads.nearest(x, z, 150, (w) => w.drivable);
-  const nm = label || (nr ? G.roads.displayName(G.roads.ways[nr.wi]) : 'Punto selezionato');
+  const nr = G.net.nearest(x, z, 150, (w) => w.drivable);
+  const nm = label || (nr ? G.net.displayName(G.net.ways[nr.wi]) : 'Punto selezionato');
   G.mapSelLabel = nm + (c ? ', ' + c : '');
   $('mapinfo').innerHTML = `<b>${G.mapSelLabel}</b><br>${G.proj.toLatLon(x, z).map((v) => v.toFixed(5)).join(', ')}`;
   G.mapDirty = true;
@@ -633,7 +658,7 @@ function setupMapUI() {
       for (const p of G.meta.places) if (p.n.toLowerCase().includes(q)) res.push({ n: p.n, sub: { town: 'Paese', village: 'Paese', suburb: 'Quartiere', hamlet: 'Frazione', neighbourhood: 'Rione', quarter: 'Quartiere', locality: 'Località', city: 'Città' }[p.t] || p.t, x: p.x, z: p.z });
       for (const lm of G.meta.landmarks) if (lm[3].toLowerCase().includes(q)) res.push({ n: lm[3], sub: ['', 'Luogo di culto', 'Stazione', 'Municipio', 'Ospedale', 'Distributore', 'Storico', 'Attrazione', 'Parco', 'Supermercato', 'Cultura', 'Scuola', 'Acqua', 'Cima'][lm[0]] + (G.world.comuneAt(lm[1], lm[2]) ? ' · ' + G.world.comuneAt(lm[1], lm[2]) : ''), x: lm[1], z: lm[2] });
       let n = 0;
-      for (const [name, arr] of G.roads.streets) {
+      for (const [name, arr] of G.net.streets) {
         if (!name.toLowerCase().includes(q)) continue;
         const byC = new Map();
         for (const s of arr) { const c = G.world.comuneAt(s.x, s.z) || '—'; if (!byC.has(c) || byC.get(c).len < s.len) byC.set(c, s); }
@@ -843,7 +868,7 @@ function loop(now) {
     if (G.world.ready(v.x, v.z)) {
       G.loadingWorld = false;
       if (v.pendingLaunch) { v.pendingLaunch = false; v.launch(250, 45); G.camInit = true; showToast('✈ In volo sopra la Brianza — W/S manetta, ↑/↓ cabra/picchia, A/D vira', 4500); }
-      else if (!v.isPlane || v.onGround) { const s = G.roads.surfaceAt(v.x, v.z, 1e9); v.y = s.h; }
+      else if (!v.isPlane || v.onGround) { snapToLane(v); const s = G.roads.surfaceAt(v.x, v.z, 1e9); v.y = s.h; }
     } else { ctl.throttle = 0; ctl.brake = 1; }
   }
   if (!G.loadingWorld) {

@@ -171,7 +171,7 @@ export class Router {
 
   hasExit(nd, wiRb) {
     const R = this.R;
-    for (let o = R.adjStart[nd]; o < R.adjStart[nd + 1]; o++) {
+    for (let o = R.adjHead[nd]; o >= 0; o = R.adjNext[o]) {
       const w = R.ways[R.adjWay[o]];
       if (!(w.flags & F.ROUNDABOUT) && w.drivable && w.cls < CLS.SERVICE + 1) {
         const p = R.adjPos[o];
@@ -183,7 +183,7 @@ export class Router {
 
   realChoice(nd, wIn) {
     const R = this.R; let n = 0;
-    for (let o = R.adjStart[nd]; o < R.adjStart[nd + 1]; o++) if (R.adjWay[o] !== wIn && R.ways[R.adjWay[o]].drivable && R.ways[R.adjWay[o]].cls <= CLS.LIVING) n++;
+    for (let o = R.adjHead[nd]; o >= 0; o = R.adjNext[o]) if (R.adjWay[o] !== wIn && R.ways[R.adjWay[o]].drivable && R.ways[R.adjWay[o]].cls <= CLS.LIVING) n++;
     return n >= 2;
   }
 }

@@ -10,7 +10,10 @@ URL=$(python3 -c "import json;print(json.load(open('$HERE/config.json'))['source
 PBF="$WORK/$(basename "$URL")"
 [ -f "$PBF" ] || curl -L -o "$PBF" "$URL"                       # ~360 MB, Lombardia
 python3 "$HERE/extract_bbox.py" "$PBF" "$WORK/area.osm.pbf"       # ritaglio sui comuni configurati
-python3 "$HERE/build_elevation.py" "$WORK/area.osm.pbf.bbox.json" "$WORK/terrarium" "$DATA"
+STAGE="$WORK/stage"; mkdir -p "$STAGE"
+python3 "$HERE/build_elevation.py" "$WORK/area.osm.pbf.bbox.json" "$WORK/terrarium" "$STAGE"
 rm -rf "$DATA/tiles"
-python3 "$HERE/build_data.py" "$WORK/area.osm.pbf" "$WORK/area.osm.pbf.bbox.json" "$WORK/terrarium" "$DATA"
+BDS_STAGE="$STAGE" python3 "$HERE/build_data.py" "$WORK/area.osm.pbf" "$WORK/area.osm.pbf.bbox.json" "$WORK/terrarium" "$DATA"
+# taglio a tessere: terreno, colori, strade, edifici lontani, rete del navigatore
+node "$HERE/bake.mjs" "$STAGE" "$DATA"
 echo "Dati aggiornati in $DATA"

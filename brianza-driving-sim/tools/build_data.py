@@ -1,13 +1,17 @@
 #!/usr/bin/env python3
 """Step 3: converte l'estratto OpenStreetMap della Brianza nei dati del gioco.
 
-Produce in data/:
+Produce in una cartella di stadio (default <out_data_dir>/../.stage, oppure $BDS_STAGE) i dati
+completi, che tools/bake.mjs poi taglia a tessere per il gioco:
   meta.js        proiezione, comuni (confini reali), localita', punti di interesse,
                  laghi, fiumi, ferrovie
   roads.js       rete stradale reale (vie OSM con nome, classe, sensi unici,
                  limiti, corsie, ponti/gallerie, semafori, stop, precedenze)
   landcover.js   immagine della copertura del suolo (boschi, prati, campi,
                  aree urbane/industriali, acqua) proiettata sul terreno
+  far.js         edifici semplificati per la vista da lontano
+  height.js      quote del terreno (griglia DBGT/Terrarium corretta)
+e direttamente in <out_data_dir>:
   tiles/*.js     edifici reali (impronte OSM + altezza/piani) e alberi, per
                  tessere di 1 km caricate in streaming
 
@@ -21,6 +25,8 @@ from PIL import Image, ImageDraw
 from common import Proj, CFG, write_js
 
 pbf, bbox_json, height_dir, OUT = sys.argv[1:5]
+STAGE = os.environ.get('BDS_STAGE') or os.path.join(OUT, '..', '.stage')
+os.makedirs(STAGE, exist_ok=True)
 bbox = json.load(open(bbox_json))['bbox']
 P = Proj(bbox)
 S, W, N, E = bbox
@@ -1646,7 +1652,7 @@ for r, v in tunnel_h.items():
     if r in node_index:
         th_flat += [node_index[r], int(round(v * 10))]
 
-sz = write_js(os.path.join(OUT, 'roads.js'), 'roads', {
+sz = write_js(os.path.join(STAGE, 'roads.js'), 'roads', {
     'names': names.list, 'nodes': nodes_flat, 'ways': ways_flat, 'ntags': ntags, 'dh': dh_flat, 'th': th_flat,
     'rails': rails, 'mj': mj, 'wayHead': 16})
 print('roads.js', sz, 'nodi', len(node_list))
@@ -1712,7 +1718,7 @@ if tunnel_holes:
         hd.line(to_px(run), fill=47, width=max(2, int(round(wd / MPP))))
 imq.save(buf, 'PNG', optimize=True)
 png = buf.getvalue()
-lcjs = os.path.join(OUT, 'landcover.js')
+lcjs = os.path.join(STAGE, 'landcover.js')
 with open(lcjs, 'w') as f:
     f.write('BDS_DATA("landcover","png","%s");\n' % base64.b64encode(png).decode())
 img.resize((LW // 4, LH // 4)).save(os.path.join(height_dir, 'landcover_preview.png'))
@@ -1914,12 +1920,12 @@ print('tessere', len(tile_keys), 'byte', total)
 far_idx, far_data = [], []
 for (i, j), arr in sorted(far_tiles.items()):
     far_idx.append([i, j, len(arr) // 7]); far_data += arr
-print('edifici semplificati per la vista da lontano', n_far, 'byte', write_js(os.path.join(OUT, 'far.js'), 'far', {'t': far_idx, 'd': far_data}))
+print('edifici semplificati per la vista da lontano', n_far, 'byte', write_js(os.path.join(STAGE, 'far.js'), 'far', {'t': far_idx, 'd': far_data}))
 
 # ------------------------------------------------------------------ meta
-if HEIGHT_CHANGED:
+if True:     # sempre nello stadio: bake.mjs ne ricava le tessere
     qh = np.clip(np.round(HGRID * 10), 0, 65535).astype('<u2')
-    print('height.js (griglia %g m)' % HMETA['step'], write_js(os.path.join(OUT, 'height.js'), 'height', raw=qh.tobytes()))
+    print('height.js (griglia %g m)' % HMETA['step'], write_js(os.path.join(STAGE, 'height.js'), 'height', raw=qh.tobytes()))
 lm_seen = set()
 lm_out = []
 for lm in landmarks:
@@ -1937,4 +1943,4 @@ meta = {
     'source': 'Dati (c) OpenStreetMap contributors, ODbL. Altimetria: Terrarium tiles (Mapzen / AWS Open Data).'
               + (' Edifici: DBGT Regione Lombardia (comuni: ' + ', '.join(dbgt_comuni) + ').' if dbgt_comuni else ''),
 }
-print('meta.js', write_js(os.path.join(OUT, 'meta.js'), 'meta', meta), 'landmarks', len(lm_out), 'places', len(places))
+print('meta.js', write_js(os.path.join(STAGE, 'meta.js'), 'meta', meta), 'landmarks', len(lm_out), 'places', len(places))

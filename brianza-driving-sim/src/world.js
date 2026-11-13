@@ -21,8 +21,12 @@ export class World {
     this.tiles = new Map();
     this.queue = [];
     this.detail = noiseTexture(256);
-    this.terrainMat = terrain.makeMaterial(this.detail);
-    this.farMat = terrain.makeMaterial(this.detail);
+    this.farMat = terrain.overviewMaterial(this.detail);
+    // dati del terreno (quote, colori, strade) per tessera: si caricano in un anello piu' largo di
+    // quello costruito, cosi' ogni tessera trova pronte anche le vicine
+    this.ground = new Map();       // chiave tessera -> 'loading' | 'ready' | 'none'
+    this.groundWant = [];
+    this.groundBusy = 0;
     this.buildings = new BuildingFactory(terrain);
     this.vegetation = new Vegetation(terrain, roads);
     this.comuniIdx = meta.comuni.map((c) => {
@@ -36,7 +40,9 @@ export class World {
     this.tileSet = new Set(meta.tiles.map(([i, j]) => j * 1000 + i));
     this.root = new THREE.Group();
     scene.add(this.root);
-    this.buildFar();
+    this.far = new THREE.Group();
+    this.farChunks = new Map();
+    this.root.add(this.far);
     this.buildWaters();
     this.labelsOn = true;
   }
@@ -51,17 +57,27 @@ export class World {
     return null;
   }
 
-  buildFar() {
-    // terreno a bassa risoluzione per l'orizzonte (tutta l'area)
-    const p = this.meta.proj;
-    const size = 2000, step = 80;
-    this.far = new THREE.Group();
-    for (let z = p.zmin; z < p.zmax; z += size) for (let x = p.xmin; x < p.xmax; x += size) {
-      const m = this.terrain.buildChunk(x, z, size, step, this.farMat, 1.5);
-      m.receiveShadow = false;
-      this.far.add(m);
+  // terreno lontano (orizzonte) dalla panoramica, a pezzi da 2 km entro un raggio attorno al
+  // giocatore: con mappe grandi non si costruisce mai tutta l'area
+  updateFarTerrain(x, z, budget = 2) {
+    const p = this.meta.proj, size = 2000, step = 80, R = 11000;     // la foschia in volo arriva a ~8 km
+    const ci = Math.floor((x - p.xmin) / size), cj = Math.floor((z - p.zmin) / size), r = Math.ceil(R / size);
+    const nI = Math.ceil((p.xmax - p.xmin) / size), nJ = Math.ceil((p.zmax - p.zmin) / size);
+    const want = [];
+    for (let j = Math.max(0, cj - r); j <= Math.min(nJ - 1, cj + r); j++) for (let i = Math.max(0, ci - r); i <= Math.min(nI - 1, ci + r); i++) {
+      const d = Math.hypot(p.xmin + (i + 0.5) * size - x, p.zmin + (j + 0.5) * size - z);
+      if (d < R && !this.farChunks.has(j * 1000 + i)) want.push([d, i, j]);
     }
-    this.root.add(this.far);
+    want.sort((a, b) => a[0] - b[0]);
+    for (const [, i, j] of want.slice(0, budget)) {
+      const m = this.terrain.buildFarChunk(p.xmin + i * size, p.zmin + j * size, size, step, this.farMat, 1.5);
+      m.receiveShadow = false;
+      this.far.add(m); this.farChunks.set(j * 1000 + i, m);
+    }
+    for (const [k, m] of this.farChunks) {
+      const i = k % 1000, j = Math.floor(k / 1000);
+      if (Math.hypot(p.xmin + (i + 0.5) * size - x, p.zmin + (j + 0.5) * size - z) > R + 3000) { this.far.remove(m); m.geometry.dispose(); this.farChunks.delete(k); }
+    }
   }
 
   buildWaters() {
@@ -98,8 +114,8 @@ export class World {
         let tris;
         try { tris = THREE.ShapeUtils.triangulateShape(pts, holes); } catch (e) { continue; }
         const all = pts.concat(...holes);
-        const hs = all.map((v) => this.terrain.height(v.x, v.y)).sort((a, b) => a - b);
-        const lvl = hs[Math.floor(hs.length * 0.3)] + 0.35;
+        const lvl = wt.lv[wt.o.indexOf(ring)];     // livello calcolato dalla pipeline sul terreno completo
+        if (lvl == null) continue;
         const pos = new Float32Array(all.length * 3);
         all.forEach((v, i) => { pos[i * 3] = v.x; pos[i * 3 + 1] = lvl; pos[i * 3 + 2] = v.y; });
         const idx = [];
@@ -116,12 +132,13 @@ export class World {
 
   // ---------------------------------------------------------------- edifici in lontananza
   // Oltre il raggio degli edifici dettagliati (soprattutto in volo) i paesi si vedono come volumi
-  // semplici: un parallelepipedo per edificio, con il tetto colorato. Dati: data/far.js.
-  initFar(data) {
-    this.farIdx = new Map();
-    let o = 0;
-    for (const [i, j, n] of data.t) { this.farIdx.set(j * 1000 + i, [o, n]); o += n * 7; }
-    this.farData = data.d;
+  // semplici: un parallelepipedo per edificio, con il tetto colorato. Dati: data/far/f_I_J.js (blocchi 4x4 km).
+  initFar() {
+    if (this.farIdx) return;
+    const st = this.meta.stream;
+    this.farFB = st.farBlock;
+    this.farBlocks = new Map(st.far.map(([I, J]) => [J * 1000 + I, null]));   // null = da caricare
+    this.farIdx = new Map();      // tessera -> [dati del blocco, inizio, numero]
     this.farMeshes = new Map();
     this.farQueue = [];
     this.farGroup = new THREE.Group();
@@ -132,12 +149,35 @@ export class World {
       tile: lin(['#b8694a', '#a9603f', '#c27752', '#9e5b43', '#b5704f', '#a46a52'], 1.2), flat: lin(['#8d8a84', '#7d7b77', '#9a968e', '#6f6e6a']) };
   }
 
+  // blocchi di edifici lontani (4x4 km) da caricare o da togliere attorno al punto x,z
+  farBlocksNear(x, z, R) {
+    const p = this.meta.proj, B = this.farFB * 1000;
+    for (const [k, st] of this.farBlocks) {
+      const I = k % 1000, J = Math.floor(k / 1000);
+      const d = Math.hypot(Math.max(0, Math.abs(p.xmin + (I + 0.5) * B - x) - B / 2), Math.max(0, Math.abs(p.zmin + (J + 0.5) * B - z) - B / 2));
+      if (d <= R && st === null) {
+        this.farBlocks.set(k, 'loading');
+        loadData(`f_${I}_${J}`, `data/far/f_${I}_${J}.js`).then((data) => {
+          if (this.farBlocks.get(k) !== 'loading') return;
+          let o = 0;
+          for (const [i, j, n] of data.t) { this.farIdx.set(j * 1000 + i, [data.d, o, n]); o += n * 8; }
+          this.farBlocks.set(k, data);
+          this.farR = -1;      // ricalcola la coda
+        }).catch(() => this.farBlocks.set(k, 'none'));
+      } else if (d > R + 6000 && st && st !== 'loading' && st !== 'none') {
+        for (const [i, j] of st.t) this.farIdx.delete(j * 1000 + i);
+        this.farBlocks.set(k, null);
+      }
+    }
+  }
+
   // tessere lontane da costruire o da togliere (chiamata a ogni fotogramma, lavora 3 volte al secondo)
   updateFar(x, z, R) {
     if (!this.farIdx) return;
     this.farTick = (this.farTick || 0) + 1;
     if (this.farTick % 20 !== 1 && R === this.farR) return;
     this.farR = R;
+    this.farBlocksNear(x, z, R);
     const p = this.meta.proj, ci = Math.floor((x - p.xmin) / 1000), cj = Math.floor((z - p.zmin) / 1000), r = Math.ceil(R / 1000);
     const want = [];
     for (let j = cj - r; j <= cj + r; j++) for (let i = ci - r; i <= ci + r; i++) {
@@ -168,15 +208,15 @@ export class World {
   }
 
   buildFarTile(key) {
-    const [o, n] = this.farIdx.get(key), d = this.farData, T = this.terrain, p = this.meta.proj, P = this.farPal;
+    const [d, o, n] = this.farIdx.get(key), p = this.meta.proj, P = this.farPal;
     const x0 = p.xmin + (key % 1000) * 1000, z0 = p.zmin + Math.floor(key / 1000) * 1000;
     const pos = new Float32Array(n * 60), col = new Float32Array(n * 60), nor = new Float32Array(n * 60), idx = new Uint32Array(n * 30);
     let v = 0, t = 0;
     const put = (x, y, z, c, s, nx, ny, nz) => { pos[v * 3] = x; pos[v * 3 + 1] = y; pos[v * 3 + 2] = z; col[v * 3] = c.r * s; col[v * 3 + 1] = c.g * s; col[v * 3 + 2] = c.b * s; nor[v * 3] = nx; nor[v * 3 + 1] = ny; nor[v * 3 + 2] = nz; return v++; };
     for (let b = 0; b < n; b++) {
-      const q = o + b * 7, cx = x0 + d[q] / 10, cz = z0 + d[q + 1] / 10, hu = d[q + 2] / 10, hv = d[q + 3] / 10, a = d[q + 4] * Math.PI / 180, H = d[q + 5] / 10, f = d[q + 6];
+      const q = o + b * 8, cx = x0 + d[q] / 10, cz = z0 + d[q + 1] / 10, hu = d[q + 2] / 10, hv = d[q + 3] / 10, a = d[q + 4] * Math.PI / 180, H = d[q + 5] / 10, f = d[q + 6];
       const ux = Math.sin(a), uz = Math.cos(a), wx = -uz, wz = ux;      // asse lungo e asse corto
-      const g = T.height(cx, cz), y0 = g - 2.5, y1 = g + H + ((f & 1) ? 1.0 : 0.2);
+      const g = d[q + 7] / 10, y0 = g - 2.5, y1 = g + H + ((f & 1) ? 1.0 : 0.2);
       const r1 = ((d[q] * 73 + d[q + 1] * 151 + b * 7) % 97) / 97, r2 = ((d[q] * 31 + d[q + 1] * 17 + b * 13) % 89) / 89;
       const wc = (f & 2) ? P.ind[Math.floor(r1 * P.ind.length)] : P.wall[Math.floor(r1 * P.wall.length)];
       const rc = (f & 1) ? P.tile[Math.floor(r2 * P.tile.length)] : P.flat[Math.floor(r2 * P.flat.length)];
@@ -243,6 +283,53 @@ export class World {
       if (!want.has(k) && t.d > (rad + 0.9) * 1000) this.unload(t);
       else if (!want.has(k)) t.d = Math.hypot(p.xmin + (t.i + 0.5) * 1000 - x, p.zmin + (t.j + 0.5) * 1000 - z);
     }
+    // dati del terreno: anello di una tessera in piu'; si liberano le tessere lontane
+    const gw = [], gr = rad + 1;
+    for (let j = cj - gr; j <= cj + gr; j++) for (let i = ci - gr; i <= ci + gr; i++) {
+      if (i < 0 || j < 0 || i >= this.meta.tilesX || j >= this.meta.tilesZ) continue;
+      const k = j * 1000 + i;
+      if (this.ground.has(k)) continue;
+      const d = Math.hypot(p.xmin + (i + 0.5) * 1000 - x, p.zmin + (j + 0.5) * 1000 - z);
+      if (d <= (gr + 0.8) * 1000) gw.push([d, k]);
+    }
+    gw.sort((a, b) => a[0] - b[0]);
+    this.groundWant = gw.map((q) => q[1]);
+    for (const [k, st] of this.ground) {
+      if (st !== 'ready' || this.tiles.has(k)) continue;
+      const i = k % 1000, j = Math.floor(k / 1000);
+      if (Math.hypot(p.xmin + (i + 0.5) * 1000 - x, p.zmin + (j + 0.5) * 1000 - z) > (gr + 1.8) * 1000) { this.terrain.dropTile(k); this.ground.delete(k); }
+    }
+    this.loadGround();
+    this.updateFarTerrain(x, z);
+  }
+
+  // al massimo 6 file in arrivo alla volta, prima i piu' vicini
+  loadGround() {
+    while (this.groundBusy < 6 && this.groundWant.length) {
+      const k = this.groundWant.shift();
+      if (this.ground.has(k)) continue;
+      const i = k % 1000, j = Math.floor(k / 1000);
+      this.ground.set(k, 'loading'); this.groundBusy++;
+      loadData(`g_${i}_${j}`, `data/ground/g_${i}_${j}.js`)
+        .then(async (parts) => {
+          this.roads.addTile(k, parts[0].r);
+          await this.terrain.addTile(k, parts);
+          if (this.ground.get(k) === 'loading') this.ground.set(k, 'ready'); else this.terrain.dropTile(k);
+        })
+        .catch((e) => { console.warn('tessera di terreno', i, j, e); this.ground.set(k, 'none'); })
+        .finally(() => { this.groundBusy--; this.loadGround(); });
+    }
+  }
+
+  // la tessera e le otto vicine hanno quote, colori e strade?
+  groundReady(t) {
+    for (let dj = -1; dj <= 1; dj++) for (let di = -1; di <= 1; di++) {
+      const i = t.i + di, j = t.j + dj;
+      if (i < 0 || j < 0 || i >= this.meta.tilesX || j >= this.meta.tilesZ) continue;
+      const st = this.ground.get(j * 1000 + i);
+      if (st !== 'ready' && st !== 'none') return false;
+    }
+    return true;
   }
 
   unload(t) {
@@ -275,10 +362,12 @@ export class World {
         continue;
       }
       if (t.state !== 'ready' || t.dead) continue;
-      const p = this.meta.proj;
-      const x0 = p.xmin + t.i * 1000, z0 = p.zmin + t.j * 1000;
       const add = (name, obj) => { t.parts[name] = obj; if (obj) this.root.add(obj); };
-      if (!('terrain' in t.parts)) { if (!this.roads.ensureRegion(t.key, t0 + budget)) return false; add('terrain', this.terrain.buildChunk(x0, z0, 1000, Math.max(5, this.terrain.step), this.terrainMat)); continue; }
+      if (!('terrain' in t.parts)) {
+        if (!this.groundReady(t)) continue;
+        add('terrain', this.terrain.hasTile(t.key) ? this.terrain.buildTile(t.key, Math.max(5, this.terrain.step), this.terrain.tileMaterial(t.key, this.detail)) : null);
+        continue;
+      }
       if (!('roads' in t.parts)) {
         // strade ed edifici si costruiscono a passi: si lavora finche' c'e' tempo in questo fotogramma
         if (!t.gen) t.gen = this.roads.buildTileGen(t.key);

@@ -7,15 +7,16 @@ const ROAD_COL_N = ['#ff9e45', '#ff9e45', '#ffd25c', '#f2e2a0', '#c9d3db', '#b9c
 const LM_ICON = { 1: '⛪', 2: '🚉', 3: '🏛', 4: '🏥', 5: '⛽', 6: '🏰', 7: '★', 8: '🌳', 9: '🛒', 10: '🎭', 11: '🏫', 12: '💧', 13: '⛰' };
 
 export class Maps {
-  constructor(world, meta) {
-    this.world = world; this.R = world.roads; this.meta = meta;
+  // minimappa: strade caricate attorno al veicolo (world.roads); mappa completa: rete del navigatore
+  constructor(world, meta, net) {
+    this.world = world; this.R = world.roads; this.N = net; this.meta = meta;
     this.mini = document.getElementById('minimap');
     this.miniCtx = this.mini.getContext('2d');
     this.big = document.getElementById('bigmap');
     this.bigCtx = this.big.getContext('2d');
     this.zoom = 0.35; this.cx = 0; this.cz = 0;
     this.major = [];
-    this.R.ways.forEach((w, wi) => { if (w.cls <= CLS.TERTIARY && w.drivable) this.major.push(wi); });
+    this.N.ways.forEach((w, wi) => { if (w.cls <= CLS.TERTIARY && w.drivable) this.major.push(wi); });
     this.waters = meta.waters;
     this.comuni = meta.comuni.map((c) => {
       let best = null, ba = 0;
@@ -73,7 +74,7 @@ export class Maps {
   }
 
   drawRoads(ctx, x, z, radius, scale, night, bigMap) {
-    const R = this.R;
+    const R = bigMap ? this.N : this.R;
     const byCls = Array.from({ length: 11 }, () => []);
     if (bigMap && scale < 0.18) {
       for (const wi of this.major) byCls[R.ways[wi].cls].push(wi * 16384 - 1); // vie intere
@@ -159,7 +160,7 @@ export class Maps {
     // ferrovie
     ctx.strokeStyle = '#6d6d6d'; ctx.lineWidth = Math.max(1.5, 3 * s) / s; ctx.setLineDash([10 / s, 6 / s]);
     ctx.beginPath();
-    for (const r of this.R.rails) r.p.forEach((p, i) => (i ? ctx.lineTo(p[0], p[1]) : ctx.moveTo(p[0], p[1])));
+    for (const r of this.N.rails) r.p.forEach((p, i) => (i ? ctx.lineTo(p[0], p[1]) : ctx.moveTo(p[0], p[1])));
     ctx.stroke(); ctx.setLineDash([]);
     this.drawRoads(ctx, this.cx, this.cz, radius, s, false, true);
     if (route) this.drawRoute(ctx, route, s, null);

@@ -154,7 +154,7 @@ segnaletica, edifici, fisica, navigatore, comportamento di pedoni e traffico) è
   dove c'è l'altimetria del DBGT la griglia passa a 10 m ed è corretta sui dati misurati (vedi sotto).
 - **Edifici in lontananza** (qualità media e alta): oltre il raggio degli edifici dettagliati i
   paesi si vedono come volumi semplici (un parallelepipedo orientato per edificio, con altezza e
-  colore del tetto; `data/far.js`, 166.000 edifici in 2,2 MB), fino a 5–7 km in volo e 3 km a
+  colore del tetto; `data/far/`, a blocchi di 4×4 km), fino a 5–7 km in volo e 3 km a
   terra. In quota la foschia si allontana, così dall'aereo si vedono i paesi vicini.
 - **Gallerie**: la pipeline calcola il profilo di ogni galleria sull'intera catena di vie OSM (quota
   fissa agli imbocchi veri, mai sopra il terreno, pendenza massima 7%) e segna nella mappa dei
@@ -166,11 +166,11 @@ segnaletica, edifici, fisica, navigatore, comportamento di pedoni e traffico) è
   di quota suo, campionato ogni 4 m dal terreno e lisciato con una media mobile su circa ±20 m;
   agli incroci tutte le vie passano per la stessa quota (gli estremi di ponti e gallerie restano
   fissi) e dove due vie si sovrappongono l'auto usa la media pesata delle due quote. La carreggiata
-  è piana in senso trasversale. Il terreno sotto la strada è già spianato dalla pipeline; il gioco
-  abbassa in più gli angoli delle celle da 10 m che toccano la carreggiata, così il terreno non
-  sporge sull'asfalto (sbancamento del versante, mai terrapieni). Il calcolo si fa zona per zona,
-  appena prima di costruirla, sempre dal terreno originale. Risultato: 99,9% dei punti lisci
-  lungo le vie (prima 95,8%), terreno sopra l'asfalto nello 0,2% dei punti (prima 2,2%); restano i
+  è piana in senso trasversale. Il terreno sotto la strada è spianato e gli angoli delle celle da
+  10 m che toccano la carreggiata sono abbassati, così il terreno non sporge sull'asfalto
+  (sbancamento del versante, mai terrapieni). Profili e spianamento si calcolano una volta sola nella
+  pipeline (`tools/bake.mjs`, con lo stesso codice del gioco). Risultato: 99,9% dei punti lisci
+  lungo le vie (prima 95,8%), terreno sopra l'asfalto nello 0,03% dei punti (prima 2,2%); restano i
   raccordi delle rampe dei cavalcavia.
 - **Palazzi**: numero intero di piani per edificio (finestre allineate in alto e in basso), piano
   terra distinto (portoni, garage, ingressi vetrati), stili condominio con balconi e palazzina
@@ -229,6 +229,11 @@ segnaletica, edifici, fisica, navigatore, comportamento di pedoni e traffico) è
 - **Prestazioni**: tessere di 1 km caricate/scaricate in streaming attorno all'auto,
   geometrie unite per materiale, atlanti di texture per i cartelli, alberi e lampioni
   instanziati, tre livelli di qualità.
+- **Caricamento a blocchi** (novembre 2026): anche terreno, colori del suolo e strade arrivano a
+  tessere, solo attorno al giocatore. All'avvio si caricano soltanto l'indice, una panoramica del
+  terreno a bassa risoluzione (orizzonte e ripiego dove una tessera non c'è ancora) e la rete del
+  navigatore, quindi la dimensione della mappa non pesa più su avvio e memoria. Vedi
+  [Struttura dei dati](#struttura-dei-dati).
 
 ## Edifici dal DBGT di Regione Lombardia (facoltativo)
 
@@ -306,8 +311,8 @@ brianzoli, lago di Como con il ramo di Como e quello di Lecco fino a Bellagio, t
 Corni di Canzo, San Martino e la Grigna sul bordo. Edifici e altimetria DBGT in 179 comuni
 (province di Monza e Brianza, Como, Lecco e Milano per la parte nella mappa). Sulle pareti di
 roccia la griglia da 10 m non segue i salti verticali: le curve di livello lì si discostano anche
-di decine di metri e vengono scartate dalla correzione. La mappa dei colori del terreno è a 8 m
-per pixel (3.445 × 5.594), sotto i limiti delle schede video e del browser. Le curve di livello vengono semplificate (1,5 m in pianta) dal
+di decine di metri e vengono scartate dalla correzione. La mappa dei colori del terreno è a 4 m
+per pixel (6.890 × 11.188 in tutto), consegnata al gioco a tessere da 1 km. Le curve di livello vengono semplificate (1,5 m in pianta) dal
 riduttore Python.
 
 L'altimetria è importata per le **province di Monza e Brianza e di Como** (e Cabiate dal pacchetto
@@ -340,8 +345,38 @@ tools/run_pipeline.sh          # scarica l'estratto Lombardia, ritaglia, genera 
 ```
 
 La pipeline: `extract_bbox.py` (confini comunali → ritaglio), `build_elevation.py`
-(altimetria), `build_data.py` (strade, edifici a tessere, copertura del suolo, POI).
+(altimetria), `build_data.py` (strade, edifici a tessere, copertura del suolo, POI, nella cartella
+di stadio `.work/stage`), `bake.mjs` (taglio a tessere per il gioco, vedi sotto).
 Per altre regioni cambia `source_pbf_url` con un altro estratto OSM.
+
+## Struttura dei dati
+
+Il gioco carica solo quello che serve attorno al giocatore; nessun file cresce con l'area tranne
+l'indice e la rete del navigatore, entrambi piccoli.
+
+| File | Contenuto | Quando si carica |
+|---|---|---|
+| `data/meta.js` | proiezione, comuni, località, punti di interesse, laghi, fiumi, elenco dei blocchi | all'avvio |
+| `data/overview.js` | quote ogni 40 m e colori del suolo ogni 32 m (orizzonte, ripiego) | all'avvio |
+| `data/net.js` | strade carrabili semplificate (navigatore, mappa completa, ricerca vie) | all'avvio |
+| `data/ground/g_i_j.js` | per tessera da 1 km: quote ogni 10 m (già spianate sotto le strade), colori del suolo ogni 4 m, strade che la toccano con curve, larghezze, limiti e profilo di quota già calcolati, ferrovie, rotatorie | anello attorno al giocatore (raggio di vista + 1 tessera) |
+| `data/tiles/t_i_j.js` | edifici, alberi, arredo, cancelli, recinzioni | tessere entro il raggio di vista |
+| `data/far/f_I_J.js` | edifici semplificati per la vista da lontano, blocchi 4×4 km | entro 3–7 km |
+
+Le strade di una tessera includono intere tutte le vie che la toccano: costruendo una tessera
+quando le otto vicine sono caricate, ogni incrocio, marciapiede e cartello trova tutte le sue vie.
+Una via condivisa tra tessere si aggiunge una volta sola (id globale); le vie restano in memoria
+anche lasciando la zona (pochi MB per centinaia di km di strade), mentre quote, colori e mesh
+vengono liberati. Il terreno lontano (orizzonte, fino a 11 km) si costruisce a pezzi da 2 km
+dalla panoramica, sempre un po' sotto quello vicino.
+
+Misure su questa mappa (1.240 km², CPU rallentata 4×): avvio fino al menu da 10,0 s a 3,9 s,
+memoria JavaScript da ~450 MB a 167 MB al menu e 212 MB in gioco.
+
+`tools/bake.mjs` usa `src/roadprep.js` (curve morbide, rotatorie, profili di quota, spianamento:
+lo stesso codice che prima girava nel browser all'avvio) e scrive i file sopra. Per mappe molto
+più grandi (tutta la Lombardia) il collo di bottiglia diventa la pipeline Python, che tiene ancora
+tutta l'area in memoria; il gioco invece non cambia.
 
 ## Sviluppo
 
@@ -354,8 +389,10 @@ npm run watch
 | File | Ruolo |
 |---|---|
 | `src/data.js` | caricamento dati compressi (funziona anche da file://), proiezione |
-| `src/terrain.js` | altimetria, copertura del suolo, mesh del terreno |
-| `src/roads.js` | rete stradale, curve, corsie, quote/ponti, marciapiedi, segnaletica orizzontale, percorsi, muri |
+| `src/terrain.js` | altimetria e copertura del suolo a tessere, panoramica, mesh del terreno |
+| `src/roads.js` | rete stradale caricata a tessere (e rete del navigatore), corsie, quote/ponti, marciapiedi, segnaletica orizzontale, percorsi, muri |
+| `src/roadprep.js` | preparazione della rete completa (solo per `tools/bake.mjs`) |
+| `tools/bake.mjs` | taglio dei dati a tessere per il gioco |
 | `src/buildings.js` | edifici estrusi, facciate, tetti |
 | `src/signs.js` | atlante dei segnali italiani, semafori, cartelli da OSM, indicazioni, lampioni |
 | `src/vegetation.js` | alberi |

@@ -43,6 +43,14 @@ export async function loadData(key, src) {
   }
   const buf = await gunzip(b64ToBytes(b64));
   if (fmt === 'bin') return buf;
+  if (fmt === 'multi') {
+    // piu' parti nello stesso file ([lunghezza u32][byte]...): la prima e' JSON, le altre restano
+    // byte (copiati, cosi' ogni parte inizia allineata)
+    const dv = new DataView(buf), parts = [];
+    for (let o = 0; o < buf.byteLength;) { const n = dv.getUint32(o, true); parts.push(buf.slice(o + 4, o + 4 + n)); o += 4 + n; }
+    parts[0] = JSON.parse(new TextDecoder().decode(parts[0]));
+    return parts;
+  }
   return JSON.parse(new TextDecoder().decode(buf));
 }
 

@@ -96,7 +96,7 @@ export class Pedestrians {
     if (!atEnd && R.degree[B] < 3) { p.k += p.dir; return; }
     const inAng = Math.atan2(R.nx[B] - R.nx[A], R.nz[B] - R.nz[A]);
     const opts = [];
-    for (let o = R.adjStart[B]; o < R.adjStart[B + 1]; o++) {
+    for (let o = R.adjHead[B]; o >= 0; o = R.adjNext[o]) {
       const wi = R.adjWay[o], pos = R.adjPos[o], w2 = R.ways[wi];
       if (!WALKABLE(w2) || (w2.cls <= CLS.SECONDARY && w2.limit > 50)) continue;
       for (const [k, dir, to] of [[pos, 1, w2.nodes[pos + 1]], [pos - 1, -1, w2.nodes[pos - 1]]]) {

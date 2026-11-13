@@ -1,100 +1,157 @@
 import * as THREE from 'three';
 
-// Modello altimetrico reale (griglia regolare in metri) + copertura del suolo.
+// Modello altimetrico reale e copertura del suolo, a tessere da 1 km caricate attorno al
+// giocatore (data/ground/g_i_j.js). Dove una tessera non c'e' ancora si usa la panoramica a bassa
+// risoluzione (data/overview.js): serve all'orizzonte e come ripiego. La memoria dipende dalla
+// zona caricata, non dalla dimensione della mappa.
 export class Terrain {
-  constructor(meta, heightBuf, landcoverImg) {
+  constructor(meta, overview) {
     const hm = meta.height;
-    this.nx = hm.nx; this.nz = hm.nz; this.step = hm.step; this.x0 = hm.x0; this.z0 = hm.z0;
-    const u16 = new Uint16Array(heightBuf);
-    this.h = new Float32Array(u16.length);
-    for (let i = 0; i < u16.length; i++) this.h[i] = u16[i] * hm.scale;
-    // copia originale (in decimetri): i profili delle strade si calcolano sempre da questa, cosi' il
-    // risultato non dipende dall'ordine in cui le zone vengono adattate
-    this.h0 = u16; this.hScale = hm.scale;
+    this.step = hm.step;
     this.proj = meta.proj;
-    // copertura del suolo: immagine RGB proiettata sul terreno
+    this.xmin = meta.proj.xmin; this.zmin = meta.proj.zmin;
+    this.tileSize = meta.tile;
+    this.tilesX = meta.tilesX; this.tilesZ = meta.tilesZ;
+    this.tiles = new Map();
+    this._ck = -1; this._ct = null;
+    // panoramica: quote (minimo locale, in decimetri) e colori a bassa risoluzione
+    const [oh, hbuf, png] = overview;
+    this.ov = oh;
+    this.oh = new Float32Array(new Uint16Array(hbuf).length);
+    { const u = new Uint16Array(hbuf); for (let i = 0; i < u.length; i++) this.oh[i] = u[i] * oh.hscale; }
+    // classi di copertura: colore -> nome (tavolozza comune a tutte le tessere)
     const lc = meta.landcover;
-    this.lc = lc;
-    this.lcW = lc.w; this.lcH = lc.h; this.mpp = lc.mpp;
-    const cv = document.createElement('canvas');
-    cv.width = lc.w; cv.height = lc.h;
-    const ctx = cv.getContext('2d', { willReadFrequently: true });
-    ctx.drawImage(landcoverImg, 0, 0);
-    // classe di copertura per pixel: un byte invece dei 4 dell'immagine RGBA (la mappa allargata
-    // fino a Lecco ha ~44 milioni di pixel: 44 MB invece di 176)
-    {
-      const px = new Uint32Array(ctx.getImageData(0, 0, lc.w, lc.h).data.buffer);
-      const idx = new Uint8Array(px.length), keyIdx = new Map();
-      this.lcKeys = [];
-      let lastK = -1, lastI = 0;
-      for (let i = 0; i < px.length; i++) {
-        const k = px[i];
-        if (k !== lastK) {
-          lastK = k; lastI = keyIdx.get(k);
-          if (lastI === undefined) { lastI = this.lcKeys.length; keyIdx.set(k, lastI); this.lcKeys.push(k); }
-        }
-        idx[i] = lastI;
-      }
-      this.lcIdx = idx;
-    }
-    this.lcCanvas = cv;
-    this.texture = new THREE.CanvasTexture(cv);
-    this.texture.colorSpace = THREE.SRGBColorSpace;
-    this.texture.anisotropy = 8;
-    this.texture.wrapS = this.texture.wrapT = THREE.ClampToEdgeWrapping;
-    // classi copertura: colore -> nome
-    this.classCache = new Map();
+    this.mpp = lc.mpp;
     this.palette = Object.entries(lc.palette).map(([k, c]) => ({ k, c }));
     this.palette.push({ k: 'default', c: lc.default });
+    this.keyIdx = new Map(); this.lcKeys = []; this.classOf = [];
+    this.ovPng = png;
   }
 
-  // quota del terreno originale (senza gli abbassamenti fatti sotto le strade)
-  heightOrig(x, z) {
-    let gx = (x - this.x0) / this.step, gz = (z - this.z0) / this.step;
+  // la panoramica dei colori (immagine) si decodifica a parte, prima di partire
+  async init() {
+    const { img, idx } = await this.decodePNG(this.ovPng);
+    this.ovLc = idx;
+    this.ovTex = this.makeTexture(img);
+    this.ovPng = null;
+  }
+
+  async decodePNG(bytes) {
+    const url = URL.createObjectURL(new Blob([bytes], { type: 'image/png' }));
+    const img = new Image();
+    img.src = url;
+    try { await img.decode(); } finally { URL.revokeObjectURL(url); }
+    const cv = document.createElement('canvas');
+    cv.width = img.width; cv.height = img.height;
+    const ctx = cv.getContext('2d', { willReadFrequently: true });
+    ctx.drawImage(img, 0, 0);
+    const px = new Uint32Array(ctx.getImageData(0, 0, cv.width, cv.height).data.buffer);
+    const idx = new Uint8Array(px.length);
+    let lastK = -1, lastI = 0;
+    for (let i = 0; i < px.length; i++) {
+      const k = px[i];
+      if (k !== lastK) { lastK = k; lastI = this.colorIndex(k); }
+      idx[i] = lastI;
+    }
+    return { img: cv, idx };
+  }
+
+  // indice comune di un colore RGBA e sua classe (colore noto piu' vicino)
+  colorIndex(k) {
+    let i = this.keyIdx.get(k);
+    if (i !== undefined) return i;
+    i = this.lcKeys.length;
+    this.keyIdx.set(k, i); this.lcKeys.push(k);
+    const r = k & 255, g = (k >>> 8) & 255, b = (k >>> 16) & 255;   // RGBA little endian
+    let best = 1e9, cls = 'default';
+    for (const p of this.palette) {
+      const e = (p.c[0] - r) ** 2 + (p.c[1] - g) ** 2 + (p.c[2] - b) ** 2;
+      if (e < best) { best = e; cls = p.k; }
+    }
+    this.classOf.push(cls);
+    return i;
+  }
+
+  makeTexture(cv) {
+    const t = new THREE.CanvasTexture(cv);
+    t.colorSpace = THREE.SRGBColorSpace;
+    t.anisotropy = 8;
+    t.wrapS = t.wrapT = THREE.ClampToEdgeWrapping;
+    return t;
+  }
+
+  // dati di una tessera: [intestazione+strade, quote u16, PNG dei colori]
+  async addTile(tk, parts) {
+    const [head, hbuf, png] = parts;
+    const n = head.hn, u = new Uint16Array(hbuf), h = new Float32Array(n * n);
+    for (let i = 0; i < h.length; i++) h[i] = (head.hb + u[i] * head.hs) / 100;
+    const { img, idx } = await this.decodePNG(png);
+    const i = tk % 1000, j = Math.floor(tk / 1000);
+    const t = { h, n, cell: this.tileSize / (n - 1), x0: this.xmin + i * this.tileSize, z0: this.zmin + j * this.tileSize, lc: idx, lw: head.lw, img, tex: null, mat: null };
+    this.tiles.set(tk, t);
+    this._ck = -1;
+    return t;
+  }
+
+  dropTile(tk) {
+    const t = this.tiles.get(tk);
+    if (!t) return;
+    if (t.tex) t.tex.dispose();
+    if (t.mat) t.mat.dispose();
+    this.tiles.delete(tk);
+    this._ck = -1;
+  }
+
+  hasTile(tk) { return this.tiles.has(tk); }
+
+  tileAt(x, z) {
+    const i = Math.floor((x - this.xmin) / this.tileSize), j = Math.floor((z - this.zmin) / this.tileSize);
+    const k = j * 1000 + i;
+    if (k === this._ck && i >= 0) return this._ct;
+    const t = i >= 0 && j >= 0 ? this.tiles.get(k) || null : null;
+    this._ck = i >= 0 ? k : -1; this._ct = t;
+    return t;
+  }
+
+  // stessa triangolazione della mesh (diagonale da (0,1) a (1,0))
+  static tri(h, nx, nz, gx, gz) {
     let ix = Math.floor(gx), iz = Math.floor(gz);
-    if (ix < 0) ix = 0; else if (ix > this.nx - 2) ix = this.nx - 2;
-    if (iz < 0) iz = 0; else if (iz > this.nz - 2) iz = this.nz - 2;
+    if (ix < 0) ix = 0; else if (ix > nx - 2) ix = nx - 2;
+    if (iz < 0) iz = 0; else if (iz > nz - 2) iz = nz - 2;
     let fx = gx - ix, fz = gz - iz;
     fx = fx < 0 ? 0 : fx > 1 ? 1 : fx; fz = fz < 0 ? 0 : fz > 1 ? 1 : fz;
-    const i = iz * this.nx + ix, h = this.h0, k = this.hScale;
-    if (fx + fz <= 1) return (h[i] + (h[i + 1] - h[i]) * fx + (h[i + this.nx] - h[i]) * fz) * k;
-    const h11 = h[i + this.nx + 1];
-    return (h11 + (h[i + this.nx] - h11) * (1 - fx) + (h[i + 1] - h11) * (1 - fz)) * k;
+    const i = iz * nx + ix;
+    if (fx + fz <= 1) return h[i] + (h[i + 1] - h[i]) * fx + (h[i + nx] - h[i]) * fz;
+    const h11 = h[i + nx + 1];
+    return h11 + (h[i + nx] - h11) * (1 - fx) + (h[i + 1] - h11) * (1 - fz);
   }
 
   height(x, z) {
-    let gx = (x - this.x0) / this.step, gz = (z - this.z0) / this.step;
-    let ix = Math.floor(gx), iz = Math.floor(gz);
-    if (ix < 0) ix = 0; else if (ix > this.nx - 2) ix = this.nx - 2;
-    if (iz < 0) iz = 0; else if (iz > this.nz - 2) iz = this.nz - 2;
-    let fx = gx - ix, fz = gz - iz;
-    fx = fx < 0 ? 0 : fx > 1 ? 1 : fx; fz = fz < 0 ? 0 : fz > 1 ? 1 : fz;
-    const i = iz * this.nx + ix, h = this.h;
-    // stessa triangolazione della mesh (diagonale da (0,1) a (1,0))
-    if (fx + fz <= 1) return h[i] + (h[i + 1] - h[i]) * fx + (h[i + this.nx] - h[i]) * fz;
-    const h11 = h[i + this.nx + 1];
-    return h11 + (h[i + this.nx] - h11) * (1 - fx) + (h[i + 1] - h11) * (1 - fz);
+    const t = this.tileAt(x, z);
+    if (t) return Terrain.tri(t.h, t.n, t.n, (x - t.x0) / t.cell, (z - t.z0) / t.cell);
+    return this.heightCoarse(x, z);
+  }
+
+  // panoramica (minimo locale: sta sempre un po' sotto il terreno vero)
+  heightCoarse(x, z) {
+    const o = this.ov;
+    return Terrain.tri(this.oh, o.hnx, o.hnz, (x - o.hx0) / o.hstep, (z - o.hz0) / o.hstep);
   }
 
   inside(x, z) {
-    return x >= this.x0 && z >= this.z0 && x <= this.x0 + (this.nx - 1) * this.step && z <= this.z0 + (this.nz - 1) * this.step;
+    const p = this.proj;
+    return x >= p.xmin && z >= p.zmin && x <= p.xmax && z <= p.zmax;
   }
 
   landClass(x, z) {
-    const px = Math.floor((x - this.proj.xmin) / this.mpp), py = Math.floor((z - this.proj.zmin) / this.mpp);
-    if (px < 0 || py < 0 || px >= this.lcW || py >= this.lcH) return 'default';
-    const i = this.lcIdx[py * this.lcW + px];
-    let k = this.classCache.get(i);
-    if (k === undefined) {
-      const u = this.lcKeys[i], r = u & 255, g = (u >>> 8) & 255, bl = (u >>> 16) & 255;   // RGBA little endian
-      let best = 1e9;
-      for (const p of this.palette) {
-        const e = (p.c[0] - r) ** 2 + (p.c[1] - g) ** 2 + (p.c[2] - bl) ** 2;
-        if (e < best) { best = e; k = p.k; }
-      }
-      this.classCache.set(i, k);
+    const t = this.tileAt(x, z);
+    if (t) {
+      const px = Math.floor((x - t.x0) / this.mpp) + 1, py = Math.floor((z - t.z0) / this.mpp) + 1;
+      return this.classOf[t.lc[Math.min(t.lw - 1, py) * t.lw + Math.min(t.lw - 1, px)]];
     }
-    return k;
+    const o = this.ov, px = Math.floor((x - this.xmin) / o.lmpp), py = Math.floor((z - this.zmin) / o.lmpp);
+    if (px < 0 || py < 0 || px >= o.lw || py >= o.lh) return 'default';
+    return this.classOf[this.ovLc[py * o.lw + px]];
   }
 
   isUrban(x, z) {
@@ -102,8 +159,8 @@ export class Terrain {
     return k === 'residential' || k === 'commercial' || k === 'retail' || k === 'industrial' || k === 'parking' || k === 'construction';
   }
 
-  makeMaterial(detailTex) {
-    const mat = new THREE.MeshLambertMaterial({ map: this.texture });
+  makeMaterial(detailTex, map) {
+    const mat = new THREE.MeshLambertMaterial({ map });
     mat.onBeforeCompile = (sh) => {
       sh.uniforms.detailMap = { value: detailTex };
       sh.vertexShader = sh.vertexShader.replace('#include <common>', '#include <common>\nvarying vec3 vWPos;\nvarying float vUp;')
@@ -124,22 +181,45 @@ export class Terrain {
           vec3 rock = vec3(0.47, 0.45, 0.42) * (0.75 + 0.5 * d1) * (0.9 + 0.3 * d2);
           diffuseColor.rgb = mix(diffuseColor.rgb, rock, steep * 0.85);`);
     };
+    // stesso programma per tutte le tessere (cambia solo la tessitura)
+    mat.customProgramCacheKey = () => 'bds-terrain';
     return mat;
   }
 
-  // mesh di una tessera di terreno (dimensione size, origine x0,z0) con passo step
-  // (drop > 0: terreno lontano, sempre sotto quello vicino: si prende il minimo attorno al vertice,
-  //  cosi' non spunta nelle trincee e nelle valli strette)
-  buildChunk(x0, z0, size, step, material, drop = 0) {
+  // materiale della tessera caricata tk (la tessitura dei colori si crea alla prima richiesta)
+  tileMaterial(tk, detailTex) {
+    const t = this.tiles.get(tk);
+    if (!t.mat) { t.tex = this.makeTexture(t.img); t.img = null; t.mat = this.makeMaterial(detailTex, t.tex); }
+    return t.mat;
+  }
+
+  overviewMaterial(detailTex) { return this.makeMaterial(detailTex, this.ovTex); }
+
+  // mesh della tessera caricata tk con passo step
+  buildTile(tk, step, material) {
+    const t = this.tiles.get(tk), lw = t.lw, m = this.mpp;
+    return this.buildChunk(t.x0, t.z0, this.tileSize, step, material, 0,
+      (x, z) => [(1 + (x - t.x0) / m) / lw, 1 - (1 + (z - t.z0) / m) / lw], (x, z) => Terrain.tri(t.h, t.n, t.n, (x - t.x0) / t.cell, (z - t.z0) / t.cell));
+  }
+
+  // pezzo di terreno lontano dalla panoramica, sempre sotto quello vicino (minimo attorno al
+  // vertice), cosi' non spunta nelle trincee e nelle valli strette
+  buildFarChunk(x0, z0, size, step, material, drop) {
+    const o = this.ov, W = o.lw * o.lmpp, H = o.lh * o.lmpp;
+    return this.buildChunk(x0, z0, size, step, material, drop,
+      (x, z) => [(x - this.xmin) / W, 1 - (z - this.zmin) / H], (x, z) => this.heightCoarse(x, z));
+  }
+
+  buildChunk(x0, z0, size, step, material, drop, uvf, hf) {
     const n = Math.round(size / step) + 1;
     const pos = new Float32Array(n * n * 3), uv = new Float32Array(n * n * 2);
-    const W = this.proj.xmax - this.proj.xmin, H = this.proj.zmax - this.proj.zmin;
     for (let j = 0; j < n; j++) for (let i = 0; i < n; i++) {
       const x = x0 + i * step, z = z0 + j * step, k = j * n + i;
-      let y = this.height(x, z);
-      if (drop > 0) for (let a = -2; a <= 2; a++) for (let b = -2; b <= 2; b++) y = Math.min(y, this.height(x + a * step / 2, z + b * step / 2));
+      let y = hf(x, z);
+      if (drop > 0) for (let a = -2; a <= 2; a++) for (let b = -2; b <= 2; b++) y = Math.min(y, hf(x + a * step / 2, z + b * step / 2));
       pos[k * 3] = x; pos[k * 3 + 1] = y - drop; pos[k * 3 + 2] = z;
-      uv[k * 2] = (x - this.proj.xmin) / W; uv[k * 2 + 1] = 1 - (z - this.proj.zmin) / H;
+      const [u, v] = uvf(x, z);
+      uv[k * 2] = u; uv[k * 2 + 1] = v;
     }
     const idx = new Uint32Array((n - 1) * (n - 1) * 6);
     let t = 0;

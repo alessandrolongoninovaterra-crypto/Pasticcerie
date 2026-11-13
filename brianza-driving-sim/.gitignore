@@ -6,3 +6,4 @@ dbgt/*.gpkg
 dbgt/*.shp
 dbgt/*.dbf
 dbgt/*.shx
+.stage/

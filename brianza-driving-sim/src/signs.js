@@ -233,7 +233,7 @@ export class Signage {
   // direzioni di arrivo a un nodo: [{from, w, wi, seg, t, fwd}]
   approaches(nd) {
     const R = this.roads, out = [];
-    for (let o = R.adjStart[nd]; o < R.adjStart[nd + 1]; o++) {
+    for (let o = R.adjHead[nd]; o >= 0; o = R.adjNext[o]) {
       const w2 = R.ways[R.adjWay[o]], p = R.adjPos[o];
       if (!w2.drivable) continue;
       if (p > 0) out.push({ from: w2.nodes[p - 1], w: w2, wi: R.adjWay[o], seg: p - 1, t: 1, fwd: true });
@@ -248,7 +248,7 @@ export class Signage {
     for (let it = 0; it < 40 && dist < 60; it++) {
       if (R.degMain[cur] >= 3) return true;
       let next = -1;
-      for (let o = R.adjStart[cur]; o < R.adjStart[cur + 1]; o++) {
+      for (let o = R.adjHead[cur]; o >= 0; o = R.adjNext[o]) {
         const w = R.ways[R.adjWay[o]], p = R.adjPos[o];
         for (const nb of [w.nodes[p - 1], w.nodes[p + 1]]) if (nb !== undefined && nb !== prev && nb !== cur) next = nb;
       }
@@ -262,7 +262,7 @@ export class Signage {
   neighbourLimit(nd, wi) {
     const R = this.roads;
     let other = -1;
-    for (let o = R.adjStart[nd]; o < R.adjStart[nd + 1]; o++) {
+    for (let o = R.adjHead[nd]; o >= 0; o = R.adjNext[o]) {
       const w2 = R.adjWay[o];
       if (w2 === wi || !R.ways[w2].drivable) continue;
       if (R.ways[w2].cls === R.ways[wi].cls) return R.ways[w2].limit;
@@ -292,7 +292,7 @@ export class Signage {
           if (Math.abs(a) < bestA) { bestA = Math.abs(a); best = [wj, pj, dj]; }
         };
         const exitsFrom = (nd, viaRb) => {
-          for (let o = R.adjStart[nd]; o < R.adjStart[nd + 1]; o++) {
+          for (let o = R.adjHead[nd]; o >= 0; o = R.adjNext[o]) {
             const wj = R.adjWay[o], w2 = R.ways[wj], pj = R.adjPos[o];
             if (!w2.drivable || w2.cls > CLS.UNCLASSIFIED) continue;
             if (wj === wi && pj === pos) continue;
@@ -309,7 +309,7 @@ export class Signage {
               const nd = rw.nodes[rw.nodes.length - 1];
               let found = false;
               if (rw.nodes[0] === nd && rw.nodes.length > 2) { cp = 0; found = true; }
-              else for (let o = R.adjStart[nd]; o < R.adjStart[nd + 1]; o++) { const wq = R.adjWay[o]; if (wq !== cw && (R.ways[wq].flags & F.ROUNDABOUT) && R.adjPos[o] === 0) { cw = wq; cp = 0; found = true; break; } }
+              else for (let o = R.adjHead[nd]; o >= 0; o = R.adjNext[o]) { const wq = R.adjWay[o]; if (wq !== cw && (R.ways[wq].flags & F.ROUNDABOUT) && R.adjPos[o] === 0) { cw = wq; cp = 0; found = true; break; } }
               if (!found) return;
             }
             cp++;
@@ -475,7 +475,7 @@ export class Signage {
         // --- targhe con il nome delle vie agli incroci
         if (R.degMain[nd] >= 3 && plateCount < 240) {
           const seenN = new Set();
-          for (let o = R.adjStart[nd]; o < R.adjStart[nd + 1]; o++) {
+          for (let o = R.adjHead[nd]; o >= 0; o = R.adjNext[o]) {
             const w2 = R.ways[R.adjWay[o]], p = R.adjPos[o];
             if (!w2.name || !w2.drivable || w2.cls > CLS.LIVING || seenN.has(w2.name) || doneName.has(w2.name + '@' + nd)) continue;
             seenN.add(w2.name); doneName.add(w2.name + '@' + nd);
@@ -563,7 +563,7 @@ export class Signage {
       // --- senso unico (ingresso) e senso vietato (uscita) dai tag oneway
       if (w.oneway && !(w.flags & (F.ROUNDABOUT | F.LINK)) && w.cls >= CLS.TERTIARY && w.cls <= CLS.LIVING && w.len > 25) {
         const chained = (nd, atStart) => {
-          for (let o = R.adjStart[nd]; o < R.adjStart[nd + 1]; o++) {
+          for (let o = R.adjHead[nd]; o >= 0; o = R.adjNext[o]) {
             const wj = R.adjWay[o], w2 = R.ways[wj];
             if (wj !== wi && w2.oneway && (w2.name === w.name || R.degMain[nd] < 3) && R.adjPos[o] === (atStart ? w2.nodes.length - 1 : 0)) return true;
           }
@@ -597,7 +597,7 @@ export class Signage {
         for (const [nd, at, ddx, ddz] of [[w.nodes[0], k === 0, sx, sz], [w.nodes[w.nodes.length - 1], k === last, -sx, -sz]]) {
           if (!at) continue;
           let fromRoad = false;
-          for (let o = R.adjStart[nd]; o < R.adjStart[nd + 1]; o++) { const w2 = R.ways[R.adjWay[o]]; if (w2 !== w && w2.drivable && !(w2.flags & F.AISLE) && w2.cls <= CLS.SERVICE) fromRoad = true; }
+          for (let o = R.adjHead[nd]; o >= 0; o = R.adjNext[o]) { const w2 = R.ways[R.adjWay[o]]; if (w2 !== w && w2.drivable && !(w2.flags & F.AISLE) && w2.cls <= CLS.SERVICE) fromRoad = true; }
           const cell = Math.round(R.nx[nd] / 70) + '_' + Math.round(R.nz[nd] / 70);
           if (!fromRoad || donePark.has(cell)) continue;
           donePark.add(cell);
