@@ -27,34 +27,32 @@ export class Router {
   constructor(roads) {
     this.R = roads;
     const R = roads, n = R.nodeCount;
-    // grafo orientato in formato CSR
-    const edges = [];
-    R.ways.forEach((w, wi) => {
-      if (!w.drivable || w.cls === CLS.PEDESTRIAN) return;
-      const v = Math.max(10, w.limit) / 3.6;
-      let pen = 1;
-      if (w.flags & F.PRIVATE) pen = 6;
-      if (w.cls === CLS.SERVICE) pen = w.flags & F.AISLE ? 5 : 1.8;
-      if (w.cls === CLS.TRACK) pen = 3;
-      for (let k = 0; k < w.nodes.length - 1; k++) {
-        const a = w.nodes[k], b = w.nodes[k + 1];
-        if (R.ntag[a] === NT.GATE || R.ntag[b] === NT.GATE) continue;   // cancello chiuso
-        const len = w.cum[k + 1] - w.cum[k];
-        const cost = len / v * pen;
-        edges.push(a, b, cost, wi, k);
-        if (!w.oneway) edges.push(b, a, cost, wi, k);
-      }
-    });
-    const m = edges.length / 5;
+    // grafo orientato in formato CSR, costruito in due passate (conteggio, poi riempimento) senza
+    // liste temporanee: con la mappa fino a Milano gli archi sono quasi un milione
+    const usable = (w) => w.drivable && w.cls !== CLS.PEDESTRIAN;
+    const pass = (emit) => {
+      R.ways.forEach((w, wi) => {
+        if (!usable(w)) return;
+        const v = Math.max(10, w.limit) / 3.6;
+        let pen = 1;
+        if (w.flags & F.PRIVATE) pen = 6;
+        if (w.cls === CLS.SERVICE) pen = w.flags & F.AISLE ? 5 : 1.8;
+        if (w.cls === CLS.TRACK) pen = 3;
+        for (let k = 0; k < w.nodes.length - 1; k++) {
+          const a = w.nodes[k], b = w.nodes[k + 1];
+          if (R.ntag[a] === NT.GATE || R.ntag[b] === NT.GATE) continue;   // cancello chiuso
+          const cost = (w.cum[k + 1] - w.cum[k]) / v * pen;
+          emit(a, b, cost, wi);
+          if (!w.oneway) emit(b, a, cost, wi);
+        }
+      });
+    };
     const start = new Int32Array(n + 1);
-    for (let i = 0; i < m; i++) start[edges[i * 5] + 1]++;
+    pass((a) => { start[a + 1]++; });
     for (let i = 0; i < n; i++) start[i + 1] += start[i];
-    const fill = start.slice(0, n);
+    const m = start[n], fill = start.slice(0, n);
     this.eTo = new Int32Array(m); this.eCost = new Float32Array(m); this.eWay = new Int32Array(m);
-    for (let i = 0; i < m; i++) {
-      const o = fill[edges[i * 5]]++;
-      this.eTo[o] = edges[i * 5 + 1]; this.eCost[o] = edges[i * 5 + 2]; this.eWay[o] = edges[i * 5 + 3];
-    }
+    pass((a, b, cost, wi) => { const o = fill[a]++; this.eTo[o] = b; this.eCost[o] = cost; this.eWay[o] = wi; });
     this.eStart = start;
     this.dist = new Float32Array(n); this.prev = new Int32Array(n); this.prevWay = new Int32Array(n); this.stamp = new Int32Array(n); this.closed = new Int32Array(n);
     this.run = 0;

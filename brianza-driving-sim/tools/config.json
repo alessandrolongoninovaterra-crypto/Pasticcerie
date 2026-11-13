@@ -6,9 +6,9 @@
     "Desio", "Lissone", "Albiate", "Veduggio con Colzano", "Renate"
   ],
   "margin_deg": 0.008,
-  "extra_bbox": [45.588, 9.06, 45.99, 9.415],
-  "_extra_bbox_comment": "lat_min, lon_min, lat_max, lon_max aggiunto all'area dei comuni: laghi brianzoli e lago di Como con i rami di Como e di Lecco fino alla latitudine di Bellagio",
-  "featured_extra": ["Como", "Lecco", "Bellagio"],
+  "extra_bbox": [45.44, 9.06, 45.99, 9.415],
+  "_extra_bbox_comment": "lat_min, lon_min, lat_max, lon_max aggiunto all'area dei comuni: laghi brianzoli e lago di Como con i rami di Como e di Lecco fino alla latitudine di Bellagio; a sud Milano fino alla Darsena e ai Navigli",
+  "featured_extra": ["Milano", "Monza", "Como", "Lecco", "Bellagio"],
   "_featured_extra_comment": "comuni fuori dalla lista principale (che definisce l'area) da proporre comunque come partenza",
   "source_pbf": "lombardia.osm.pbf",
   "source_pbf_url": "https://download.openstreetmap.fr/extracts/europe/italy/lombardia.osm.pbf",

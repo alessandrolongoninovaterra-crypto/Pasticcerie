@@ -53,7 +53,7 @@ const progress = (f) => { $('bar').style.width = Math.round(f * 100) + '%'; };
 // ------------------------------------------------------------------ area del gioco (data/meta.js)
 // area predefinita del gioco (lat sud, lon ovest, lat nord, lon est): si usa se data/meta.js non si trova,
 // per esempio quando la pagina viene aperta da sola, fuori dalla cartella del gioco
-const DEFAULT_BBOX = [45.588, 9.06, 45.99, 9.415];
+const DEFAULT_BBOX = [45.44, 9.06, 45.99, 9.415];
 let BBOX = null;
 window.BDS_DATA = async (key, fmt, b64) => {
   if (key !== 'meta') return;

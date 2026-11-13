@@ -71,7 +71,7 @@ export class RoadNetwork {
   }
 
   // collega una via appena aggiunta: adiacenza, gradi dei nodi, indice spaziale, tessere
-  linkWay(wi) {
+  linkWay(wi, nav = false) {
     const w = this.ways[wi], nn = w.nodes.length;
     const n = w.nodes;
     w.cum = new Float32Array(nn);
@@ -84,7 +84,7 @@ export class RoadNetwork {
     for (let k = 0; k < nn; k++) {
       const nd = n[k];
       // le vie gia' presenti nel nodo devono ricalcolare le zone d'incrocio
-      for (let o = this.adjHead[nd]; o >= 0; o = this.adjNext[o]) this.ways[this.adjWay[o]].zn = null;
+      if (!nav) for (let o = this.adjHead[nd]; o >= 0; o = this.adjNext[o]) this.ways[this.adjWay[o]].zn = null;
       if (this.adjN >= this.adjCap) this.growAdj(this.adjN + 1);
       const o = this.adjN++;
       this.adjWay[o] = wi; this.adjPos[o] = k; this.adjNext[o] = -1;
@@ -110,6 +110,7 @@ export class RoadNetwork {
         if (!arr) this.grid.set(key, arr = []);
         arr.push(packed);
       }
+      if (nav) continue;       // il navigatore non costruisce tessere
       const tk = this.tileKey((ax + bx) / 2, (az + bz) / 2);
       let ts = this.tileSegs.get(tk);
       if (!ts) this.tileSegs.set(tk, ts = []);
@@ -177,8 +178,11 @@ export class RoadNetwork {
 
   // rete del navigatore: tutte le strade carrabili, geometria semplificata (data/net.js)
   addNav(d) {
-    const S = d.s, nid = [];
-    for (let i = 0, x = 0, z = 0; i < d.n.length; i += 2) { x += d.n[i]; z += d.n[i + 1]; nid.push(this.node(i / 2, x / 10, z / 10)); }
+    // nodi numerati in ordine: niente tabella degli id globali
+    const S = d.s, nn = d.n.length / 2, nid = { length: nn };
+    if (nn > this.cap) this.growNodes(nn);
+    for (let i = 0, x = 0, z = 0; i < nn; i++) { x += d.n[2 * i]; z += d.n[2 * i + 1]; this.nx[i] = x / 10; this.nz[i] = z / 10; nid[i] = i; }
+    this.nodeCount = nn;
     for (const g of d.gate) this.ntag[nid[g]] = NT.GATE;
     let on = 0;
     for (let o = 0; o < d.w.length; o += 12) {
@@ -188,7 +192,7 @@ export class RoadNetwork {
       on += nN;
       const wi = this.ways.length;
       this.ways.push(w);
-      this.linkWay(wi);
+      this.linkWay(wi, true);
     }
     this.rails = d.rl.map((p) => { const out = []; for (let k = 0, x = 0, z = 0; k < p.length; k += 2) { x += p[k]; z += p[k + 1]; out.push([x / 10, z / 10]); } return { p: out }; });
     this.buildStreetIndex();

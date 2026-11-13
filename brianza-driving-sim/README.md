@@ -344,11 +344,15 @@ sono il terreno). Se ci sono, la pipeline:
    terreno sotto la strada a quella quota (trincee, rilevati, rampe); ponti e gallerie sono esclusi;
 3. verifica il risultato sul 5% dei punti quotati tenuti da parte e stampa l'errore prima e dopo.
 
-**Area della mappa** (novembre 2026): i 15 comuni principali più un rettangolo fino a Como, Lecco e
-Bellagio (lat 45,588–45,99, lon 9,06–9,415, circa 1.240 km² in 1.233 tessere da 1 km): laghi
-brianzoli, lago di Como con il ramo di Como e quello di Lecco fino a Bellagio, triangolo lariano,
-Corni di Canzo, San Martino e la Grigna sul bordo. Edifici e altimetria DBGT in 179 comuni
-(province di Monza e Brianza, Como, Lecco e Milano per la parte nella mappa). Sulle pareti di
+**Area della mappa** (novembre 2026): i 15 comuni principali più un rettangolo da Milano a Bellagio
+(lat 45,44–45,99, lon 9,06–9,415, circa 1.700 km² in 1.707 tessere da 1 km): a sud Milano fino alla
+Darsena e all'inizio dei Navigli, con tutto il centro e il nord (Porta Ticinese, Duomo, Porta Nuova,
+Città Studi, Bicocca), Sesto, Cinisello, Rho e Monza; poi la Brianza, i laghi brianzoli, il lago di
+Como con il ramo di Como e quello di Lecco fino a Bellagio, il triangolo lariano, i Corni di Canzo,
+il San Martino e la Grigna sul bordo. Edifici e altimetria DBGT in 184 comuni (province di Monza e
+Brianza, Como, Lecco e Milano per la parte nella mappa; nella fascia da Monza ai Navigli gli
+edifici restano quelli OSM finché i pacchetti di Milano e di Monza e Brianza non vengono ridotti
+di nuovo sull'area allargata). Sulle pareti di
 roccia la griglia da 10 m non segue i salti verticali: le curve di livello lì si discostano anche
 di decine di metri e vengono scartate dalla correzione. La mappa dei colori del terreno è a 4 m
 per pixel (6.890 × 11.188 in tutto), consegnata al gioco a tessere da 1 km. Le curve di livello vengono semplificate (1,5 m in pianta) dal
@@ -410,8 +414,10 @@ anche lasciando la zona (pochi MB per centinaia di km di strade), mentre quote, 
 vengono liberati. Il terreno lontano (orizzonte, fino a 11 km) si costruisce a pezzi da 2 km
 dalla panoramica, sempre un po' sotto quello vicino.
 
-Misure su questa mappa (1.240 km², CPU rallentata 4×): avvio fino al menu da 10,0 s a 3,9 s,
-memoria JavaScript da ~450 MB a 167 MB al menu e 212 MB in gioco.
+Misure (CPU rallentata 4×): con la mappa da 1.240 km² l'avvio fino al menu è sceso da 10,0 s a
+3,9 s e la memoria JavaScript da ~450 MB a 167 MB al menu. Con la mappa fino a Milano (1.700 km²,
+il doppio delle strade: 154.000 vie) l'avvio è di 3,8 s e la memoria al menu di 212 MB: la rete del
+navigatore si costruisce senza tabelle di id e il grafo del percorso in due passate su array compatti.
 
 `tools/bake.mjs` usa `src/roadprep.js` (curve morbide, rotatorie, profili di quota, spianamento:
 lo stesso codice che prima girava nel browser all'avvio) e scrive i file sopra. Per mappe molto

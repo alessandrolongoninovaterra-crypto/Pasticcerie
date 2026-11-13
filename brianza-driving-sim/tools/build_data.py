@@ -893,6 +893,8 @@ if DBGT_DIR and os.path.isdir(DBGT_DIR):
         print('DBGT: comuni coperti', len(dbgt_comuni), dbgt_comuni[:20], '- edifici OSM sostituiti',
               len(buildings) - (len(kept) - added), 'volumi DBGT aggiunti', added)
         buildings = kept
+        # volumi grezzi, geometrie e indici di lavoro: non servono piu'
+        del vols, vg, vtree0, vtree, osm_idx, otree, kept
 elif DBGT_DIR:
     print('DBGT: cartella non trovata', DBGT_DIR)
 
@@ -1253,14 +1255,15 @@ if alti['pts'] or alti['roads']:
         ix = np.clip(np.round((xs - x0g) / STEP2).astype(int), 0, nx2 - 1); iz = np.clip(np.round((zs - z0g) / STEP2).astype(int), 0, nz2 - 1)
         return MASK[iz, ix]
     # campioni: punti a terra, piedi degli edifici, assi stradali a raso (ogni 5 m)
-    rs = []
+    from array import array as _arr
+    rs = _arr('d')       # terne x, z, quota (come tuple occupavano centinaia di MB)
     for line in alti['roads']:
         for (ax, az, ah), (bx, bz, bh) in zip(line, line[1:]):
             n = max(1, int(math.dist((ax, az), (bx, bz)) // 5))
             for k in range(n):
                 t_ = k / n
-                rs.append((ax + (bx - ax) * t_, az + (bz - az) * t_, ah + (bh - ah) * t_))
-        rs.append(line[-1])
+                rs.extend((ax + (bx - ax) * t_, az + (bz - az) * t_, ah + (bh - ah) * t_))
+        rs.extend(line[-1][:3])
     rss('alt: campioni strade (rs)')
     P_ = np.array(alti['pts'], np.float64).reshape(-1, 3)
     alti['pts'] = None
@@ -1406,7 +1409,7 @@ if alti['pts'] or alti['roads']:
     # quanto serve perche' la carreggiata cada tutta su celle spianate (mezza larghezza + 8 m):
     # cosi' la strada non fa gobbe passando da una cella all'altra, e a mezza costa nasce lo
     # sbancamento che c'e' anche nella realta'
-    smp = []
+    smp = _arr('d')      # x, z, quota, raggio
     for w in road_ways:
         if w['flags'] & (F_BRIDGE | F_TUNNEL) or w['layer'] != 0 or w['cls'] > 9:
             continue
@@ -1418,10 +1421,10 @@ if alti['pts'] or alti['roads']:
             n = max(1, int(math.dist((ax, az), (bx, bz)) // 3.0))
             for k in range(n + 1):
                 t_ = k / n
-                smp.append((ax + (bx - ax) * t_, az + (bz - az) * t_, node_h[a_] + (node_h[b_] - node_h[a_]) * t_, rad_))
+                smp.extend((ax + (bx - ax) * t_, az + (bz - az) * t_, node_h[a_] + (node_h[b_] - node_h[a_]) * t_, rad_))
     rss('alt: campioni spianamento')
     if smp:
-        A_ = np.array(smp); del smp
+        A_ = np.array(smp, np.float64).reshape(-1, 4); del smp
         tsum = np.zeros(nx2 * nz2); wsum = np.zeros(nx2 * nz2)
         ci = np.round((A_[:, 0] - x0g) / STEP2).astype(int); cj = np.round((A_[:, 1] - z0g) / STEP2).astype(int)
         for di in (-2, -1, 0, 1, 2):
