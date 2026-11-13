@@ -317,7 +317,13 @@ Provincia di Monza e Brianza (parte nella mappa): 440.000 alberi, 385.000 recinz
 180.000 cortili, 158.000 aree verdi, 68.000 carreggiate, 30.000 aree pedonali, 6.900 manufatti,
 35.000 pali; i file compatti passano da 14 a 49 MB (tre parti). Per non appesantire la grafica gli
 alberi oltre ~650 m hanno una chioma semplificata e muri e recinzioni oltre ~1,1 km non si
-disegnano. La pipeline con questi dati usa fino a ~12 GB di memoria.
+disegnano.
+
+La pipeline tiene i dati in forma compatta: legge i file DBGT un record alla volta, conserva quote e
+dettagli in tabelle di numeri invece che come oggetti singoli, disegna la mappa dei colori
+direttamente con la tavolozza fissa della copertura del suolo (un byte per pixel) e calcola
+l'ingombro degli ostacoli solo dove serve. Con Monza e Brianza completa la memoria massima è scesa
+da ~11,6 GB a ~6 GB, con risultati identici (i passaggi pesanti stampano `[memoria]`).
 
 ### Altimetria dal DBGT
 
@@ -375,7 +381,8 @@ tools/run_pipeline.sh          # scarica l'estratto Lombardia, ritaglia, genera 
 La pipeline: `extract_bbox.py` (confini comunali → ritaglio), `build_elevation.py`
 (altimetria), `build_data.py` (strade, edifici a tessere, copertura del suolo, POI, nella cartella
 di stadio `.work/stage`), `bake.mjs` (taglio a tessere per il gioco, vedi sotto).
-Per altre regioni cambia `source_pbf_url` con un altro estratto OSM.
+Per altre regioni cambia `source_pbf_url` con un altro estratto OSM. Servono circa 6 GB di memoria
+con i pacchetti DBGT completi di una provincia.
 
 ## Struttura dei dati
 

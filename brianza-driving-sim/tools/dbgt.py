@@ -391,6 +391,59 @@ def _source_name(path):
     return re.sub(r'_\d+$', '', n)
 
 
+_LAYER_HEAD = re.compile(r'\s*\{\s*"kind"\s*:\s*"(\w+)"\s*,\s*"recs"\s*:\s*\[')
+
+
+def compact_layers(path):
+    """Livelli di un file compatto come (tipo, prj, record uno alla volta). Il JSON si decodifica un
+    record per volta: decodificarlo tutto insieme (pacchetti provinciali da decine di milioni di
+    numeri) occupava diversi GB."""
+    text = gzip.decompress(open(path, 'rb').read()).decode('utf-8')
+    dec = json.JSONDecoder()
+    m = re.search(r'"prj"\s*:\s*', text)
+    prj = dec.raw_decode(text, m.end())[0] if m else ''
+    i = text.find('"layers"')
+    pos = text.find('[', i) + 1 if i >= 0 else -1
+    if pos <= 0:
+        return
+    ws = ' \t\r\n'
+    while True:
+        while text[pos] in ws or text[pos] == ',':
+            pos += 1
+        if text[pos] == ']':
+            return
+        h = _LAYER_HEAD.match(text, pos)
+        if not h:      # disposizione diversa dei campi: si decodifica il livello intero
+            lay, pos = dec.raw_decode(text, pos)
+            yield lay['kind'], prj, iter(lay['recs'])
+            continue
+        pos = h.end()
+        state = {'pos': pos, 'done': False}
+
+        def recs(state=state):
+            p = state['pos']
+            while True:
+                while text[p] in ws or text[p] == ',':
+                    p += 1
+                if text[p] == ']':
+                    break
+                rec, p = dec.raw_decode(text, p)
+                state['pos'] = p
+                yield rec
+            p += 1
+            while text[p] in ws:
+                p += 1
+            if text[p] == '}':
+                p += 1
+            state['pos'] = p
+            state['done'] = True
+        g = recs()
+        yield h.group(1), prj, g
+        for _ in g:        # record non letti dal chiamante: si saltano
+            pass
+        pos = state['pos']
+
+
 def iter_layers(folder, work):
     """(tipo, wkt del sistema di riferimento, [(attributi, anelli)]) per ogni livello trovato."""
     shps, compact, gpkgs = _extract(folder, work)
@@ -432,13 +485,11 @@ def iter_layers(folder, work):
         print('  lettura', os.path.basename(shp), len(geoms), 'oggetti')
         yield kind, read_prj(shp), (_split_vol(kind, _attrs(kind, r), g[1]) for r, g in zip(recs, geoms) if r and g), _source_name(shp)
     for cp in compact:
-        d = json.loads(gzip.decompress(open(cp, 'rb').read()))
-        for lay in d['layers']:
-            print('  lettura', os.path.basename(cp), lay['kind'], len(lay['recs']), 'oggetti')
+        for kind_, prj_, recs_ in compact_layers(cp):
+            print('  lettura', os.path.basename(cp), kind_, flush=True)
 
-            def gen(lay=lay):
-                kind = lay['kind']
-                for rec in lay['recs']:
+            def gen(kind=kind_, recs_=recs_):
+                for rec in recs_:
                     if kind == 'quo':          # punti: terne (dm, dm, cm) in differenze
                         for x, y, z in _undelta(rec['p'], 3):
                             yield [''], [[(x / 10, y / 10, z / 100)]]
@@ -451,7 +502,32 @@ def iter_layers(folder, work):
                     if kind == 'vol':
                         a = a[:3] + ['%.2f' % (rec['z'] / 100) if rec.get('z') is not None else '']
                     yield a, rings
-            yield lay['kind'], d.get('prj', ''), gen(), _source_name(cp)
+            yield kind_, prj_, gen(), _source_name(cp)
+
+
+class DetailStore:
+    """Dettagli di un tipo in forma compatta: codici, coordinate x, z una dopo l'altra e inizio di
+    ogni oggetto (centinaia di migliaia di oggetti per provincia: come tuple Python occupavano GB)."""
+    def __init__(self):
+        from array import array
+        self.codes, self.xz, self.off, self._ci = [], array('d'), array('l', [0]), {}
+
+    def add(self, code, pts):
+        self.codes.append(self._ci.setdefault(code, code))
+        for x, z in pts:
+            self.xz.append(x); self.xz.append(z)
+        self.off.append(len(self.xz) // 2)
+
+    def __len__(self):
+        return len(self.codes)
+
+    def pts(self, i):
+        a, b, xz = self.off[i], self.off[i + 1], self.xz
+        return [(xz[2 * k], xz[2 * k + 1]) for k in range(a, b)]
+
+    def __iter__(self):
+        for i in range(len(self.codes)):
+            yield self.codes[i], self.pts(i)
 
 
 def load_dbgt(folder, work, fwd, bbox):
@@ -470,7 +546,8 @@ def load_dbgt(folder, work, fwd, bbox):
         raise SystemExit('Per convertire le coordinate del DBGT serve pyproj: pip install pyproj') from ex
     s, w, n, e = bbox
     vols, bodies = [], []
-    alti = {'pts': [], 'roads': []}
+    from array import array
+    alti = {'pts': array('d'), 'roads': []}      # punti: terne x, z, quota una dopo l'altra
     details = {}
     info = Counter()
     inside = lambda lo, la: s - 0.002 <= la <= n + 0.002 and w - 0.002 <= lo <= e + 0.002
@@ -504,7 +581,8 @@ def load_dbgt(folder, work, fwd, bbox):
                         if len(g) >= 2:
                             alti['roads'].append(g)
                     else:
-                        alti['pts'].extend(g)
+                        for p_ in g:
+                            alti['pts'].extend(p_)
                     info['quote_' + kind] += len(g)
                 buf.clear()
             npt = 0
@@ -522,7 +600,7 @@ def load_dbgt(folder, work, fwd, bbox):
             continue
         if kind in DETAIL_KINDS:
             # dettagli: punti, linee o anelli esterni, con il tipo; si convertono a blocchi
-            lst = details.setdefault(kind, [])
+            lst = details.setdefault(kind, DetailStore())
             buf = []
 
             def dflush(buf=buf, tr=tr, lst=lst):
@@ -534,7 +612,7 @@ def load_dbgt(folder, work, fwd, bbox):
                 for a, g in buf:
                     pts = [fwd(la[i + j], lo[i + j]) for j in range(len(g))]
                     if any(inside(lo[i + j], la[i + j]) for j in range(len(g))):
-                        lst.append((a[0] if a else '', pts))
+                        lst.add(a[0] if a else '', pts)
                     i += len(g)
                 buf.clear()
             for attrs, rings in recs:

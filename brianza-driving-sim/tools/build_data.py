@@ -31,8 +31,8 @@ STAGE = os.environ.get('BDS_STAGE') or os.path.join(OUT, '..', '.stage')
 def rss(tag):
     """memoria del processo (MB), per seguire i passaggi pesanti"""
     try:
-        kb = int(next(l for l in open('/proc/self/status') if l.startswith('VmRSS')).split()[1])
-        print('  [memoria] %s: %d MB' % (tag, kb // 1024), flush=True)
+        st = {l.split(':')[0]: int(l.split()[1]) for l in open('/proc/self/status') if l.startswith(('VmRSS', 'VmHWM'))}
+        print('  [memoria] %s: %d MB (picco %d MB)' % (tag, st['VmRSS'] // 1024, st['VmHWM'] // 1024), flush=True)
     except Exception:
         pass
 os.makedirs(STAGE, exist_ok=True)
@@ -1068,15 +1068,16 @@ if dets:
             for piece in ([g_] if g_.geom_type == 'LineString' else getattr(g_, 'geoms', [])):
                 if piece.geom_type == 'LineString' and piece.length >= 1.0:
                     cut.append((k_, h_, list(piece.coords)))
-        # recinzioni e muri OSM gia' presenti nel DBGT (entro 1,5 m per oltre meta' della lunghezza): tolti
-        db_ = [_DL(p).buffer(1.5) for _, _, p in cut]
-        dtree = _DT(db_)
+        # recinzioni e muri OSM gia' presenti nel DBGT (entro 1,5 m per oltre meta' della lunghezza): tolti.
+        # Si indicizzano le linee DBGT e si allargano solo quelle vicine a una recinzione OSM.
+        dl_ = [_DL(p) for _, _, p in cut]
+        dtree = _DT(dl_)
         keep, gone = [], 0
         for k_, h_, pts in barriers:
             if k_ == 3 or len(pts) < 2:       # guardrail: restano
                 keep.append((k_, h_, pts)); continue
             line = _DL(pts)
-            cand = [db_[i] for i in dtree.query(line)]
+            cand = [dl_[i].buffer(1.5) for i in dtree.query(line.buffer(1.5))]
             cov = 0.0
             if cand:
                 rest = line
@@ -1090,14 +1091,19 @@ if dets:
             else:
                 keep.append((k_, h_, pts))
         barriers[:] = keep + cut
+        del dl_, dtree, rb, rtree, new_bar
         dstat['recinzioni e muri'] = len(cut); dstat['recinzioni OSM doppie tolte'] = gone
     # superfici nella mappa dei colori del terreno
+    # (si disegnano piu' avanti leggendo le coordinate dalla tabella compatta: niente copie)
     for kind in ('veh', 'ped', 'cyc', 'yard', 'green', 'sport', 'isl', 'ind'):
-        for ty, ring in dets.get(kind, []):
+        st_ = dets.get(kind)
+        if not st_:
+            continue
+        for i, ty in enumerate(st_.codes):
             cls = _surf_class(kind, ty)
-            if not cls or len(ring) < 4:
+            if not cls or st_.off[i + 1] - st_.off[i] < 4:
                 continue
-            landcover_polys.append((SURF_PRIO[cls], LC[cls][1], [ring], []))
+            landcover_polys.append((SURF_PRIO[cls], LC[cls][1], ('dbgt', kind, i), []))
             dstat['superfici ' + cls] += 1
     # manufatti industriali come piccoli edifici (se non ci sono gia')
     if dets.get('ind'):
@@ -1141,7 +1147,8 @@ if dets:
             points.append((16, x, z, '')); dstat['pali di linea'] += 1
     print('DBGT dettagli:', dict(dstat))
     rss('dettagli DBGT')
-dets = None      # i dati grezzi non servono piu'
+for k_ in [k_ for k_ in dets if k_ in ('tree', 'row', 'div', 'wall', 'pole')]:
+    del dets[k_]     # gia' usati; le superfici servono ancora alla mappa dei colori
 import gc
 gc.collect()
 
@@ -1409,6 +1416,13 @@ if alti['pts'] or alti['roads']:
     HMETA = {'nx': nx2, 'nz': nz2, 'step': STEP2, 'x0': x0g, 'z0': z0g, 'scale': 0.1}
     HGRID = G.astype(np.float32)
     HEIGHT_CHANGED = True
+    # campioni e griglie di lavoro non servono piu'
+    for _v in ('G', 'S', 'W_', 'P_', 'B_', 'R_', 'rs', 'seg', 'MASK', 'num', 'den', 'res', 'r0', 'gx', 'gz', 'ix', 'iz', 'fx', 'fz', 'corners', 'smp', 'acc_h', 'ok', 'inside_'):
+        globals().pop(_v, None)
+    alti = {'pts': [], 'roads': []}
+    import gc as _gc
+    _gc.collect()
+    rss('altimetria liberata')
 
 # ------------------------------------------------------------------ rete stradale: nodi, semplificazione
 use_count = defaultdict(int)
@@ -1930,7 +1944,18 @@ MPP = CFG['landcover_m_per_px']
 LW = int(math.ceil((P.xmax - P.xmin) / MPP))
 LH = int(math.ceil((P.zmax - P.zmin) / MPP))
 rss('prima mappa colori')
-img = Image.new('RGB', (LW, LH), LC_DEFAULT)
+# immagine a tavolozza fissa (un byte per pixel): i colori sono solo quelli della copertura del suolo,
+# quindi non serve un'immagine a colori pieni da ridurre dopo (4 m/pixel: 77 milioni di pixel)
+PAL = []
+for c_ in [LC_DEFAULT] + [v[1] for v in LC.values()] + [WATER_RGB] + [c for c, _, _ in lc_lines]:
+    if tuple(c_) not in PAL:
+        PAL.append(tuple(c_))
+PAL.append(tuple(HOLE_RGB))          # ultimo: imbocchi delle gallerie
+PI = {c_: i for i, c_ in enumerate(PAL)}
+HOLE_I = len(PAL) - 1
+FLATPAL = [v for c_ in PAL for v in c_] + [0] * (768 - 3 * len(PAL))
+img = Image.new('P', (LW, LH), PI[tuple(LC_DEFAULT)])
+img.putpalette(FLATPAL)
 
 
 def to_px(pts):
@@ -1938,12 +1963,15 @@ def to_px(pts):
 
 
 landcover_polys.sort(key=lambda p: p[0])
+d = ImageDraw.Draw(img)
 for pr, col, outers, inners in landcover_polys:
+    ci = PI[tuple(col)]
+    if isinstance(outers, tuple):            # superficie DBGT: coordinate dalla tabella compatta
+        outers = [dets[outers[1]].pts(outers[2])]
     if not inners:
-        d = ImageDraw.Draw(img)
         for r in outers:
             if len(r) >= 3:
-                d.polygon(to_px(r), fill=col)
+                d.polygon(to_px(r), fill=ci)
         continue
     allp = [p for r in outers for p in to_px(r)]
     x0 = max(0, int(min(p[0] for p in allp)) - 1); x1 = min(LW, int(max(p[0] for p in allp)) + 2)
@@ -1958,7 +1986,10 @@ for pr, col, outers, inners in landcover_polys:
     for r in inners:
         if len(r) >= 3:
             md.polygon([(a - x0, b - y0) for a, b in to_px(r)], fill=0)
-    img.paste(Image.new('RGB', mask.size, col), (x0, y0), mask)
+    img.paste(ci, (x0, y0, x1, y1), mask)
+dets = None
+landcover_polys = None
+gc.collect()
 # aree edificate non mappate come landuse: attorno agli edifici reali il terreno
 # "non classificato" diventa tessuto urbano (serve anche a marciapiedi e lampioni)
 mask = Image.new('L', (LW, LH), 0)
@@ -1970,29 +2001,25 @@ for b in buildings:
     md.line(pp + [pp[0]], fill=255, width=bw)
 rss('colori disegnati')
 arr = np.array(img)
-isdef = np.all(arr == np.array(LC_DEFAULT, np.uint8), axis=2)
-arr[isdef & (np.asarray(mask) > 0)] = LC['residential'][1]
-img = Image.fromarray(arr)
+arr[(arr == PI[tuple(LC_DEFAULT)]) & (np.asarray(mask) > 0)] = PI[tuple(LC['residential'][1])]
+img = Image.fromarray(arr, 'P')
+img.putpalette(FLATPAL)
 del arr, mask
 d = ImageDraw.Draw(img)
 for col, width, pts in lc_lines:
-    d.line(to_px(pts), fill=col, width=max(1, int(round(width / MPP))))
+    d.line(to_px(pts), fill=PI[tuple(col)], width=max(1, int(round(width / MPP))))
+for wd, run in tunnel_holes:
+    # colore riservato per le aperture delle gallerie
+    d.line(to_px(run), fill=HOLE_I, width=max(2, int(round(wd / MPP))))
 buf = io.BytesIO()
-rss('prima quantize')
-imq = img.quantize(colors=47, method=Image.Quantize.MEDIANCUT, dither=Image.Dither.NONE)
-if tunnel_holes:
-    # colore riservato per le aperture delle gallerie: una voce in piu' nella tavolozza
-    pal = imq.getpalette()[:47 * 3] + list(HOLE_RGB)
-    imq.putpalette(pal + [0] * (768 - len(pal)))
-    hd = ImageDraw.Draw(imq)
-    for wd, run in tunnel_holes:
-        hd.line(to_px(run), fill=47, width=max(2, int(round(wd / MPP))))
-imq.save(buf, 'PNG', optimize=True)
+rss('prima del salvataggio')
+img.save(buf, 'PNG', optimize=True, bits=8)
 png = buf.getvalue()
 lcjs = os.path.join(STAGE, 'landcover.js')
 with open(lcjs, 'w') as f:
     f.write('BDS_DATA("landcover","png","%s");\n' % base64.b64encode(png).decode())
-img.resize((LW // 4, LH // 4)).save(os.path.join(height_dir, 'landcover_preview.png'))
+img.resize((LW // 4, LH // 4), Image.NEAREST).convert('RGB').save(os.path.join(height_dir, 'landcover_preview.png'))
+del img, png, buf
 print('landcover', LW, LH, os.path.getsize(lcjs))
 rss('mappa dei colori')
 
