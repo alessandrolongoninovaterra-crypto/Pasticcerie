@@ -47,6 +47,17 @@ si salta. Vanno bene assi, grilletti analogici e tasti. La configurazione si sal
 quel modello di gamepad; *Ripristina predefiniti* la cancella. Nella stessa finestra si vedono in
 tempo reale i valori di assi e tasti.
 
+### Caccia a reazione
+
+Nel menu c'è anche un **caccia a reazione** biposto (modello originale, senza insegne) per gli
+spostamenti veloci: parte in volo a 500 m e 580 km/h, arriva a circa 900 km/h a manetta piena e va
+da Milano a Lecco in circa tre minuti. Comandi come l'aereo da turismo; oltre l'85% di manetta si
+accende il postbruciatore (fiamma all'ugello). Senza comandi tiene la quota; rolla molto più in
+fretta e si inclina fino a 80°, il carrello rientra sopra i 40 m. Decolla da terra a ~275 km/h
+(serve un rettilineo lungo, per esempio la SS36) e atterra sotto i 340 km/h. Tetto: 4.500 m dal
+suolo. La telecamera esterna segue il mezzo nel suo sistema di riferimento, quindi resta alla
+stessa distanza anche a 900 km/h.
+
 ### Aereo da turismo
 
 L'ultima scelta del menu è un piccolo monomotore ad ala alta (modello originale, non riproduce un

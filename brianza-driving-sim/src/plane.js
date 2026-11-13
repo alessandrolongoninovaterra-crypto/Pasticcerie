@@ -12,6 +12,8 @@ export const PLANE_SPEC = {
   color: '#f4f4f0', stripe: '#c0392b',
   L: 7.3, W: 10.2, H: 2.6, wb: 1.6, mass: 760, kw: 85, rpmMax: 2700,
   thrust: 3600, cdS: 0.9, kInd: 310000, wingS: 15, vStall: 20, vRot: 24, vNe: 75,
+  // parametri condivisi con il caccia (src/jet.js)
+  rollRate: 1.3, pitchRate: 0.65, maxBank: 1.05, ceiling: 1800, vLandMax: 40, launchAlt: 250, launchSpeed: 48,
 };
 
 export class Plane {
@@ -40,7 +42,7 @@ export class Plane {
   }
 
   // in volo livellato sopra il punto attuale
-  launch(alt = 250, speed = 48) {
+  launch(alt = this.spec.launchAlt, speed = this.spec.launchSpeed) {
     this.y = this.ground(this.x, this.z) + alt;
     this.u = speed; this.vy = 0; this.pitch = 0.03; this.bank = 0; this.lever = 0.65;
     this.onGround = false; this.airborne = true; this.crashed = 0; this.surface = null;
@@ -97,17 +99,19 @@ export class Plane {
     const lf = Math.min(1, (this.u / s.vStall) ** 2);       // portanza disponibile rispetto al peso
     this.stall = lf < 0.98;
     // alettoni: inclinazione con rateo limitato; senza comandi l'ala torna piano orizzontale
-    const pRate = 1.3 * Math.min(1, this.u / 25);
+    const pRate = s.rollRate * Math.min(1, this.u / (s.vStall * 1.25));
     if (Math.abs(inp.steer) > 0.05) this.bank += inp.steer * pRate * dt;
     else this.bank *= Math.exp(-dt * 0.9);
-    this.bank = Math.max(-1.05, Math.min(1.05, this.bank));
+    this.bank = Math.max(-s.maxBank, Math.min(s.maxBank, this.bank));
     // equilibratore: cabra/picchia; in virata stretta serve un po' di cabrata per non perdere quota
-    const qRate = 0.65 * Math.min(1, this.u / 30);
+    const qRate = s.pitchRate * Math.min(1, this.u / (s.vStall * 1.5));
     this.pitch += inp.pitch * qRate * dt;
     if (Math.abs(inp.pitch) < 0.05) {
       // trim automatico: volo livellato, ma senza scendere sotto ~1,35 volte la velocita' di stallo
       // (a motore ridotto l'aereo plana invece di perdere velocita' fino allo stallo)
-      const trim = Math.max(-0.16, Math.min(0.04, 0.02 + 0.5 * (this.u - 1.35 * s.vStall) / s.vStall));
+      // (il caccia invece tiene la quota: annulla la velocita' verticale)
+      const trim = s.jet ? Math.max(-0.08, Math.min(0.08, -0.6 * this.vy / Math.max(40, this.u)))
+        : Math.max(-0.16, Math.min(0.04, 0.02 + 0.5 * (this.u - 1.35 * s.vStall) / s.vStall));
       this.pitch += (trim - this.pitch) * Math.min(1, dt * 0.5);
     }
     if (this.stall) this.pitch -= (1 - lf) * 0.9 * dt;                                            // in stallo il muso cade
@@ -125,12 +129,12 @@ export class Plane {
     this.x += fx * this.u * dt; this.z += fz * this.u * dt;
     this.y += this.vy * dt;
     // tetto e confini dell'area
-    const top = gy + 1800;
+    const top = gy + s.ceiling;
     if (this.y > top) { this.y = top; this.vy = Math.min(0, this.vy); }
-    const T0 = W.terrain;
+    const T0 = W.terrain, pj = T0.proj;
     if (!T0.inside(this.x, this.z)) {
-      this.x = Math.max(T0.x0 + 50, Math.min(T0.x0 + (T0.nx - 1) * T0.step - 50, this.x));
-      this.z = Math.max(T0.z0 + 50, Math.min(T0.z0 + (T0.nz - 1) * T0.step - 50, this.z));
+      this.x = Math.max(pj.xmin + 50, Math.min(pj.xmax - 50, this.x));
+      this.z = Math.max(pj.zmin + 50, Math.min(pj.zmax - 50, this.z));
       this.h += Math.PI * 0.75 * dt * 4; this.outside = 1;
     }
     // urto con gli edifici: le pareti contano fino a una ventina di metri dal suolo
@@ -145,9 +149,9 @@ export class Plane {
       // velocita' di avvicinamento al terreno: conta anche il pendio che sale incontro all'aereo
       const rise = (this.ground(this.x + fx * 3, this.z + fz * 3, this.y + 4) - g2) / 3;
       const closing = this.vy - rise * this.u;
-      const hard = closing < -4.2 || Math.abs(this.bank) > 0.35 || this.pitch < -0.18 || this.u > 40;
+      const hard = closing < -4.2 || Math.abs(this.bank) > 0.35 || this.pitch < -0.18 || this.u > s.vLandMax;
       this.y = g2;
-      if (hard) { this.crash(closing < -4.2 && rise > 0.12 ? 'Schianto contro il pendio!' : this.u > 40 ? 'Atterraggio troppo veloce!' : 'Atterraggio troppo duro!'); return; }
+      if (hard) { this.crash(closing < -4.2 && rise > 0.12 ? 'Schianto contro il pendio!' : this.u > s.vLandMax ? 'Atterraggio troppo veloce!' : 'Atterraggio troppo duro!'); return; }
       this.onGround = true; this.airborne = false; this.impact = Math.min(1, -this.vy / 6); this.vy = 0; this.bank = 0;
       this.touchdown = true;
     }

@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { makeCar, registerBody, bodySpec } from './vendor/city/car.js';
 import { PLANE_SPEC } from './plane.js';
+import { JET_SPEC } from './jet.js';
 
 // Parco auto: dati tecnici indicativi. I modelli 3D sono quelli del progetto "city" di
 // donmutti (src/vendor/city/car.js), con carrozzerie derivate per le nostre sei auto.
@@ -17,6 +18,7 @@ export const CARS = [
 ];
 
 CARS.push(PLANE_SPEC);   // aereo da turismo: si sceglie dal menu come un'auto
+CARS.push(JET_SPEC);     // caccia a reazione per gli spostamenti veloci
 for (const c of CARS) if (c.base !== 'bus' && c.kind !== 'plane') registerBody('bds-' + c.id, c.base, { sz: c.sz, sy: c.sy, sx: c.sx, wheelR: c.wheelR });
 const bodyName = (spec) => (spec.base === 'bus' ? 'bus' : 'bds-' + spec.id);
 

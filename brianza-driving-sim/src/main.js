@@ -7,6 +7,7 @@ import { Sky } from './sky.js';
 import { CARS, buildCarModel, drawCluster } from './cars.js';
 import { Vehicle } from './vehicle.js';
 import { Plane, buildPlaneModel, drawPlaneCluster } from './plane.js';
+import { buildJetModel } from './jet.js';
 import { Input, PadWizard, PAD_ACTIONS } from './input.js';
 import { Traffic } from './traffic.js';
 import { Router, routeProgress } from './router.js';
@@ -138,7 +139,9 @@ function setupMenu() {
     if (c.hidden) return;
     const d = document.createElement('div');
     d.className = 'car panel' + (i === G.carIdx ? ' sel' : '');
-    const spec = c.kind === 'plane'
+    const spec = c.jet
+      ? `<span>spinta ${c.thrustKN} kN</span><span>${c.mass} kg</span><span>fino a ~${Math.round(c.vNe * 0.75 * 3.6 / 50) * 50} km/h</span><span>decollo ~${Math.round(c.vRot * 3.6)} km/h</span>`
+      : c.kind === 'plane'
       ? `<span>${Math.round(c.kw * 1.36)} CV</span><span>${c.mass} kg</span><span>apertura ${c.W} m</span><span>decollo ~${Math.round(c.vRot * 3.6)} km/h</span>`
       : `<span>${Math.round(c.kw * 1.36)} CV</span><span>${c.mass} kg</span><span>${c.gears.length} marce aut.</span><span>${{ F: 'Anteriore', R: 'Posteriore', A: '4x4' }[c.drive]}</span>`;
     d.innerHTML = `<div class="sw" style="background:${c.kind === 'plane' ? c.stripe : c.color}"></div><b>${c.kind === 'plane' ? '✈ ' : ''}${c.name}</b><small>${c.desc}</small>
@@ -269,7 +272,7 @@ function makePlayer(spec = CARS[G.carIdx], color = null) {
   if (G.carModel) G.scene.remove(G.carModel.root);
   if (spec.kind === 'plane') {
     G.vehicle = new Plane(spec, G.world);
-    G.carModel = buildPlaneModel(spec, { color });
+    G.carModel = spec.jet ? buildJetModel(spec, { color }) : buildPlaneModel(spec, { color });
   } else {
     G.vehicle = new Vehicle(spec, G.world);
     G.carModel = buildCarModel(spec, { interior: true, color });
@@ -446,7 +449,7 @@ function snapToLane(v) {
 
 function respawnOnRoad() {
   const v = G.vehicle, R = G.roads;
-  if (v.isPlane) { v.launch(250, 45); G.camInit = true; showToast('Di nuovo in volo a 250 m', 1200); return; }
+  if (v.isPlane) { v.launch(); G.camInit = true; showToast(`Di nuovo in volo a ${v.spec.launchAlt} m`, 1200); return; }
   const nr = R.nearest(v.x, v.z, 300, (w) => w.drivable && w.cls <= CLS.SERVICE);
   if (!nr) return;
   const w = R.ways[nr.wi], a = w.nodes[nr.k], b = w.nodes[nr.k + 1];
@@ -751,7 +754,7 @@ function togglePause(on) {
 }
 
 // ------------------------------------------------------------------ telecamera
-const camPos = new THREE.Vector3(), camLook = new THREE.Vector3(), tmpV = new THREE.Vector3();
+const camPos = new THREE.Vector3(), camOff = new THREE.Vector3(), camLook = new THREE.Vector3(), tmpV = new THREE.Vector3();
 const CAM_NAMES = ['Visuale esterna', 'Visuale abitacolo', 'Visuale cofano', 'Visuale esterna lontana'];
 function updateCamera(dt, lookBack) {
   const v = G.vehicle, cam = G.camera, m = G.carModel, f = G.foot, o = G.orbit;
@@ -769,11 +772,14 @@ function updateCamera(dt, lookBack) {
     const hgt = f.on ? 2.5 : mode === 0 ? 2.1 + v.spec.H * 0.4 : 4.2, lookY = f.on ? 1.3 : 1.2;
     const yaw = p.h + o.yaw + (lookBack ? Math.PI : 0);
     const cp = Math.cos(o.pitch), sp = Math.sin(o.pitch);
-    const target = tmpV.set(p.x - Math.sin(yaw) * dist * cp, p.y + hgt + dist * sp, p.z - Math.cos(yaw) * dist * cp);
-    const gh = G.roads.surfaceAt(target.x, target.z, p.y + 3).h;
-    target.y = Math.max(target.y, gh + 0.8);
-    if (G.camInit) { camPos.copy(target); G.camInit = false; }
-    camPos.lerp(target, 1 - Math.exp(-dt * (lookBack || o.idle < 0.3 ? 30 : f.on ? 9 : 7)));
+    // si smussa la posizione della telecamera RISPETTO al veicolo: a qualsiasi velocita' (anche il
+    // caccia a 900 km/h) resta alla distanza voluta, solo le rotazioni arrivano con un po' di ritardo
+    const off = tmpV.set(-Math.sin(yaw) * dist * cp, hgt + dist * sp, -Math.cos(yaw) * dist * cp);
+    if (G.camInit) { camOff.copy(off); G.camInit = false; }
+    camOff.lerp(off, 1 - Math.exp(-dt * (lookBack || o.idle < 0.3 ? 30 : f.on ? 9 : 7)));
+    camPos.set(p.x, p.y, p.z).add(camOff);
+    const gh = G.roads.surfaceAt(camPos.x, camPos.z, p.y + 3).h;
+    camPos.y = Math.max(camPos.y, gh + 0.8);
     cam.position.copy(camPos);
     const ahead = f.on ? 0.5 : 4;
     camLook.set(p.x + Math.sin(yaw) * ahead, p.y + lookY, p.z + Math.cos(yaw) * ahead);
@@ -867,7 +873,7 @@ function loop(now) {
   if (G.loadingWorld) {
     if (G.world.ready(v.x, v.z)) {
       G.loadingWorld = false;
-      if (v.pendingLaunch) { v.pendingLaunch = false; v.launch(250, 45); G.camInit = true; showToast('✈ In volo sopra la Brianza — W/S manetta, ↑/↓ cabra/picchia, A/D vira', 4500); }
+      if (v.pendingLaunch) { v.pendingLaunch = false; v.launch(); G.camInit = true; showToast((v.spec.jet ? '✈ Caccia in volo a 500 m — W/S manetta (oltre 85% postbruciatore)' : '✈ In volo sopra la Brianza — W/S manetta') + ', ↑/↓ cabra/picchia, A/D vira', 4500); }
       else if (!v.isPlane || v.onGround) { snapToLane(v); const s = G.roads.surfaceAt(v.x, v.z, 1e9); v.y = s.h; }
     } else { ctl.throttle = 0; ctl.brake = 1; }
   }
@@ -899,6 +905,12 @@ function loop(now) {
   m.root.rotation.set(-(v.pitch + v.dynPitch), v.h, v.roll + v.dynRoll, 'YXZ');
   for (const w of m.wheels) { w.pivot.rotation.x = v.wheelSpinAngle || 0; if (w.front) w.pivot.rotation.y = v.steer; }
   if (m.prop) m.prop.rotation.z = v.propAngle || 0;
+  if (m.gear) { const down = v.onGround || v.agl < 40; for (const o of m.gear) o.visible = down; }   // carrello retrattile
+  if (m.flame) {   // postbruciatore del caccia: si accende con la manetta oltre l'85%
+    const ab = Math.max(0, (v.lever - 0.85) / 0.15);
+    m.flame.visible = v.lever > 0.05 && !v.crashed;
+    m.flame.scale.set(0.6 + ab * 0.5, 0.6 + ab * 0.5, 0.25 + v.lever * 0.4 + ab * 0.8 + Math.random() * 0.05);
+  }
   if (m.steeringWheel) m.steeringWheel.rotation.z = -v.steer * 7;
   const lights = !f.on && (G.lightsOn || G.sky.night > 0.55 || (G.tunnelK || 0) > 0.5);
   if (m.headlight) m.headlight.intensity = lights ? 70 : 0;
