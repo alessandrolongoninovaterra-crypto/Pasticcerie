@@ -36,9 +36,55 @@ def _dbf_fields(fobj):
     return out
 
 
-def layer_kind(names):
+# Dettagli dell'ambiente (classi del Catalogo dei dati territoriali, D.M. 10/11/2011):
+# codice della classe -> (tipo nel formato compatto, campo con il tipo/attributo da tenere)
+DETAIL = {
+    'ALBERO': ('tree', 'albero_ty'),     # albero isolato (punto)
+    'FIL_AL': ('row', 'fil_al_ty'),      # filare: 01 alberi, 02 siepi
+    'EL_DIV': ('div', 'el_div_ty'),      # elemento divisorio: 02 cancellata, 04 filo spinato, 13 rete, 17 recinzione, 18 staccionata, 19 siepe
+    'MU_SOS': ('wall', 'msos_ty'),       # muro di sostegno, terrapieno, gabbionata, terrazzamento
+    'AC_VEI': ('veh', None),             # area di circolazione veicolare (carreggiata)
+    'AC_PED': ('ped', 'ac_ped_pos'),     # area di circolazione pedonale (marciapiedi, piazze)
+    'AC_CIC': ('cyc', None),             # area di circolazione ciclabile
+    'AATT': ('yard', 'aatt_ty'),         # area attrezzata del suolo: cortili, corti, aie, vialetti
+    'AR_VRD': ('green', 'ar_vrd_ty'),    # area verde: giardino, prato, aiuola, siepe
+    'MN_IND': ('ind', 'mn_ind_ty'),      # manufatto industriale: cabine, silos, serbatoi, serre, vasche
+    'ATTR_SP': ('sport', 'attr_sp_ty'),  # attrezzatura sportiva: piscine, campi, piste
+    'PALO': ('pole', 'palo_imp'),        # palo: 06 linea elettrica, 07 telefonica, 08 illuminazione
+    'MAN_TR': ('isl', 'man_tr_ty'),      # manufatto di trasporto: spartitraffico, isole, rotatorie
+}
+DETAIL_KINDS = tuple(k for k, _ in DETAIL.values())
+_DETAIL_BY_KIND = {k: (code, f) for code, (k, f) in DETAIL.items()}
+
+
+def detail_code(name):
+    """Codice della classe nel nome di una tabella o di un file (A0602_AR_VRD, AR_VRD_AR_VRD_SUP...).
+    Restituisce (codice, True se e' la tabella principale della classe) oppure (None, False)."""
+    n = re.sub(r'\.[a-z]+$', '', os.path.basename(str(name))).upper()
+    for code in sorted(DETAIL, key=len, reverse=True):
+        if n == code or n.endswith('_' + code):
+            return code, True
+        if n.startswith(code + '_'):
+            return code, False
+    return None, False
+
+
+def layer_kind(names, name=''):
     """Tipo di livello dai nomi dei campi: vol (unita' volumetriche), body (corpi edificati),
-    quo (punti quotati), cv (curve di livello), str (assi stradali con quota)."""
+    quo (punti quotati), cv (curve di livello), str (assi stradali con quota); per i dettagli
+    (alberi, recinzioni, superfici...) dal campo del tipo o dal nome della tabella/file."""
+    k = _layer_kind(names)
+    if k:
+        return k
+    low = [n.lower() for n in names]
+    for code, (kind, field) in DETAIL.items():
+        if field and any(n.endswith(field) for n in low):
+            return kind
+    code, _ = detail_code(name)
+    return DETAIL[code][0] if code else None
+
+
+def _layer_kind(names):
     names = [n.lower() for n in names]
     if any(n.endswith('un_vol_av') for n in names):
         return 'vol'
@@ -150,7 +196,7 @@ def _extract(folder, work):
             if '.dbf' not in parts or '.shp' not in parts:
                 continue
             with zf.open(parts['.dbf']) as fh:
-                if not layer_kind(_dbf_fields(fh)):
+                if not layer_kind(_dbf_fields(fh), base):
                     continue
             dest = os.path.join(work, tag)
             for m in parts.values():
@@ -184,7 +230,7 @@ def _extract(folder, work):
                 dbf = os.path.splitext(p)[0] + '.dbf'
                 if os.path.exists(dbf):
                     with open(dbf, 'rb') as fh:
-                        if layer_kind(_dbf_fields(fh)):
+                        if layer_kind(_dbf_fields(fh), p):
                             shps.append(p)
     print('  livelli DBGT trovati:', len(shps), 'shapefile,', len(gpkgs), 'GeoPackage,', len(compact), 'file compatti')
     for x in (shps + gpkgs + compact)[:12]:
@@ -194,16 +240,38 @@ def _extract(folder, work):
 
 # ------------------------------------------------------------------ GeoPackage
 def gpkg_layers(path):
-    """[(tabella, colonna geometria, wkt del sistema, tipo, colonne)] dei livelli degli edifici."""
+    """[(tabella, colonna geometria, wkt del sistema, tipo, colonne, tabella dei tipi o None)].
+    Nei GeoPackage del DBGT comunale molte classi tengono gli attributi in una tabella senza
+    geometria (AR_VRD) e la geometria in una tabella collegata (AR_VRD_AR_VRD_SUP, campo CLASSREF
+    = CLASSID): in quel caso l'ultimo elemento e' la tabella da cui leggere il tipo."""
     try:
         db = sqlite3.connect('file:%s?mode=ro' % path, uri=True)
         out = []
         srs = dict(db.execute('select srs_id, definition from gpkg_spatial_ref_sys'))
-        for table, col, srs_id in db.execute('select table_name, column_name, srs_id from gpkg_geometry_columns').fetchall():
-            cols = [r[1] for r in db.execute('pragma table_info("%s")' % table.replace('"', '""'))]
-            kind = layer_kind(cols)
+        geo = db.execute('select table_name, column_name, srs_id from gpkg_geometry_columns').fetchall()
+        tables = {r[0] for r in db.execute("select name from sqlite_master where type='table'")}
+        cols_of = lambda t: [r[1] for r in db.execute('pragma table_info("%s")' % t.replace('"', '""'))]
+        sub = {}
+        for table, col, srs_id in geo:
+            cols = cols_of(table)
+            kind = _layer_kind(cols)
             if kind:
-                out.append((table, col, srs.get(srs_id, ''), kind, cols))
+                out.append((table, col, srs.get(srs_id, ''), kind, cols, None))
+                continue
+            code, main = detail_code(table)
+            if not code:
+                continue
+            if main:
+                out.append((table, col, srs.get(srs_id, ''), DETAIL[code][0], cols, None))
+            elif any(c.lower() == 'classref' for c in cols):
+                sub.setdefault(code, []).append((table, col, srs.get(srs_id, ''), DETAIL[code][0], cols))
+        have = {k for *_, k, _c, _p in out}
+        for code, cands in sub.items():
+            kind = DETAIL[code][0]
+            if kind in have:
+                continue
+            parent = next((t for t in tables if t.upper() == code), None)
+            out.append(min(cands, key=lambda c: len(c[0])) + (parent,))
         db.close()
         return out
     except sqlite3.Error:
@@ -273,9 +341,16 @@ def _num(v):
         return 0.0
 
 
+def cols_of_db(db, table):
+    return [r[1] for r in db.execute('pragma table_info("%s")' % table.replace('"', '""'))]
+
+
 def _attrs(kind, rec):
     """Attributi utili, indipendentemente dal prefisso dei nomi dei campi."""
     get = lambda suffix: next((v for k, v in rec.items() if k.endswith(suffix)), '')
+    if kind in DETAIL_KINDS:
+        f = _DETAIL_BY_KIND[kind][1]
+        return [get(f)] if f else []
     if kind == 'vol':
         return [get('un_vol_av'), get('un_vol_por'), get('un_vol_ex')]
     if kind == 'quo':
@@ -320,18 +395,27 @@ def iter_layers(folder, work):
     """(tipo, wkt del sistema di riferimento, [(attributi, anelli)]) per ogni livello trovato."""
     shps, compact, gpkgs = _extract(folder, work)
     for gp in gpkgs:
-        for table, col, wkt, kind, cols in gpkg_layers(gp):
+        for table, col, wkt, kind, cols, parent in gpkg_layers(gp):
             db = sqlite3.connect('file:%s?mode=ro' % gp, uri=True)
+            join = None
+            if parent:   # tipo dalla tabella principale della classe (CLASSID -> attributi)
+                pc = cols_of_db(db, parent)
+                join = {}
+                for row in db.execute('select %s from "%s"' % (', '.join('"%s"' % c for c in pc), parent)):
+                    rec = {k.lower(): ('' if v is None else str(v).strip()) for k, v in zip(pc, row)}
+                    join[rec.get('classid', '')] = rec
             n = db.execute('select count(*) from "%s"' % table).fetchone()[0]
             print('  lettura', os.path.basename(gp), table, n, 'oggetti')
             q = 'select "%s", %s from "%s"' % (col, ', '.join('"%s"' % c for c in cols if c != col), table)
             other = [c.lower() for c in cols if c != col]
 
-            def gen(db=db, q=q, other=other, kind=kind):
+            def gen(db=db, q=q, other=other, kind=kind, join=join):
                 for row in db.execute(q):
                     if not row[0]:
                         continue
                     rec = {k: ('' if v is None else str(v).strip()) for k, v in zip(other, row[1:])}
+                    if join is not None:
+                        rec = dict(join.get(rec.get('classref', ''), {}), **rec)
                     try:
                         parts = gpkg_parts(row[0])
                     except (ValueError, struct.error):
@@ -341,7 +425,7 @@ def iter_layers(folder, work):
             yield kind, wkt, gen(), _source_name(gp)
     for shp in shps:
         recs = read_dbf(os.path.splitext(shp)[0] + '.dbf')
-        kind = layer_kind(list(recs[0].keys()) if recs and recs[0] else [])
+        kind = layer_kind(list(recs[0].keys()) if recs and recs[0] else [], shp)
         if not kind:
             continue
         geoms = read_shp(shp)
@@ -373,11 +457,12 @@ def iter_layers(folder, work):
 def load_dbgt(folder, work, fwd, bbox):
     """fwd(lat, lon) -> (x, z) del gioco; bbox = [s, w, n, e].
 
-    Restituisce (volumi, corpi, info, alti):
+    Restituisce (volumi, corpi, info, alti, dettagli):
       volumi: [{'ring': [(x, z)...], 'h': altezza m, 'por', 'ex', 'src', 'z0': quota del piede o None}]
       corpi:  [{'ring': [...], 'uso': codice uso, 'cat': categoria}]
       alti:   {'pts': [(x, z, quota)] punti a terra (punti quotati e curve di livello),
                'roads': [[(x, z, quota)...]] assi stradali con la quota}
+      dettagli: {tipo: [(codice, [(x, z)...])]} per alberi, recinzioni, superfici... (vedi DETAIL)
     """
     try:
         from pyproj import CRS, Transformer
@@ -386,6 +471,7 @@ def load_dbgt(folder, work, fwd, bbox):
     s, w, n, e = bbox
     vols, bodies = [], []
     alti = {'pts': [], 'roads': []}
+    details = {}
     info = Counter()
     inside = lambda lo, la: s - 0.002 <= la <= n + 0.002 and w - 0.002 <= lo <= e + 0.002
     for kind, wkt, recs, src in iter_layers(folder, work):
@@ -434,6 +520,32 @@ def load_dbgt(folder, work, fwd, bbox):
                     flush(); npt = 0
             flush()
             continue
+        if kind in DETAIL_KINDS:
+            # dettagli: punti, linee o anelli esterni, con il tipo; si convertono a blocchi
+            lst = details.setdefault(kind, [])
+            buf = []
+
+            def dflush(buf=buf, tr=tr, lst=lst):
+                if not buf:
+                    return
+                xs = [p[0] for _, g in buf for p in g]; ys = [p[1] for _, g in buf for p in g]
+                lo, la = tr.transform(xs, ys)
+                i = 0
+                for a, g in buf:
+                    pts = [fwd(la[i + j], lo[i + j]) for j in range(len(g))]
+                    if any(inside(lo[i + j], la[i + j]) for j in range(len(g))):
+                        lst.append((a[0] if a else '', pts))
+                    i += len(g)
+                buf.clear()
+            for attrs, rings in recs:
+                for g in rings:
+                    if g:
+                        buf.append((attrs, [(p[0], p[1]) for p in g]))
+                if len(buf) > 20000:
+                    dflush()
+            dflush()
+            info['dettagli_' + kind] = len(lst)
+            continue
         for attrs, rings in recs:
             for pts in rings:
                 if len(pts) < 4:
@@ -454,4 +566,4 @@ def load_dbgt(folder, work, fwd, bbox):
                 else:
                     bodies.append({'ring': ring, 'uso': str(attrs[0]), 'cat': str(attrs[1])})
                     info['uso:' + str(attrs[0] or '-')] += 1
-    return vols, bodies, info, alti
+    return vols, bodies, info, alti, details

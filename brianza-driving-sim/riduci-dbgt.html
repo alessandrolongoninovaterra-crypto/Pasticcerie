@@ -28,7 +28,9 @@
   <p>Questa pagina prende il pacchetto DBGT di Regione Lombardia scaricato dal Geoportale (va bene
   anche quello provinciale da oltre 1 GB, senza estrarlo) e crea uno o più file piccoli con i soli
   edifici e l'altimetria (punti quotati, curve di livello, quote delle strade) dell'area del gioco,
-  ognuno sotto i 28 MB. Tutto avviene nel tuo browser: il file non
+  ognuno sotto i 28 MB. Tiene anche i dettagli dell'ambiente: alberi, filari e siepi, recinzioni,
+  muri di sostegno, carreggiate, marciapiedi, ciclabili, cortili, aree verdi, manufatti industriali,
+  impianti sportivi, pali e isole di traffico. Tutto avviene nel tuo browser: il file non
   viene inviato da nessuna parte.</p>
   <div class="box">
     <label class="pick" for="file">Scegli lo zip (o il .gpkg) del DBGT…</label>
@@ -51,7 +53,7 @@ const progress = (f) => { $('bar').style.width = Math.round(f * 100) + '%'; };
 // ------------------------------------------------------------------ area del gioco (data/meta.js)
 // area predefinita del gioco (lat sud, lon ovest, lat nord, lon est): si usa se data/meta.js non si trova,
 // per esempio quando la pagina viene aperta da sola, fuori dalla cartella del gioco
-const DEFAULT_BBOX = [45.588, 9.128, 45.8, 9.315];
+const DEFAULT_BBOX = [45.588, 9.06, 45.99, 9.415];
 let BBOX = null;
 window.BDS_DATA = async (key, fmt, b64) => {
   if (key !== 'meta') return;
@@ -139,7 +141,31 @@ function dbfFieldNames(b) {
   for (let i = 32; i + 32 <= Math.min(hlen, b.length) && b[i] !== 0x0d; i += 32) out.push(latin1.decode(b.subarray(i, i + 11)).replace(/\0.*$/s, '').trim());
   return out;
 }
-function layerKind(names) {
+// dettagli dell'ambiente (Catalogo dei dati territoriali): classe -> [tipo, campo del tipo]
+const DETAIL = {
+  ALBERO: ['tree', 'albero_ty'], FIL_AL: ['row', 'fil_al_ty'], EL_DIV: ['div', 'el_div_ty'], MU_SOS: ['wall', 'msos_ty'],
+  AC_VEI: ['veh', null], AC_PED: ['ped', 'ac_ped_pos'], AC_CIC: ['cyc', null], AATT: ['yard', 'aatt_ty'], AR_VRD: ['green', 'ar_vrd_ty'],
+  MN_IND: ['ind', 'mn_ind_ty'], ATTR_SP: ['sport', 'attr_sp_ty'], PALO: ['pole', 'palo_imp'], MAN_TR: ['isl', 'man_tr_ty'],
+};
+const DETAIL_KINDS = new Set(Object.values(DETAIL).map((d) => d[0]));
+// codice della classe nel nome di una tabella o di un file: [codice, true se tabella principale]
+function detailCode(name) {
+  const n = String(name || '').replace(/^.*[\\/]/, '').replace(/\.[a-z]+$/i, '').toUpperCase();
+  for (const code of Object.keys(DETAIL).sort((a, b) => b.length - a.length)) {
+    if (n === code || n.endsWith('_' + code)) return [code, true];
+    if (n.startsWith(code + '_')) return [code, false];
+  }
+  return [null, false];
+}
+function layerKind(names, name = '') {
+  const k = baseKind(names);
+  if (k) return k;
+  const low = names.map((n) => n.toLowerCase());
+  for (const [kind, field] of Object.values(DETAIL)) if (field && low.some((n) => n.endsWith(field))) return kind;
+  const [code] = detailCode(name);
+  return code ? DETAIL[code][0] : null;
+}
+function baseKind(names) {
   names = names.map((n) => n.toLowerCase());
   if (names.some((n) => n.endsWith('un_vol_av'))) return 'vol';
   if (names.some((n) => n.startsWith('cr_edf') || n.endsWith('edifc_uso'))) return 'body';
@@ -148,8 +174,11 @@ function layerKind(names) {
   if (names.some((n) => n.endsWith('el_str_sed'))) return 'str';
   return null;
 }
-const WANTED = new Set(['vol', 'quo', 'cv', 'str']);
-const KIND_NAME = { vol: 'unità volumetriche', quo: 'punti quotati', cv: 'curve di livello', str: 'assi stradali con quota' };
+const WANTED = new Set(['vol', 'quo', 'cv', 'str', ...DETAIL_KINDS]);
+const KIND_NAME = { vol: 'unità volumetriche', quo: 'punti quotati', cv: 'curve di livello', str: 'assi stradali con quota',
+  tree: 'alberi', row: 'filari e siepi', div: 'recinzioni', wall: 'muri di sostegno', veh: 'carreggiate', ped: 'aree pedonali',
+  cyc: 'piste ciclabili', yard: 'cortili', green: 'aree verdi', ind: 'manufatti industriali', sport: 'impianti sportivi',
+  pole: 'pali', isl: 'isole di traffico' };
 function readDbf(b) {
   const nrec = u32(b, 4), hlen = u16(b, 8), rlen = u16(b, 10), fields = [];
   for (let i = 32; i + 32 <= hlen && b[i] !== 0x0d; i += 32) fields.push([latin1.decode(b.subarray(i, i + 11)).replace(/\0.*$/s, '').trim().toLowerCase(), b[i + 16]]);
@@ -191,6 +220,7 @@ function* readShp(buf) {
 }
 const pick = (rec, suffix) => { for (const k in rec) if (k.endsWith(suffix)) return rec[k]; return ''; };
 const ATTRS = { vol: ['un_vol_av', 'un_vol_por', 'un_vol_ex'], quo: ['pt_quo_sed'], cv: ['cv_liv_q', 'cv_liv_ty'], str: ['el_str_sed', 'el_str_liv', 'el_str_ty'], body: ['edifc_uso', 'cr_edf_ct'] };
+for (const [kind, field] of Object.values(DETAIL)) ATTRS[kind] = field ? [field] : [];
 const attrsOf = (kind, rec) => ATTRS[kind].map((suf) => pick(rec, suf));
 
 // ------------------------------------------------------------------ ritaglio nelle coordinate del livello
@@ -374,12 +404,30 @@ async function gpkgLayers(blob, tag, found) {
     const t = tables.get('gpkg_geometry_columns'), c = t.cols;
     await db.scan(t.root, (rowid, v) => geomCol.set(v[c.indexOf('table_name')], { col: v[c.indexOf('column_name')], srs: v[c.indexOf('srs_id')] }));
   }
-  for (const [name, t] of tables) {
-    const kind = layerKind(t.cols);
-    if (!WANTED.has(kind)) continue;
+  // nel DBGT comunale molte classi hanno gli attributi in una tabella senza geometria (AR_VRD) e la
+  // geometria in una tabella collegata (AR_VRD_AR_VRD_SUP, CLASSREF = CLASSID)
+  const subs = new Map(), have = new Set();
+  const add = (name, t, kind, parent) => {
     const g = geomCol.get(name) || { col: t.cols.find((c) => /shape|geom/i.test(c)), srs: null };
-    found.push({ base: name, kind, gpkg: { db, t, geomIdx: t.cols.indexOf(g.col) }, prj: (g.srs != null && srs.get(g.srs)) || '' });
+    found.push({ base: name, kind, gpkg: { db, t, geomIdx: t.cols.indexOf(g.col), parent }, prj: (g.srs != null && srs.get(g.srs)) || '' });
+    have.add(kind);
     log(`Trovato: ${tag ? tag + ' › ' : ''}${name} (${KIND_NAME[kind]}, GeoPackage)`);
+  };
+  for (const [name, t] of tables) {
+    if (!geomCol.has(name)) continue;
+    const kind = baseKind(t.cols);
+    if (kind) { if (WANTED.has(kind)) add(name, t, kind, null); continue; }
+    const [code, main] = detailCode(name);
+    if (!code) continue;
+    if (main) add(name, t, DETAIL[code][0], null);
+    else if (t.cols.some((c) => c.toLowerCase() === 'classref')) { if (!subs.has(code)) subs.set(code, []); subs.get(code).push([name, t]); }
+  }
+  for (const [code, list] of subs) {
+    const kind = DETAIL[code][0];
+    if (have.has(kind)) continue;
+    list.sort((a, b) => a[0].length - b[0].length);
+    const pName = [...tables.keys()].find((n) => n.toUpperCase() === code);
+    add(list[0][0], list[0][1], kind, pName ? tables.get(pName) : null);
   }
 }
 
@@ -394,7 +442,7 @@ async function findLayers(blob, tag, found, depth = 0) {
   for (const [base, parts] of byBase) {
     if (!parts.dbf || !parts.shp) continue;
     const head = await entryPrefix(parts.dbf, 8192);
-    const kind = layerKind(dbfFieldNames(head));
+    const kind = layerKind(dbfFieldNames(head), base);
     if (WANTED.has(kind)) { found.push({ base, kind, parts }); log(`Trovato: ${tag ? tag + ' › ' : ''}${base} (${KIND_NAME[kind]})`); }
   }
   for (const en of ents) {
@@ -418,15 +466,23 @@ async function gzipJson(obj) {
 // record di un livello: callback(attributi, [anelli piatti x,y,...])
 async function eachRecord(L, cb) {
   if (L.gpkg) {
-    const { db, t, geomIdx } = L.gpkg, c = t.cols.map((s) => s.toLowerCase());
+    const { db, t, geomIdx, parent } = L.gpkg, c = t.cols.map((s) => s.toLowerCase());
     const ids = ATTRS[L.kind].map((suf) => c.findIndex((n) => n.endsWith(suf)));
+    // tipo dalla tabella principale della classe (CLASSID -> attributi)
+    let join = null, iRef = -1;
+    if (parent) {
+      const pc = parent.cols.map((s) => s.toLowerCase()), iId = pc.indexOf('classid');
+      const pids = ATTRS[L.kind].map((suf) => pc.findIndex((n) => n.endsWith(suf)));
+      join = new Map(); iRef = c.indexOf('classref');
+      await db.scan(parent.root, (rowid, v) => join.set(String(v[iId] ?? rowid).trim(), pids.map((i) => (i < 0 || v[i] == null ? '' : String(v[i]).trim()))));
+    }
     let n = 0;
     await db.scan(t.root, (rowid, v) => {
       const g = v[geomIdx];
       if (!(g instanceof Uint8Array) || g.length < 13) return;
       let parts;
       try { parts = gpkgParts(g); } catch (e) { return; }
-      const a = ids.map((i) => (i < 0 || v[i] == null ? '' : String(v[i]).trim()));
+      const a = join ? (join.get(String(v[iRef] ?? '').trim()) || ids.map(() => '')) : ids.map((i) => (i < 0 || v[i] == null ? '' : String(v[i]).trim()));
       for (const part of parts) cb(a, [part]);
       n++;
     });
@@ -455,7 +511,7 @@ $('file').addEventListener('change', async (ev) => {
     const found = [];
     if (/\.gpkg$/i.test(file.name)) await gpkgLayers(file, '', found);
     else await findLayers(file, '', found);
-    if (!found.length) { log('Nessun livello di edifici o di altimetria trovato. Mandami uno screenshot di questi messaggi.', 'err'); return; }
+    if (!found.length) { log('Nessun livello di edifici, altimetria o dettagli trovato. Mandami uno screenshot di questi messaggi.', 'err'); return; }
     const layers = [];
     let kept = 0, total = 0;
     for (let li = 0; li < found.length; li++) {
@@ -489,7 +545,7 @@ $('file').addEventListener('change', async (ev) => {
           return flat;
         }) };
         const z = rings.length && rings[0].length > 2 ? rings[0][2] : NaN;   // quota del piede dell'edificio
-        if (Number.isFinite(z) && z > 1) rec.z = Math.round(z * 100);
+        if (L.kind === 'vol' && Number.isFinite(z) && z > 1) rec.z = Math.round(z * 100);
         out.push(rec);
       });
       if (qbuf.length) out.push({ p: enc3(qbuf) });

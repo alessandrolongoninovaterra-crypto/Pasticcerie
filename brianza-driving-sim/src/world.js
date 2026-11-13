@@ -278,6 +278,11 @@ export class World {
         t.parts.buildings = null; t.bldPending = true;
       }
       t.bldFar = d >= detail;
+      const veg = t.parts.veg;
+      if (veg && veg.userData.lod) {         // alberi: chioma piena vicino, semplificata lontano
+        const L = veg.userData.lod, near = d < (L.isNear ? 750 : 650);
+        if (near !== L.isNear) { L.isNear = near; for (const m of L.near) m.visible = near; for (const m of L.far) m.visible = !near; }
+      }
     }
     for (const [k, t] of this.tiles) {
       if (!want.has(k) && t.d > (rad + 0.9) * 1000) this.unload(t);

@@ -4,8 +4,10 @@ piu' file compatti con i soli edifici e l'altimetria dell'area del gioco, ognuno
 
 Uso:  python3 tools/dbgt_solo_edifici.py <pacchetto.zip o cartella> [nome_uscita] [--tutto] [--bbox=S,O,N,E]
 
-  * tiene solo gli edifici (unita' volumetriche con la quota del piede) e l'altimetria
-    (punti quotati a terra, curve di livello, assi stradali con la quota);
+  * tiene solo gli edifici (unita' volumetriche con la quota del piede), l'altimetria
+    (punti quotati a terra, curve di livello, assi stradali con la quota) e i dettagli
+    dell'ambiente (alberi, filari, recinzioni, muri, carreggiate, marciapiedi, ciclabili, cortili,
+    aree verdi, manufatti industriali, impianti sportivi, pali, isole di traffico);
   * ritaglia sull'area del gioco letta da data/meta.js (con --tutto non ritaglia; con
     --bbox=lat_sud,lon_ovest,lat_nord,lon_est su un'area a scelta);
   * conserva solo i campi che servono (altezza, tipo di porzione/estrusione, uso);
@@ -17,7 +19,7 @@ import base64, gzip, json, math, os, re, sys, tempfile
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
-from dbgt import iter_layers, ALTI_KINDS  # noqa: E402  (solo libreria standard)
+from dbgt import iter_layers, ALTI_KINDS, DETAIL_KINDS  # noqa: E402  (solo libreria standard)
 
 LIMIT = float(os.environ.get('BDS_DBGT_LIMIT_MB', 28)) * 1024 * 1024
 args = [a for a in sys.argv[1:] if not a.startswith('--')]
@@ -126,7 +128,10 @@ def simplify(pts, tol):
 CV_TOL = 1.5
 
 NAMES = {'vol': 'unita volumetriche', 'body': 'corpi edificati', 'quo': 'punti quotati',
-         'cv': 'curve di livello', 'str': 'assi stradali'}
+         'cv': 'curve di livello', 'str': 'assi stradali', 'tree': 'alberi', 'row': 'filari e siepi',
+         'div': 'recinzioni', 'wall': 'muri di sostegno', 'veh': 'carreggiate', 'ped': 'aree pedonali',
+         'cyc': 'piste ciclabili', 'yard': 'cortili', 'green': 'aree verdi', 'ind': 'manufatti industriali',
+         'sport': 'impianti sportivi', 'pole': 'pali', 'isl': 'isole di traffico'}
 for kind, prj, recs, _src in iter_layers(folder, work):
     rect = clip_rect(prj, bbox)
     out, seen, qbuf = [], 0, []
@@ -146,6 +151,11 @@ for kind, prj, recs, _src in iter_layers(folder, work):
             enc = [delta(simplify(r, CV_TOL) if kind == 'cv' else r, (10, 10, 100)) for r in rings if all(p[2] is not None for p in r)]
             if enc:
                 out.append({'a': [str(a) for a in attrs], 'r': enc})
+            continue
+        if kind in DETAIL_KINDS:     # dettagli: anelli/linee semplificati a 20 cm, punti cosi' come sono
+            rr = [delta(simplify(r, 0.2) if len(r) > 2 else r, (10, 10)) for r in rings if r]
+            if rr:
+                out.append({'a': [str(a) for a in attrs], 'r': rr})
             continue
         if kind == 'vol':
             rec = {'a': [str(a) for a in attrs[:3]], 'r': [delta(r, (10, 10)) for r in rings]}

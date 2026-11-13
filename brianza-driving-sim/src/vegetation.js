@@ -3,7 +3,7 @@ import { hash } from './geo.js';
 
 // Alberi: punti OSM (natural=tree), filari (tree_row) e boschi/parchi/giardini
 // ricavati dalla copertura del suolo reale.
-const DENSITY = { forest: 0.85, wood: 0.85, scrub: 0.35, park: 0.18, garden: 0.12, cemetery: 0.08, residential: 0.035, grass: 0.03, meadow: 0.012, farmland: 0.004, default: 0.02, recreation_ground: 0.04, village_green: 0.05, orchard: 0.3, wetland: 0.2 };
+const DENSITY = { island: 0.02, flowerbed: 0.02, forest: 0.85, wood: 0.85, scrub: 0.35, park: 0.18, garden: 0.12, cemetery: 0.08, residential: 0.035, grass: 0.03, meadow: 0.012, farmland: 0.004, default: 0.02, recreation_ground: 0.04, village_green: 0.05, orchard: 0.3, wetland: 0.2 };
 
 export class Vegetation {
   constructor(terrain, roads) {
@@ -17,6 +17,14 @@ export class Vegetation {
     }
     crown.computeVertexNormals();
     this.crownGeo = crown;
+    // chioma semplificata (20 triangoli invece di 80) per gli alberi lontani
+    const lo = new THREE.IcosahedronGeometry(1, 0), lp = lo.attributes.position;
+    for (let i = 0; i < lp.count; i++) {
+      const x = lp.getX(i), y = lp.getY(i), z = lp.getZ(i);
+      lp.setXYZ(i, x * 1.02, y * 0.92 + 0.1, z * 1.02);
+    }
+    lo.computeVertexNormals();
+    this.crownLoGeo = lo;
     this.coneGeo = new THREE.ConeGeometry(1, 1, 7); this.coneGeo.translate(0, 0.15, 0);
     this.trunkGeo = new THREE.CylinderGeometry(0.12, 0.18, 1, 5);
     this.crownMat = new THREE.MeshLambertMaterial({ color: 0xffffff });
@@ -40,12 +48,15 @@ export class Vegetation {
       }
     }
     const STEP = 11;
+    // dove gli alberi sono rilevati uno per uno (DBGT: migliaia per km2) quelli sparsi a caso nei
+    // giardini e nei parchi si riducono, nei boschi restano
+    const real = tile ? tile.tr.length / 2 : 0, thin = real > 400 ? 0.25 : real > 150 ? 0.6 : 1;
     let seed = (i * 7919 + j * 104729) | 0;
     for (let z = z0 + STEP / 2; z < z0 + size; z += STEP) for (let x = x0 + STEP / 2; x < x0 + size; x += STEP) {
       seed++;
       const jx = x + (hash(seed) - 0.5) * STEP, jz = z + (hash(seed * 3 + 1) - 0.5) * STEP;
       const cls = T.landClass(jx, jz);
-      const d = (DENSITY[cls] || 0) * density;
+      const d = (DENSITY[cls] || 0) * density * (cls === 'forest' || cls === 'wood' ? 1 : thin);
       if (hash(seed * 7 + 5) > d) continue;
       add(jx, jz, 0.75 + hash(seed * 11) * 0.6, (cls === 'forest' || cls === 'wood') && hash(seed * 13) < 0.12);
     }
@@ -83,8 +94,14 @@ export class Vegetation {
     }
     crowns.castShadow = true; trunks.castShadow = false;
     crowns.computeBoundingSphere(); trunks.computeBoundingSphere();
+    // stessi alberi in versione leggera: World.setVegLod sceglie quale mostrare in base alla distanza
+    const crownsLo = new THREE.InstancedMesh(this.crownLoGeo, this.crownMat, crowns.count);
+    crownsLo.instanceMatrix.array.set(crowns.instanceMatrix.array);
+    if (crowns.instanceColor) { crownsLo.instanceColor = new THREE.InstancedBufferAttribute(crowns.instanceColor.array, 3); }
+    crownsLo.castShadow = true; crownsLo.computeBoundingSphere(); crownsLo.visible = false;
     const g = new THREE.Group();
-    g.add(crowns, trunks);
+    g.add(crowns, trunks, crownsLo);
+    g.userData.lod = { near: [crowns, trunks], far: [crownsLo], isNear: true };
     if (cones) { cones.castShadow = true; cones.computeBoundingSphere(); g.add(cones); }
     return g;
   }

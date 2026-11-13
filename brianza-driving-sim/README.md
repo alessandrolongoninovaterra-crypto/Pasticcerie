@@ -235,7 +235,7 @@ segnaletica, edifici, fisica, navigatore, comportamento di pedoni e traffico) è
   navigatore, quindi la dimensione della mappa non pesa più su avvio e memoria. Vedi
   [Struttura dei dati](#struttura-dei-dati).
 
-## Edifici dal DBGT di Regione Lombardia (facoltativo)
+## Edifici, altimetria e dettagli dal DBGT di Regione Lombardia (facoltativo)
 
 Il **DBGT** (Database Geo-Topografico) della Regione contiene le forme degli edifici rilevate
 dalla cartografia comunale e, per ogni porzione di edificio di altezza omogenea ("unità
@@ -251,8 +251,8 @@ colori restano quelli di OSM.
      `brianza-driving-sim/dbgt/` (cartella esclusa da git): la pipeline legge l'intestazione dei
      file dentro lo zip ed estrae solo i livelli degli edifici;
    - oppure, **senza installare nulla**, apri con doppio clic `riduci-dbgt.html` (nella cartella
-     del gioco), scegli lo zip del DBGT e scarica i file ridotti con edifici e altimetria dell'area
-     del gioco, ognuno sotto i 28 MB. Funziona nel browser (Chrome, Edge, Firefox), senza inviare il
+     del gioco), scegli lo zip del DBGT e scarica i file ridotti con edifici, altimetria e dettagli
+     dell'ambiente dell'area del gioco, ognuno sotto i 28 MB. Funziona nel browser (Chrome, Edge, Firefox), senza inviare il
      file da nessuna parte; anche il pacchetto provinciale da oltre 1 GB va bene;
      se la pagina viene aperta da sola (senza la cartella `data/` accanto) ritaglia comunque,
      sull'area predefinita del gioco;
@@ -290,6 +290,29 @@ più volumi in quel comune, per evitare edifici doppi.
 Controlli di qualità applicati ai dati: le porzioni di tipo 08 senza altezza (piccole e quasi mai
 corrispondenti a edifici reali) vengono scartate; le altezze non plausibili per l'impronta (per
 esempio 212 m su 13 m²) vengono considerate mancanti e stimate dalla tipologia.
+
+### Dettagli dell'ambiente dal DBGT
+
+Oltre a edifici e altimetria, riduttore e pipeline tengono i livelli che descrivono l'ambiente
+attorno agli edifici (codici del Catalogo dei dati territoriali, D.M. 10/11/2011):
+
+| Classe DBGT | Nel gioco |
+|---|---|
+| `ALBERO` alberi isolati | alberi (gli alberi OSM entro 3 m vengono tolti; quelli messi a caso in giardini e parchi si riducono) |
+| `FIL_AL` filari | filari di alberi; le siepi diventano siepi |
+| `EL_DIV` elementi divisori | cancellate su muretto, reti, staccionate, siepi, muri di cinta; tagliati dove passa una strada; tolgono le recinzioni OSM doppie e quelle dedotte |
+| `MU_SOS` muri di sostegno | muri lungo la linea mediana del poligono |
+| `AC_VEI`, `AC_PED`, `AC_CIC` | asfalto, pavimentazione pedonale, ciclabili nella mappa dei colori del terreno |
+| `AATT` aree attrezzate | cortili, corti, aie, vialetti (pavimentati: l'auto tiene come su strada) |
+| `AR_VRD` aree verdi | giardini, prati, aiuole, siepi |
+| `ATTR_SP` attrezzature sportive | piscine, campi da calcio, tennis in terra rossa, piste |
+| `MAN_TR` manufatti di trasporto | isole di traffico e spartitraffico |
+| `MN_IND` manufatti industriali | cabine elettriche, silos e serbatoi (altezza dal diametro), ciminiere, serre; vasche e pannelli solari come superfici |
+| `PALO` pali | lampioni (illuminazione pubblica) e pali delle linee elettriche e telefoniche |
+
+Box, tettoie e baracche (`EDI_MIN`) sono già tra le unità volumetriche. Esempio, Cabiate (3,2 km²):
+8.370 alberi, 5.923 recinzioni e muri, 2.552 cortili, 3.393 aree verdi; il file compatto passa da
+0,35 a 0,65 MB.
 
 ### Altimetria dal DBGT
 

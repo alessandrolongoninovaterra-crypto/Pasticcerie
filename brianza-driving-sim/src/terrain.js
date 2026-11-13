@@ -156,7 +156,7 @@ export class Terrain {
 
   isUrban(x, z) {
     const k = this.landClass(x, z);
-    return k === 'residential' || k === 'commercial' || k === 'retail' || k === 'industrial' || k === 'parking' || k === 'construction';
+    return k === 'residential' || k === 'commercial' || k === 'retail' || k === 'industrial' || k === 'parking' || k === 'construction' || k === 'yard' || k === 'asphalt';
   }
 
   makeMaterial(detailTex, map) {

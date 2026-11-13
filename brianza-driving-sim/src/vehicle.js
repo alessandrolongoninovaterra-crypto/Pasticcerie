@@ -82,7 +82,7 @@ export class Vehicle {
     const way = onRoad ? W.roads.ways[surf.road.wi] : null;
     // fuori dalla carreggiata: piazzali e parcheggi asfaltati tengono come la strada, l'erba no
     let paved = false;
-    if (!onRoad) { const lc = W.terrain.landClass(this.x, this.z); paved = lc === 'parking' || lc === 'parking_space' || lc === 'pedestrian'; }
+    if (!onRoad) { const lc = W.terrain.landClass(this.x, this.z); paved = lc === 'parking' || lc === 'parking_space' || lc === 'pedestrian' || lc === 'asphalt' || lc === 'yard' || lc === 'cycleway' || lc === 'running_track'; }
     let mu = s.grip * (onRoad ? ((way.flags & 64) ? 0.78 : 1.0) : paved ? 0.95 : 0.68);
     let crr = onRoad ? ((way.flags & 64) ? 0.03 : 0.013) : paved ? 0.016 : 0.06;
     if (s.drive === 'A' && !onRoad) { mu *= 1.12; crr *= 0.7; }

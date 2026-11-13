@@ -260,6 +260,10 @@ LC = {  # nome -> (priorita', colore RGB)
     'parking': (9, (112, 112, 110)), 'water': (10, (62, 104, 142)), 'reservoir': (10, (62, 104, 142)),
     'basin': (10, (62, 104, 142)), 'riverbank': (10, (62, 104, 142)), 'bare_rock': (7, (160, 156, 146)),
     'pedestrian': (9, (176, 168, 152)), 'parking_space': (9, (112, 112, 110)),
+    # superfici dal DBGT
+    'asphalt': (9, (104, 104, 106)), 'yard': (9, (168, 162, 148)), 'cycleway': (9, (152, 98, 88)),
+    'flowerbed': (9, (76, 126, 56)), 'island': (9, (110, 138, 88)), 'clay': (9, (178, 106, 74)),
+    'running_track': (9, (170, 90, 72)), 'pool': (9, (78, 160, 200)), 'solar': (9, (46, 56, 80)),
 }
 LC_DEFAULT = (128, 150, 84)
 WATER_RGB = (62, 104, 142)
@@ -728,6 +732,7 @@ print('oggetti', n_obj, 'vie', len(road_ways), 'nodi strada', len(node_xy), 'edi
 # nei comuni coperti le forme OSM vengono sostituite dalle "unita' volumetriche" del DBGT,
 # con la loro altezza misurata. Tipologia, nome e colori restano quelli di OSM (per sovrapposizione).
 dbgt_comuni = []
+dets = {}                          # dettagli dell'ambiente dal DBGT (vedi sotto)
 alti = {'pts': [], 'roads': []}   # altimetria del DBGT (punti a terra, assi stradali con quota)
 DBGT_DIR = os.environ.get('BDS_DBGT') or CFG.get('dbgt_dir') or ''
 if DBGT_DIR and not os.path.isabs(DBGT_DIR):
@@ -739,7 +744,7 @@ if DBGT_DIR and os.path.isdir(DBGT_DIR):
     from shapely.prepared import prep as _prep
     from shapely.strtree import STRtree as _Tree
     from dbgt import load_dbgt
-    vols, bodies, dinfo, alti = load_dbgt(DBGT_DIR, os.path.join(height_dir, 'dbgt_extract'), P.fwd, bbox)
+    vols, bodies, dinfo, alti, dets = load_dbgt(DBGT_DIR, os.path.join(height_dir, 'dbgt_extract'), P.fwd, bbox)
     # la quota del piede di ogni edificio e' un punto del terreno in piu'
     alti['bld'] = [centroid(v['ring']) + (v['z0'],) for v in vols if v.get('z0')]
     print('DBGT: unita volumetriche', len(vols), 'corpi edificati', len(bodies), dict(dinfo.most_common(15)))
@@ -879,6 +884,249 @@ if DBGT_DIR and os.path.isdir(DBGT_DIR):
         buildings = kept
 elif DBGT_DIR:
     print('DBGT: cartella non trovata', DBGT_DIR)
+
+def min_rect(pts):
+    """Rettangolo orientato di area minima attorno a un poligono: (cx, cz, mezza lunghezza,
+    mezza larghezza, angolo dell'asse lungo). Calibri rotanti sull'inviluppo convesso."""
+    P_ = sorted(set((round(x, 2), round(z, 2)) for x, z in pts))
+    if len(P_) < 3:
+        return None
+
+    def half(seq):
+        h = []
+        for p_ in seq:
+            while len(h) >= 2 and (h[-1][0] - h[-2][0]) * (p_[1] - h[-2][1]) - (h[-1][1] - h[-2][1]) * (p_[0] - h[-2][0]) <= 0:
+                h.pop()
+            h.append(p_)
+        return h[:-1]
+    hull = half(P_) + half(P_[::-1])
+    if len(hull) < 3:
+        return None
+    best = None
+    for i in range(len(hull)):
+        ax, az = hull[i]; bx, bz = hull[(i + 1) % len(hull)]
+        L = math.hypot(bx - ax, bz - az)
+        if L < 1e-6:
+            continue
+        ux, uz = (bx - ax) / L, (bz - az) / L
+        us = [(x - ax) * ux + (z - az) * uz for x, z in hull]; vs = [-(x - ax) * uz + (z - az) * ux for x, z in hull]
+        u0, u1, v0, v1 = min(us), max(us), min(vs), max(vs)
+        area = (u1 - u0) * (v1 - v0)
+        if best is None or area < best[0]:
+            cu, cv = (u0 + u1) / 2, (v0 + v1) / 2
+            best = (area, ax + ux * cu - uz * cv, az + uz * cu + ux * cv, (u1 - u0) / 2, (v1 - v0) / 2, math.atan2(ux, uz))
+    if best is None:
+        return None
+    _, cx_, cz_, hu, hv, ang = best
+    if hv > hu:
+        hu, hv, ang = hv, hu, ang + math.pi / 2
+    return cx_, cz_, hu, hv, ang
+
+
+# ------------------------------------------------------------------ dettagli dell'ambiente dal DBGT
+# Alberi isolati, filari e siepi, recinzioni, muri di sostegno, superfici (carreggiate, marciapiedi,
+# ciclabili, cortili, aree verdi, impianti sportivi, isole di traffico), manufatti industriali e pali.
+# Dove il DBGT c'e' sostituisce i doppioni OSM; i codici sono quelli del Catalogo dei dati
+# territoriali (D.M. 10/11/2011).
+# recinzione (EL_DIV_TY) -> (tipo come le barriere OSM, altezza): 0 muro, 1 siepe, 4 cancellata
+# su muretto, 5 rete metallica, 6 staccionata
+DIV_KIND = {'02': (4, 1.7), '04': (5, 1.5), '13': (5, 1.8), '17': (4, 1.6), '18': (6, 1.2), '19': (1, 1.5), '95': (0, 1.7)}
+# superfici -> nome della copertura del suolo e priorita' di disegno (sopra quelle OSM, sotto l'acqua)
+SURF_PRIO = {'asphalt': 9.1, 'yard': 9.2, 'pedestrian': 9.3, 'cemetery': 9.3, 'cycleway': 9.4, 'garden': 9.5, 'grass': 9.5,
+             'park': 9.5, 'scrub': 9.5, 'flowerbed': 9.6, 'island': 9.6, 'pitch': 9.7, 'clay': 9.7, 'running_track': 9.7,
+             'pool': 9.8, 'solar': 9.8, 'water': 9.8}
+
+
+def _surf_class(kind, ty):
+    ty = str(ty or '')
+    if kind == 'veh':
+        return 'asphalt'
+    if kind == 'ped':
+        return 'pedestrian'
+    if kind == 'cyc':
+        return 'cycleway'
+    if kind == 'yard':
+        return 'cemetery' if ty == '10' else 'yard'
+    if kind == 'green':
+        return {'02': 'grass', '03': 'park', '04': 'flowerbed', '07': 'scrub'}.get(ty, 'garden' if ty.startswith('01') else 'grass')
+    if kind == 'sport':
+        if ty.startswith('01'):
+            return 'pool'
+        if ty == '0202':
+            return 'clay'
+        if ty.startswith('08'):
+            return 'running_track'
+        return 'pedestrian' if ty == '15' else 'pitch'
+    if kind == 'isl':
+        return {'01': 'island', '02': 'island', '03': 'grass', '12': 'pedestrian'}.get(ty)
+    if kind == 'ind':
+        return {'11': 'water', '0802': 'solar', '0803': 'solar', '08': 'solar'}.get(ty)
+    return None
+
+
+def _centerline(ring):
+    """Linea mediana di un poligono stretto e lungo (muro di sostegno): media dei due lati tra le
+    estremita' del rettangolo minimo."""
+    r = ring[:-1] if ring[0] == ring[-1] else ring
+    mr = min_rect(r)
+    if not mr or len(r) < 4:
+        return None
+    cx, cz, hu, hv, ang = mr
+    if hv > 2.5 or hu < 1.5:
+        return None
+    ux, uz = math.sin(ang), math.cos(ang)
+    ends = [(cx - ux * hu, cz - uz * hu), (cx + ux * hu, cz + uz * hu)]
+    ia = min(range(len(r)), key=lambda i: math.dist(r[i], ends[0]))
+    ib = min(range(len(r)), key=lambda i: math.dist(r[i], ends[1]))
+    if ia == ib:
+        return [ends[0], ends[1]]
+    n = len(r)
+    c1 = [r[(ia + k) % n] for k in range((ib - ia) % n + 1)]
+    c2 = [r[(ia - k) % n] for k in range((ia - ib) % n + 1)]
+
+    def resample(c, m):
+        cum = [0.0]
+        for a, b in zip(c, c[1:]):
+            cum.append(cum[-1] + math.dist(a, b))
+        out, k = [], 0
+        for i in range(m):
+            s = cum[-1] * i / (m - 1)
+            while k < len(c) - 2 and cum[k + 1] < s:
+                k += 1
+            L = (cum[k + 1] - cum[k]) or 1e-9
+            t = min(1.0, max(0.0, (s - cum[k]) / L))
+            out.append((c[k][0] + (c[k + 1][0] - c[k][0]) * t, c[k][1] + (c[k + 1][1] - c[k][1]) * t))
+        return out
+    m = max(2, int(2 * hu / 2) + 1)
+    if len(c1) < 2 or len(c2) < 2:
+        return [ends[0], ends[1]]
+    a, b = resample(c1, m), resample(c2, m)
+    return dp_simplify([((p[0] + q_[0]) / 2, (p[1] + q_[1]) / 2) for p, q_ in zip(a, b)], 0.2)
+
+
+if dets:
+    from shapely.geometry import LineString as _DL, Point as _DP, Polygon as _DPg
+    from shapely.strtree import STRtree as _DT
+    dstat = Counter()
+    # alberi: quelli del DBGT sostituiscono gli alberi OSM entro 3 m
+    dt = [(round(p[0][0], 1), round(p[0][1], 1)) for _, p in dets.get('tree', []) if p]
+    if dt:
+        tt = _DT([_DP(*p) for p in dt])
+        before = len(trees_pt)
+        trees_pt = [p for p in trees_pt if not len(tt.query(_DP(*p).buffer(3.0)))] + dt
+        dstat['alberi'] = len(dt); dstat['alberi OSM doppi tolti'] = before - (len(trees_pt) - len(dt))
+    # filari di alberi e siepi
+    new_bar = []
+    for ty, pts in dets.get('row', []):
+        if len(pts) < 2:
+            continue
+        if ty == '01':
+            tree_rows.append([(round(x, 1), round(z, 1)) for x, z in pts]); dstat['filari'] += 1
+        else:
+            new_bar.append((1, 1.5, dp_simplify(pts, 0.2))); dstat['siepi'] += 1
+    # recinzioni e muri di cinta
+    for ty, pts in dets.get('div', []):
+        if len(pts) >= 2:
+            k_, h_ = DIV_KIND.get(ty, (0, 1.7))
+            new_bar.append((k_, h_, dp_simplify(pts, 0.2)))
+    # muri di sostegno: linea mediana del poligono
+    for ty, ring in dets.get('wall', []):
+        if ty in ('04', '06', '03', '05', '95') and len(ring) >= 4:
+            cl = _centerline(ring)
+            if cl and len(cl) >= 2:
+                new_bar.append((2, 1.6, cl)); dstat['muri di sostegno'] += 1
+    if new_bar:
+        # mai attraverso la carreggiata (errori o varchi non disegnati): si taglia dove passa una strada
+        rb = []
+        for w in road_ways:
+            pts_ = [node_xy[r] for r in w['ids']]
+            if len(pts_) >= 2 and not (w['flags'] & (F_BRIDGE | F_TUNNEL)):
+                rb.append(_DL(pts_).buffer((w['width'] or 5.0) / 2 + 0.4, cap_style=2))
+        rtree = _DT(rb)
+        cut = []
+        for k_, h_, pts in new_bar:
+            line = _DL(pts)
+            near = [rb[i] for i in rtree.query(line)]
+            g_ = line
+            for o_ in near:
+                if g_.is_empty:
+                    break
+                g_ = g_.difference(o_)
+            for piece in ([g_] if g_.geom_type == 'LineString' else getattr(g_, 'geoms', [])):
+                if piece.geom_type == 'LineString' and piece.length >= 1.0:
+                    cut.append((k_, h_, list(piece.coords)))
+        # recinzioni e muri OSM gia' presenti nel DBGT (entro 1,5 m per oltre meta' della lunghezza): tolti
+        db_ = [_DL(p).buffer(1.5) for _, _, p in cut]
+        dtree = _DT(db_)
+        keep, gone = [], 0
+        for k_, h_, pts in barriers:
+            if k_ == 3 or len(pts) < 2:       # guardrail: restano
+                keep.append((k_, h_, pts)); continue
+            line = _DL(pts)
+            cand = [db_[i] for i in dtree.query(line)]
+            cov = 0.0
+            if cand:
+                rest = line
+                for c_ in cand:
+                    rest = rest.difference(c_)
+                    if rest.is_empty:
+                        break
+                cov = 1 - rest.length / max(line.length, 1e-6)
+            if cov > 0.5:
+                gone += 1
+            else:
+                keep.append((k_, h_, pts))
+        barriers[:] = keep + cut
+        dstat['recinzioni e muri'] = len(cut); dstat['recinzioni OSM doppie tolte'] = gone
+    # superfici nella mappa dei colori del terreno
+    for kind in ('veh', 'ped', 'cyc', 'yard', 'green', 'sport', 'isl', 'ind'):
+        for ty, ring in dets.get(kind, []):
+            cls = _surf_class(kind, ty)
+            if not cls or len(ring) < 4:
+                continue
+            landcover_polys.append((SURF_PRIO[cls], LC[cls][1], [ring], []))
+            dstat['superfici ' + cls] += 1
+    # manufatti industriali come piccoli edifici (se non ci sono gia')
+    if dets.get('ind'):
+        bt = _DT([_DPg(b['r']) for b in buildings if len(b['r']) >= 3])
+        for ty, ring in dets['ind']:
+            if _surf_class('ind', ty) or len(ring) < 4 or ty in ('04', '15'):
+                continue
+            r = ring[:-1] if ring[0] == ring[-1] else ring
+            r = dp_simplify(r + [r[0]], 0.15)[:-1]
+            if len(r) < 3:
+                continue
+            if ring_area(r) < 0:
+                r = r[::-1]
+            area = abs(ring_area(r))
+            if area < 1.5:
+                continue
+            c_ = _DP(*centroid(r))
+            if any(_DPg(buildings[i]['r']).contains(c_) for i in bt.query(c_) if len(buildings[i]['r']) >= 3):
+                continue
+            diam = 2 * math.sqrt(area / math.pi)
+            h_, col, t_ = {
+                '01': (3.0, '#d9d1bc', 6), '02': (2.6, '#d9d1bc', 6), '03': (2.6, '#d9d1bc', 6),
+                '0703': (max(9.0, min(32.0, 2.6 * diam)), '#b9bdc0', 3), '0702': (max(4.0, min(16.0, 0.7 * diam)), '#cfd3d6', 3),
+                '0701': (3.5, '#b0b4b6', 3), '07': (6.0, '#c0c4c6', 3), '06': (30.0, '#9b5b42', 3), '05': (24.0, '#c8c6c0', 3),
+                '12': (24.0, '#d6d0c4', 3), '13': (3.2, '#dfe9e6', 6), '10': (5.0, '#a88f74', 6), '09': (2.5, '#c9c2b4', 6),
+            }.get(ty, (3.0, '#cdc6b6', 6))
+            buildings.append({'r': r, 't': t_, 'h': h_, 'mh': 0.0, 'l': 0, 'rs': 1, 'n': '', 'c': col, 'rc': ''})
+            dstat['manufatti ' + ty] += 1
+    # pali: illuminazione pubblica come lampioni, linee elettriche e telefoniche come pali
+    lamps_osm = [(x, z) for k_, x, z, _ in points if k_ == 2]
+    lt = _DT([_DP(*p) for p in lamps_osm]) if lamps_osm else None
+    for ty, pts in dets.get('pole', []):
+        if not pts:
+            continue
+        x, z = pts[0]
+        if ty.startswith('08'):
+            if lt is not None and len(lt.query(_DP(x, z).buffer(4.0))):
+                continue
+            points.append((2, x, z, '')); dstat['lampioni'] += 1
+        elif ty.startswith('06') or ty == '07':
+            points.append((16, x, z, '')); dstat['pali di linea'] += 1
+    print('DBGT dettagli:', dict(dstat))
 
 # cancelli: [tipo, x, z, direzione dell'apertura (decimi di grado), larghezza (dm), stato]
 # tipo 0 battente, 1 scorrevole, 2 sbarra, 3 cancelletto pedonale, 4 catena
@@ -1736,42 +1984,6 @@ def tile_of(x, z):
     return None
 
 
-def min_rect(pts):
-    """Rettangolo orientato di area minima attorno a un poligono: (cx, cz, mezza lunghezza,
-    mezza larghezza, angolo dell'asse lungo). Calibri rotanti sull'inviluppo convesso."""
-    P_ = sorted(set((round(x, 2), round(z, 2)) for x, z in pts))
-    if len(P_) < 3:
-        return None
-
-    def half(seq):
-        h = []
-        for p_ in seq:
-            while len(h) >= 2 and (h[-1][0] - h[-2][0]) * (p_[1] - h[-2][1]) - (h[-1][1] - h[-2][1]) * (p_[0] - h[-2][0]) <= 0:
-                h.pop()
-            h.append(p_)
-        return h[:-1]
-    hull = half(P_) + half(P_[::-1])
-    if len(hull) < 3:
-        return None
-    best = None
-    for i in range(len(hull)):
-        ax, az = hull[i]; bx, bz = hull[(i + 1) % len(hull)]
-        L = math.hypot(bx - ax, bz - az)
-        if L < 1e-6:
-            continue
-        ux, uz = (bx - ax) / L, (bz - az) / L
-        us = [(x - ax) * ux + (z - az) * uz for x, z in hull]; vs = [-(x - ax) * uz + (z - az) * ux for x, z in hull]
-        u0, u1, v0, v1 = min(us), max(us), min(vs), max(vs)
-        area = (u1 - u0) * (v1 - v0)
-        if best is None or area < best[0]:
-            cu, cv = (u0 + u1) / 2, (v0 + v1) / 2
-            best = (area, ax + ux * cu - uz * cv, az + uz * cu + ux * cv, (u1 - u0) / 2, (v1 - v0) / 2, math.atan2(ux, uz))
-    if best is None:
-        return None
-    _, cx_, cz_, hu, hv, ang = best
-    if hv > hu:
-        hu, hv, ang = hv, hu, ang + math.pi / 2
-    return cx_, cz_, hu, hv, ang
 
 
 # edifici semplificati per la vista da lontano (soprattutto in volo): un rettangolo orientato per

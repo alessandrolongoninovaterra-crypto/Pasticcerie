@@ -64,8 +64,9 @@ export function panel(g, ax, az, ya, bx, bz, yb, h0, h1, band, period, col, u0 =
   return u1;
 }
 
-// parallelepipedo orientato (asse x locale lungo (dx,dz)) con facce separate
-export function box(g, cx, cy, cz, sx, sy, sz, dx, dz, col, topCol = null) {
+// parallelepipedo orientato (asse x locale lungo (dx,dz)) con facce separate; ends: 1 testa su -x,
+// 2 testa su +x (nei tratti consecutivi di un muretto le teste interne non si vedono)
+export function box(g, cx, cy, cz, sx, sy, sz, dx, dz, col, topCol = null, ends = 3) {
   const hx = sx / 2, hz = sz / 2;
   const ex = [dx * hx, dz * hx], ez = [-dz * hz, dx * hz];
   const P = (i, j, k) => [cx + ex[0] * i + ez[0] * k, cy + j * sy, cz + ex[1] * i + ez[1] * k];
@@ -80,6 +81,7 @@ export function box(g, cx, cy, cz, sx, sy, sz, dx, dz, col, topCol = null) {
   ];
   faces.forEach((f, fi) => {
     if (fi === 1) return;                       // la faccia di sotto poggia a terra: non si vede mai
+    if ((fi === 4 && !(ends & 2)) || (fi === 5 && !(ends & 1))) return;
     const c = fi === 0 && topCol ? topCol : col, s = fi === 0 && topCol ? 1 : sh[fi];
     const ids = f.map((p) => g.v(p[0], p[1], p[2], c[0] * s, c[1] * s, c[2] * s));
     g.quad(ids[0], ids[1], ids[2], ids[3]);
@@ -106,7 +108,8 @@ export function buildFence(gs, gg, pts, kind, H, T, seed) {
       const y0 = T.height(x0, z0), y1 = T.height(x1, z1);
       if (kind === 4) {   // muretto intonacato con copertina
         const l = L / n, my = Math.min(y0, y1);
-        box(gs, (x0 + x1) / 2, my - 0.3, (z0 + z1) / 2, l + 0.02, base + 0.3 + Math.abs(y1 - y0) * 0.5, 0.3, dx, dz, wall, [0.74, 0.73, 0.7]);
+        box(gs, (x0 + x1) / 2, my - 0.3, (z0 + z1) / 2, l + 0.02, base + 0.3 + Math.abs(y1 - y0) * 0.5, 0.3, dx, dz, wall, [0.74, 0.73, 0.7],
+          (i === 0 && s === 0 ? 1 : 0) | (i === pts.length - 2 && s === n - 1 ? 2 : 0));
       }
       const band = kind === 5 ? 1 : kind === 6 ? 2 : 0;
       const col = kind === 6 ? WOOD : kind === 5 ? ZINC : iron;

@@ -346,7 +346,7 @@ export class Signage {
     const lampsByGroup = [0, 1].map(() => ({ R: new GeoBuilder(false, false), Y: new GeoBuilder(false, false), G: new GeoBuilder(false, false) }));
     const greenLamp = new GeoBuilder(false, false);
     const atlas = new TextAtlas();
-    const lampPos = [], signals = [], cameras = [];
+    const lampPos = [], signals = [], cameras = [], utilPos = [];
     const grey = [0.42, 0.43, 0.44];
     const S = (name, size = 0.7) => ({ uv: uvStd(name), back: uvStd(name, true), w: size, h: size, name });
     const INF = new Set(['deadend', 'parking', 'curveR', 'curveL', 'steep', 'children']);
@@ -773,6 +773,8 @@ export class Signage {
       } else if (kind === 2) {
         const yaw = nr ? Math.atan2(dx * sideSign, dz * sideSign) : 0;
         lampPos.push([x, T.height(x, z), z, yaw, 1]);
+      } else if (kind === 16) {      // palo di linea elettrica o telefonica (DBGT)
+        utilPos.push([x, T.height(x, z), z]);
       } else if (kind === 3 && nr) {
         // cartello di localita' mappato: l'ingresso e' il verso che avvicina al centro abitato
         const pl = [...this.places.values()].flat().find((p) => p.n === text);
@@ -821,6 +823,16 @@ export class Signage {
       poleI.computeBoundingSphere(); headI.computeBoundingSphere(); poolI.computeBoundingSphere();
       poolI.renderOrder = 2;
       group.add(poleI, headI, poolI);
+    }
+    if (utilPos.length) {
+      if (!this.utilGeo) {
+        this.utilGeo = new THREE.CylinderGeometry(0.1, 0.15, 9, 5); this.utilGeo.translate(0, 4.3, 0);
+        this.utilMat = new THREE.MeshLambertMaterial({ color: 0x6b5a48 });
+      }
+      const inst = new THREE.InstancedMesh(this.utilGeo, this.utilMat, utilPos.length), m = new THREE.Matrix4();
+      utilPos.forEach(([x, y, z], i) => { m.makeTranslation(x, y, z); inst.setMatrixAt(i, m); });
+      inst.computeBoundingSphere(); inst.castShadow = true;
+      group.add(inst);
     }
     group.userData.dispose = () => { for (const m of mats) { m.map.dispose(); m.dispose(); } };
     return { group, signals, lamps: lampPos, cameras };
