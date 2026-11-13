@@ -1210,6 +1210,16 @@ def _smooth(a, r):
 
 
 def _bilin(G, x0, z0, step, xs, zs):
+    # a blocchi: su decine di milioni di campioni i calcoli intermedi occupavano GB
+    if len(xs) > 2_000_000:
+        out = np.empty(len(xs))
+        for a in range(0, len(xs), 2_000_000):
+            out[a:a + 2_000_000] = _bilin1(G, x0, z0, step, xs[a:a + 2_000_000], zs[a:a + 2_000_000])
+        return out
+    return _bilin1(G, x0, z0, step, xs, zs)
+
+
+def _bilin1(G, x0, z0, step, xs, zs):
     gx = np.clip((xs - x0) / step, 0, G.shape[1] - 1.001); gz = np.clip((zs - z0) / step, 0, G.shape[0] - 1.001)
     ix = gx.astype(int); iz = gz.astype(int); fx = gx - ix; fz = gz - iz
     return (G[iz, ix] * (1 - fx) * (1 - fz) + G[iz, ix + 1] * fx * (1 - fz) + G[iz + 1, ix] * (1 - fx) * fz + G[iz + 1, ix + 1] * fx * fz)
@@ -1225,6 +1235,7 @@ if alti['pts'] or alti['roads']:
     GX, GZ = np.meshgrid(gxs, gzs)
     G = _bilin(HGRID, x0g, z0g, HMETA['step'], GX.ravel(), GZ.ravel()).reshape(nz2, nx2).astype(np.float64)
     del GX, GZ
+    rss('alt: griglia iniziale')
     # maschera di ponti e gallerie (li' l'asse stradale non e' il terreno)
     mimg = _Img.new('L', (nx2, nz2), 0); md = _Draw.Draw(mimg)
     for w in road_ways:
@@ -1235,6 +1246,7 @@ if alti['pts'] or alti['roads']:
         if rl['b'] or rl['t']:
             md.line([((x - x0g) / STEP2, (z - z0g) / STEP2) for x, z in rl['p']], fill=255, width=3)
     MASK = np.asarray(mimg) > 0
+    rss('alt: maschera')
     del mimg, md
 
     def masked(xs, zs):
@@ -1249,7 +1261,9 @@ if alti['pts'] or alti['roads']:
                 t_ = k / n
                 rs.append((ax + (bx - ax) * t_, az + (bz - az) * t_, ah + (bh - ah) * t_))
         rs.append(line[-1])
+    rss('alt: campioni strade (rs)')
     P_ = np.array(alti['pts'], np.float64).reshape(-1, 3)
+    alti['pts'] = None
     B_ = np.array(alti.get('bld', []), np.float64).reshape(-1, 3)
     R_ = np.array(rs, np.float64).reshape(-1, 3)
     if len(R_):
@@ -1258,16 +1272,22 @@ if alti['pts'] or alti['roads']:
     inP = (P_[:, 0] > gxs[0]) & (P_[:, 0] < gxs[-1]) & (P_[:, 1] > gzs[0]) & (P_[:, 1] < gzs[-1])
     hold = (rng.random(len(P_)) < 0.05) & inP  # 5% dei punti (dentro la mappa) tenuti da parte per la verifica
     S = np.vstack([P_[~hold], B_, R_]); W_ = np.concatenate([np.full((~hold).sum(), 1.0), np.full(len(B_), 1.0), np.full(len(R_), 1.5)])
+    n_pts_fit = int((~hold).sum())
+    P_ = P_[hold]; hold = np.ones(len(P_), bool)    # restano solo i punti di verifica
     inside_ = (S[:, 0] > gxs[0]) & (S[:, 0] < gxs[-1]) & (S[:, 1] > gzs[0]) & (S[:, 1] < gzs[-1])
     S, W_ = S[inside_], W_[inside_]
     base_err = P_[hold, 2] - _bilin(G, x0g, z0g, STEP2, P_[hold, 0], P_[hold, 1])
     r0 = S[:, 2] - _bilin(G, x0g, z0g, STEP2, S[:, 0], S[:, 1])
     ok = np.abs(r0) < 40                       # errori grossolani
     S, W_ = S[ok], W_[ok]
-    print('altimetria DBGT: campioni', len(S), '(punti %d, edifici %d, strade %d)' % ((~hold).sum(), len(B_), len(R_)))
+    print('altimetria DBGT: campioni', len(S), '(punti %d, edifici %d, strade %d)' % (n_pts_fit, len(B_), len(R_)))
+    rss('alt: campioni pronti')
     gx = (S[:, 0] - x0g) / STEP2; gz = (S[:, 1] - z0g) / STEP2
     ix = np.clip(gx.astype(int), 0, nx2 - 2); iz = np.clip(gz.astype(int), 0, nz2 - 2); fx = gx - ix; fz = gz - iz
-    corners = [(0, 0, (1 - fx) * (1 - fz)), (0, 1, fx * (1 - fz)), (1, 0, (1 - fx) * fz), (1, 1, fx * fz)]
+    del gx, gz
+    flat0 = iz * nx2 + ix            # cella di ogni campione; gli altri angoli sono +1, +nx2, +nx2+1
+    del ix, iz
+    corners = [(0, lambda: (1 - fx) * (1 - fz)), (1, lambda: fx * (1 - fz)), (nx2, lambda: (1 - fx) * fz), (nx2 + 1, lambda: fx * fz)]
     n_out = 0
     for it, (rad, eps) in enumerate(((4, 0.02), (1, 0.05), (1, 0.05), (1, 0.05))):   # correzione larga (~40 m), poi fine (~14 m) ripetuta
         res = S[:, 2] - _bilin(G, x0g, z0g, STEP2, S[:, 0], S[:, 1])
@@ -1275,12 +1295,16 @@ if alti['pts'] or alti['roads']:
             bad = np.abs(res) > 15
             n_out = int(bad.sum())
             W_ = np.where(bad, 0.0, W_)
-        num = np.zeros_like(G); den = np.zeros_like(G)
-        for di, dj, wc in corners:
-            np.add.at(num, (iz + di, ix + dj), W_ * wc * res)
-            np.add.at(den, (iz + di, ix + dj), W_ * wc)
+        num = np.zeros(G.size); den = np.zeros(G.size)
+        for off, wcf in corners:
+            ww = W_ * wcf()
+            num += np.bincount(flat0 + off, weights=ww * res, minlength=G.size)
+            den += np.bincount(flat0 + off, weights=ww, minlength=G.size)
+            del ww
+        num = num.reshape(G.shape); den = den.reshape(G.shape)
         num = _smooth(num, rad); den = _smooth(den, rad)
         G += num / (den + eps)
+    rss('alt: correzione fatta')
     after = P_[hold, 2] - _bilin(G, x0g, z0g, STEP2, P_[hold, 0], P_[hold, 1])
     print('altimetria DBGT: quote scartate perche\' incoerenti con quelle vicine (oltre 15 m)', n_out)
     cov = np.abs(base_err) < 1e9
@@ -1297,6 +1321,7 @@ if alti['pts'] or alti['roads']:
                 continue
             for c in seg_cells_g(a_, b_, 25.0):
                 seg[c].append((a_, b_))
+    rss('alt: indice segmenti')
     node_h = {}
     for w in road_ways:
         if w['flags'] & (F_BRIDGE | F_TUNNEL) or w['layer'] != 0:
@@ -1328,6 +1353,7 @@ if alti['pts'] or alti['roads']:
             del node_h[r]
         print('altimetria DBGT: nodi strada con quota incoerente ignorati', len(badn))
     # strade senza quota DBGT: profilo del terreno corretto, lisciato lungo la via (media su ~25 m)
+    rss('alt: quote nodi')
     n_dbgt_nodes = len(node_h)
     acc_h = {}
     for w in road_ways:
@@ -1393,6 +1419,7 @@ if alti['pts'] or alti['roads']:
             for k in range(n + 1):
                 t_ = k / n
                 smp.append((ax + (bx - ax) * t_, az + (bz - az) * t_, node_h[a_] + (node_h[b_] - node_h[a_]) * t_, rad_))
+    rss('alt: campioni spianamento')
     if smp:
         A_ = np.array(smp); del smp
         tsum = np.zeros(nx2 * nz2); wsum = np.zeros(nx2 * nz2)
@@ -1413,11 +1440,12 @@ if alti['pts'] or alti['roads']:
         G[sel] = tgt[sel]
         print('altimetria DBGT: nodi strada con quota reale', n_dbgt_nodes, '+ lisciati dal terreno', len(node_h) - n_dbgt_nodes,
               '- celle spianate sotto le strade', int(sel.sum()), 'spostate in media di %.2f m (95%% %.1f, max %.1f)' % (moved.mean(), np.percentile(moved, 95), moved.max()))
+    rss('alt: spianamento fatto')
     HMETA = {'nx': nx2, 'nz': nz2, 'step': STEP2, 'x0': x0g, 'z0': z0g, 'scale': 0.1}
     HGRID = G.astype(np.float32)
     HEIGHT_CHANGED = True
     # campioni e griglie di lavoro non servono piu'
-    for _v in ('G', 'S', 'W_', 'P_', 'B_', 'R_', 'rs', 'seg', 'MASK', 'num', 'den', 'res', 'r0', 'gx', 'gz', 'ix', 'iz', 'fx', 'fz', 'corners', 'smp', 'acc_h', 'ok', 'inside_'):
+    for _v in ('flat0', 'G', 'S', 'W_', 'P_', 'B_', 'R_', 'rs', 'seg', 'MASK', 'num', 'den', 'res', 'r0', 'gx', 'gz', 'ix', 'iz', 'fx', 'fz', 'corners', 'smp', 'acc_h', 'ok', 'inside_'):
         globals().pop(_v, None)
     alti = {'pts': [], 'roads': []}
     import gc as _gc
