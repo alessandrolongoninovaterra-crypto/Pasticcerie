@@ -3,7 +3,7 @@ import { hash } from './geo.js';
 
 // Alberi: punti OSM (natural=tree), filari (tree_row) e boschi/parchi/giardini
 // ricavati dalla copertura del suolo reale.
-const DENSITY = { island: 0.02, flowerbed: 0.02, forest: 0.85, wood: 0.85, scrub: 0.35, park: 0.18, garden: 0.12, cemetery: 0.08, residential: 0.035, grass: 0.03, meadow: 0.012, farmland: 0.004, default: 0.02, recreation_ground: 0.04, village_green: 0.05, orchard: 0.3, wetland: 0.2 };
+const DENSITY = { bank: 0.07, shore: 0.03, island: 0.02, flowerbed: 0.02, forest: 0.85, wood: 0.85, scrub: 0.35, park: 0.18, garden: 0.12, cemetery: 0.08, residential: 0.035, grass: 0.03, meadow: 0.012, farmland: 0.004, default: 0.02, recreation_ground: 0.04, village_green: 0.05, orchard: 0.3, wetland: 0.2 };
 
 export class Vegetation {
   constructor(terrain, roads) {

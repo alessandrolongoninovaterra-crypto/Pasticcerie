@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { loadData } from './data.js';
-import { noiseTexture, pointInRing } from './geo.js';
+import { noiseTexture, pointInRing, GeoBuilder } from './geo.js';
+import { box } from './gates.js';
 import { BuildingFactory } from './buildings.js';
 import { Vegetation } from './vegetation.js';
 import { Signage } from './signs.js';
@@ -27,6 +28,7 @@ export class World {
     this.ground = new Map();       // chiave tessera -> 'loading' | 'ready' | 'none'
     this.groundWant = [];
     this.groundBusy = 0;
+    this.ribbons = new Map();      // nastri dei corsi d'acqua per tessera (dalle tessere di terreno)
     this.buildings = new BuildingFactory(terrain);
     this.vegetation = new Vegetation(terrain, roads);
     this.comuniIdx = meta.comuni.map((c) => {
@@ -106,26 +108,42 @@ export class World {
     };
     this.waterMat = mat;
     const g = new THREE.Group();
+    // tutti gli specchi d'acqua di un blocco da 4 km in una sola mesh (con gli stagni piccoli sono
+    // migliaia: una mesh ciascuno erano migliaia di chiamate di disegno). Laghi piatti; fiumi e canali
+    // disegnati come area con la quota di ogni vertice, che scende con le rive (lvo/lvi dalla pipeline)
+    const blocks = new Map(), B = 4000, p = this.meta.proj;
     for (const wt of this.meta.waters) {
-      for (const ring of wt.o) {
-        if (ring.length < 4) continue;
-        const pts = ring.map((p) => new THREE.Vector2(p[0], p[1]));
-        const holes = (wt.i || []).filter((h) => h.length >= 4).map((h) => h.map((p) => new THREE.Vector2(p[0], p[1])));
+      const hk = (wt.i || []).map((h, i) => i).filter((i) => wt.i[i].length >= 4);
+      const holes = hk.map((i) => wt.i[i].map((q) => new THREE.Vector2(q[0], q[1])));
+      wt.o.forEach((ring, oi) => {
+        if (ring.length < 4) return;
+        const lvl = wt.lv[oi];
+        if (lvl == null && !wt.lvo) return;
+        const pts = ring.map((q) => new THREE.Vector2(q[0], q[1]));
         let tris;
-        try { tris = THREE.ShapeUtils.triangulateShape(pts, holes); } catch (e) { continue; }
+        try { tris = THREE.ShapeUtils.triangulateShape(pts, holes); } catch (e) { return; }
         const all = pts.concat(...holes);
-        const lvl = wt.lv[wt.o.indexOf(ring)];     // livello calcolato dalla pipeline sul terreno completo
-        if (lvl == null) continue;
-        const pos = new Float32Array(all.length * 3);
-        all.forEach((v, i) => { pos[i * 3] = v.x; pos[i * 3 + 1] = lvl; pos[i * 3 + 2] = v.y; });
-        const idx = [];
-        for (const [a, b, c] of tris) idx.push(a, c, b);
-        const geo = new THREE.BufferGeometry();
-        geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
-        geo.setIndex(idx); geo.computeVertexNormals();
-        if (geo.attributes.normal.getY(0) < 0) { geo.setIndex(idx.map((_, i) => idx[i - (i % 3) + [0, 2, 1][i % 3]])); geo.computeVertexNormals(); }
-        g.add(new THREE.Mesh(geo, mat));
-      }
+        const ys = wt.lvo ? wt.lvo[oi].concat(...hk.map((i) => wt.lvi[i])).map((v) => v / 100) : null;
+        const key = Math.floor((ring[0][1] - p.zmin) / B) * 1000 + Math.floor((ring[0][0] - p.xmin) / B);
+        let bk = blocks.get(key);
+        if (!bk) blocks.set(key, bk = { pos: [], idx: [] });
+        const base = bk.pos.length / 3;
+        all.forEach((v, i) => bk.pos.push(v.x, ys ? ys[i] : lvl, v.y));
+        for (const [a, b, c] of tris) {
+          // faccia verso l'alto: componente y della normale di (b-a)x(c-a) positiva
+          const A = all[a], Bv = all[b], C = all[c];
+          const up = (Bv.y - A.y) * (C.x - A.x) - (Bv.x - A.x) * (C.y - A.y) > 0;
+          if (up) bk.idx.push(base + a, base + b, base + c); else bk.idx.push(base + a, base + c, base + b);
+        }
+      });
+    }
+    for (const bk of blocks.values()) {
+      const geo = new THREE.BufferGeometry();
+      geo.setAttribute('position', new THREE.Float32BufferAttribute(bk.pos, 3));
+      geo.setAttribute('normal', new THREE.Float32BufferAttribute(new Float32Array(bk.pos.length).map((_, i) => (i % 3 === 1 ? 1 : 0)), 3));
+      geo.setIndex(bk.idx);
+      geo.computeBoundingSphere();
+      g.add(new THREE.Mesh(geo, mat));
     }
     this.root.add(g);
   }
@@ -245,6 +263,84 @@ export class World {
     return m;
   }
 
+  // corsi d'acqua della tessera: nastri con la quota calcolata dalla pipeline (dati delle tessere di terreno)
+  buildRibbons(tk) {
+    const d = this.ribbons.get(tk);
+    if (!d || !d.length) return null;
+    const p = this.meta.proj, ox = p.xmin + (tk % 1000) * 1000, oz = p.zmin + Math.floor(tk / 1000) * 1000;
+    const pos = [], idx = [];
+    for (let o = 0; o < d.length;) {
+      const hw = d[o] / 20, n = d[o + 1];
+      o += 2;
+      const pts = [];
+      for (let k = 0, x = 0, z = 0, h = 0; k < n; k++, o += 3) { x += d[o]; z += d[o + 1]; h += d[o + 2]; pts.push([ox + x / 100, oz + z / 100, h / 100]); }
+      const base = pos.length / 3;
+      for (let k = 0; k < n; k++) {
+        const a = pts[Math.max(0, k - 1)], b = pts[Math.min(n - 1, k + 1)];
+        let dx = b[0] - a[0], dz = b[1] - a[1]; const L = Math.hypot(dx, dz) || 1; dx /= L; dz /= L;
+        const [x, z, h] = pts[k];
+        pos.push(x - dz * hw, h, z + dx * hw, x + dz * hw, h, z - dx * hw);
+        if (k) { const q = base + 2 * k; idx.push(q - 2, q - 1, q, q - 1, q + 1, q); }
+      }
+    }
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+    geo.setAttribute('normal', new THREE.Float32BufferAttribute(new Float32Array(pos.length).map((_, i) => (i % 3 === 1 ? 1 : 0)), 3));
+    geo.setIndex(idx);
+    geo.computeBoundingSphere();
+    const m = new THREE.Mesh(geo, this.waterMat);
+    m.renderOrder = 1;
+    return m;
+  }
+
+  // pontili (OSM man_made=pier): impalcato in legno su pali, all'altezza della riva
+  buildPiers(t) {
+    const list = t.data && t.data.pr;
+    if (!list || !list.length) return null;
+    const T = this.terrain, g = new GeoBuilder(true, false);
+    const WOOD = [0.47, 0.36, 0.25], POST = [0.3, 0.26, 0.22];
+    for (const rec of list) {
+      const pts = [];
+      for (let i = 2, x = 0, z = 0; i < rec.length; i += 2) { x += rec[i]; z += rec[i + 1]; pts.push([x / 10, z / 10]); }
+      if (pts.length < 2) continue;
+      if (rec[0] === 0) {
+        const w = rec[1] / 10, y = Math.max(T.height(pts[0][0], pts[0][1]), T.height(pts[pts.length - 1][0], pts[pts.length - 1][1])) + 0.25;
+        for (let i = 0; i < pts.length - 1; i++) {
+          const [ax, az] = pts[i], [bx, bz] = pts[i + 1], L = Math.hypot(bx - ax, bz - az);
+          if (L < 0.2) continue;
+          const dx = (bx - ax) / L, dz = (bz - az) / L;
+          box(g, (ax + bx) / 2, y - 0.25, (az + bz) / 2, L + 0.05, 0.25, w, dx, dz, WOOD, [0.55, 0.43, 0.3]);
+          for (let s = 0; s <= L; s += 4) for (const sd of [-1, 1]) {
+            const px = ax + dx * s - dz * sd * (w / 2 - 0.15), pz = az + dz * s + dx * sd * (w / 2 - 0.15);
+            box(g, px, y - 4.2, pz, 0.2, 4.0, 0.2, dx, dz, POST);
+          }
+        }
+      } else {
+        let y = -1e9;
+        for (const [x, z] of pts) y = Math.max(y, T.height(x, z));
+        y += 0.25;
+        const v2 = pts.map(([x, z]) => new THREE.Vector2(x, z));
+        let tris;
+        try { tris = THREE.ShapeUtils.triangulateShape(v2, []); } catch (e) { continue; }
+        const top = pts.map(([x, z]) => g.v(x, y, z, 0.55, 0.43, 0.3));
+        for (const [a, b, c] of tris) {
+          const up = (v2[b].y - v2[a].y) * (v2[c].x - v2[a].x) - (v2[b].x - v2[a].x) * (v2[c].y - v2[a].y) > 0;
+          if (up) g.tri(top[a], top[b], top[c]); else g.tri(top[a], top[c], top[b]);
+        }
+        for (let i = 0; i < pts.length; i++) {        // bordo dell'impalcato
+          const [ax, az] = pts[i], [bx, bz] = pts[(i + 1) % pts.length];
+          const q = [g.v(ax, y - 0.4, az, ...WOOD), g.v(bx, y - 0.4, bz, ...WOOD), g.v(bx, y, bz, ...WOOD), g.v(ax, y, az, ...WOOD)];
+          g.quad(q[0], q[1], q[2], q[3]); g.quad(q[0], q[3], q[2], q[1]);
+        }
+      }
+    }
+    if (g.empty) return null;
+    this.pierMat = this.pierMat || new THREE.MeshLambertMaterial({ vertexColors: true });
+    const m = g.mesh ? g.mesh(this.pierMat) : new THREE.Mesh(g.build(), this.pierMat);
+    m.castShadow = true;
+    return m;
+  }
+
   // acqua: tempo per le onde e colore del cielo per il riflesso
   updateWater(time, sky) { if (this.waterU) { this.waterU.uTime.value = time % 10000; this.waterU.uSky.value.copy(sky); } }
 
@@ -319,6 +415,7 @@ export class World {
       loadData(`g_${i}_${j}`, `data/ground/g_${i}_${j}.js`)
         .then(async (parts) => {
           this.roads.addTile(k, parts[0].r);
+          if (parts[0].wr && parts[0].wr.length) this.ribbons.set(k, parts[0].wr);
           await this.terrain.addTile(k, parts);
           if (this.ground.get(k) === 'loading') this.ground.set(k, 'ready'); else this.terrain.dropTile(k);
         })
@@ -404,9 +501,10 @@ export class World {
       if (!('paths' in t.parts)) {
         const g = new THREE.Group();
         const pa = this.roads.buildPaths(t.data), ba = this.roads.buildBarriers(t.data, this.collision, t.key), pw = this.buildPower(t), st = this.roads.buildStalls(t.data);
+        const rib = this.buildRibbons(t.key), pr = this.buildPiers(t);
         t.fence = ba;          // muri e recinzioni: sottili, da lontano non si vedono (vedi update)
         if (ba) ba.visible = t.d < 1100;
-        for (const o of [pa, ba, pw, st]) if (o) g.add(o);
+        for (const o of [pa, ba, pw, st, rib, pr]) if (o) g.add(o);
         add('paths', g.children.length ? g : null); continue;
       }
       if (!('gates' in t.parts)) { add('gates', this.gates.build(t.key, t.data)); continue; }

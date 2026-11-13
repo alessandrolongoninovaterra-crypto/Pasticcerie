@@ -244,6 +244,8 @@ node_xy = {}          # osm id -> (x,z) per i nodi delle strade
 node_tags = {}        # osm id -> code
 rails = []
 rivers = []
+wlines = []           # corsi d'acqua come linee per bake.mjs: [tipo, larghezza, [[x, z]...]] (nastri d'acqua, letti scavati)
+piers = []            # pontili: (0 linea / 1 area, larghezza, punti)
 trees_pt = []
 tree_rows = []
 places = []
@@ -273,6 +275,8 @@ LC = {  # nome -> (priorita', colore RGB)
     'asphalt': (9, (104, 104, 106)), 'yard': (9, (168, 162, 148)), 'cycleway': (9, (152, 98, 88)),
     'flowerbed': (9, (76, 126, 56)), 'island': (9, (110, 138, 88)), 'clay': (9, (178, 106, 74)),
     'running_track': (9, (170, 90, 72)), 'pool': (9, (78, 160, 200)), 'solar': (9, (46, 56, 80)),
+    # sponde: fascia attorno agli specchi d'acqua e lungo i corsi d'acqua (al posto del blu che sbordava)
+    'shore': (10, (150, 142, 116)), 'bank': (10, (98, 116, 74)),
 }
 LC_DEFAULT = (128, 150, 84)
 WATER_RGB = (62, 104, 142)
@@ -628,9 +632,16 @@ for o in fp:
             width = {'river': 12, 'canal': 8, 'stream': 3, 'ditch': 1.5, 'drain': 1.5}[ww]
             if t.get('width'):
                 width = max(1.5, min(40, parse_float(t.get('width')) or width))
-            lc_lines.append((WATER_RGB, width, pts))
+            # nella mappa dei colori: sponda erbosa; l'acqua vera e' un nastro (vedi bake.mjs)
+            lc_lines.append((LC['bank'][1], width + 3, pts))
+            wlines.append([ww, round(width, 1), [[round(x, 1), round(z, 1)] for x, z in dp_simplify(pts, 0.5)]])
             if ww in ('river', 'canal', 'stream'):
                 rivers.append({'n': t.get('name', ''), 'w': ww, 'p': [[round(x), round(z)] for x, z in dp_simplify(pts, 3)]})
+            continue
+        if t.get('man_made') == 'pier' and pts_ll and pts_ll[0][0] != pts_ll[-1][0]:
+            pts = [P.fwd(l.lat, l.lon) for _, l in pts_ll]
+            if len(pts) >= 2:
+                piers.append((0, max(1.5, min(12, parse_float(t.get('width')) or 3.0)), dp_simplify(pts, 0.3)))
             continue
         if t.get('natural') == 'tree_row':
             tree_rows.append([(round(x, 1), round(z, 1)) for x, z in (P.fwd(l.lat, l.lon) for _, l in pts_ll)])
@@ -653,6 +664,10 @@ for o in fp:
             for ir in o.inner_rings(r):
                 inners.append([P.fwd(n.lat, n.lon) for n in ir])
 
+        if t.get('man_made') == 'pier':
+            for r in outers:
+                if 4 <= len(r) < 300 and abs(ring_area(r)) < 20000:
+                    piers.append((1, 0, dp_simplify(r + [r[0]], 0.3)[:-1]))
         if t.get('boundary') == 'administrative' and t.get('admin_level') == '8' and t.get('name'):
             rings = []
             for r in outers:
@@ -726,11 +741,14 @@ for o in fp:
             is_water = kind in ('water', 'reservoir', 'basin', 'riverbank')
             if is_water:
                 area = sum(abs(ring_area(r)) for r in outers)
-                if area > 1500:
+                # fiumi e canali disegnati come area: l'acqua scende con il terreno (quote per vertice in bake.mjs)
+                river = kind == 'riverbank' or t.get('waterway') in ('riverbank', 'canal', 'river', 'stream', 'ditch', 'drain') or \
+                    t.get('water') in ('river', 'canal', 'stream', 'ditch', 'drain', 'stream_pool', 'rapids', 'oxbow', 'moat')
+                if area > 150:
                     # i laghi grandi (Como) escono dalla mappa: si tiene solo la parte dentro l'area
                     for wo, wi in clip_water(outers, inners):
                         waters.append({
-                            'n': t.get('name', ''), 'a': round(area),
+                            'n': t.get('name', ''), 'a': round(area), 'k': 'r' if river else 'l',
                             'o': [[[round(x, 1), round(z, 1)] for x, z in dp_simplify(r, 1.0)] for r in wo],
                             'i': [[[round(x, 1), round(z, 1)] for x, z in dp_simplify(r, 1.0)] for r in wi]})
 rss('dopo lettura OSM')
@@ -2018,6 +2036,13 @@ for pr, col, outers, inners in landcover_polys:
         if len(r) >= 3:
             md.polygon([(a - x0, b - y0) for a, b in to_px(r)], fill=0)
     img.paste(ci, (x0, y0, x1, y1), mask)
+# riva: una fascia di sponda lungo il bordo di ogni specchio d'acqua (meta' finisce sotto l'acqua):
+# il confine si legge e il blu non sborda sul terreno
+_sw = max(1, int(round(5 / MPP)))
+for wt in waters:
+    for r in wt['o'] + wt['i']:
+        if len(r) >= 3:
+            d.line(to_px(r + [r[0]]), fill=PI[tuple(LC['shore'][1])], width=_sw)
 dets = None
 landcover_polys = None
 gc.collect()
@@ -2176,6 +2201,10 @@ for kind, bh, pts in barriers:
     k = tile_of(*pts[len(pts) // 2])
     if k and len(pts) >= 2:
         tiles[k]['ba'].append([kind, int(bh * 10)] + enc_ring(pts))
+for kind, wd, pts in piers:
+    k = tile_of(*centroid(pts) if kind else pts[len(pts) // 2])
+    if k:
+        tiles[k].setdefault('pr', []).append([kind, int(round(wd * 10))] + enc_ring(pts))
 for x, z, hd, wd, ln, typ in stalls:
     k = tile_of(x, z)
     if k:
@@ -2237,7 +2266,7 @@ meta = {
     'proj': P.meta(), 'height': HMETA, 'tile': TILE, 'tilesX': TX, 'tilesZ': TZ, 'tiles': tile_keys,
     'landcover': {'w': LW, 'h': LH, 'mpp': MPP, 'palette': dict({k: v[1] for k, v in LC.items()}, tunnel=HOLE_RGB), 'default': LC_DEFAULT},
     'comuni': comuni, 'featured': config_comuni, 'dbgt': dbgt_comuni, 'places': places, 'landmarks': lm_out, 'waters': waters,
-    'rivers': rivers, 'power': power_lines,
+    'rivers': rivers, 'power': power_lines, 'wlines': wlines,
     'source': 'Dati (c) OpenStreetMap contributors, ODbL. Altimetria: Terrarium tiles (Mapzen / AWS Open Data).'
               + (' Edifici: DBGT Regione Lombardia (comuni: ' + ', '.join(dbgt_comuni) + ').' if dbgt_comuni else ''),
 }

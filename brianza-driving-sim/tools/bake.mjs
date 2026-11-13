@@ -151,6 +151,151 @@ for (const w of R.ways) if (!w.abs) { R.ensureProfile(w); R.carveWay(w); nCarved
 log('profili e spianamento:', nCarved, 'vie, angoli abbassati', R.loweredCorners);
 
 const TX = meta.tilesX, TZ = meta.tilesZ;
+
+// ------------------------------------------------------------------ acqua: quote e terreno scavato
+// Laghi: un livello solo (come prima). Fiumi e canali disegnati come area: il livello scende con le
+// rive (per ogni vertice la quota piu' bassa delle rive entro 45 m). Sotto l'acqua il terreno si
+// scava, cosi' la riva coincide con il bordo dell'acqua. Corsi d'acqua disegnati come linee: nastro
+// d'acqua con un profilo che non risale mai verso valle; i piu' larghi (da 4 m) hanno il letto scavato.
+const WMASK = new Uint8Array(HM.nx * HM.nz);     // celle sotto uno specchio d'acqua
+const wlines = meta.wlines || [];
+delete meta.wlines;                               // servono solo qui: il gioco riceve i nastri per tessera
+{
+  const cellsOf = (x, z) => [Math.round((x - HM.x0) / HM.step), Math.round((z - HM.z0) / HM.step)];
+  let nCarved = 0;
+  for (const wt of meta.waters) {
+    const holes = (wt.i || []).filter((h) => h.length >= 4);
+    // livello dei laghi (come prima: 30% delle quote del bordo, piu' 35 cm)
+    wt.lv = wt.o.map((ring) => {
+      if (ring.length < 4) return null;
+      const hs = ring.concat(...holes).map((p) => T.height(p[0], p[1])).sort((a, b) => a - b);
+      return Math.round((hs[Math.floor(hs.length * 0.3)] + 0.35) * 100) / 100;
+    });
+    const rings = wt.o.filter((r) => r.length >= 4).concat(holes);
+    if (!rings.length) continue;
+    // fiumi: livello per vertice dalle rive vicine (griglia di ricerca da 45 m)
+    let levelAt;
+    if (wt.k === 'r') {
+      const R = 45, pts = [];
+      for (const r of rings) for (const p of r) pts.push([p[0], p[1], T.height(p[0], p[1])]);
+      const grid = new Map(), key = (x, z) => Math.floor(x / R) * 100003 + Math.floor(z / R);
+      for (const q of pts) { const k = key(q[0], q[1]); if (!grid.has(k)) grid.set(k, []); grid.get(k).push(q); }
+      levelAt = (x, z) => {
+        let m = Infinity;
+        const gx = Math.floor(x / R), gz = Math.floor(z / R);
+        for (let a = -1; a <= 1; a++) for (let b = -1; b <= 1; b++) for (const q of grid.get((gx + a) * 100003 + gz + b) || []) {
+          if ((q[0] - x) ** 2 + (q[1] - z) ** 2 <= R * R && q[2] < m) m = q[2];
+        }
+        if (m === Infinity) { for (const q of pts) if (q[2] < m) m = q[2]; }
+        return m - 0.25;
+      };
+      const enc = (r) => r.map((p) => Math.round(levelAt(p[0], p[1]) * 100));
+      wt.lvo = wt.o.map(enc); wt.lvi = (wt.i || []).map(enc);
+    } else {
+      const lv = Math.min(...wt.lv.filter((v) => v != null));
+      levelAt = () => lv;
+    }
+    // scavo: riempimento a righe (pari/dispari su tutti gli anelli) della griglia da 10 m
+    let zmin = Infinity, zmax = -Infinity;
+    for (const r of rings) for (const p of r) { zmin = Math.min(zmin, p[1]); zmax = Math.max(zmax, p[1]); }
+    const j0 = Math.max(0, Math.ceil((zmin - HM.z0) / HM.step)), j1 = Math.min(HM.nz - 1, Math.floor((zmax - HM.z0) / HM.step));
+    const depth = wt.k === 'r' ? 1.0 : 1.5;
+    for (let j = j0; j <= j1; j++) {
+      const z = HM.z0 + j * HM.step, xs = [];
+      for (const r of rings) for (let k = 0, n = r.length; k < n; k++) {
+        const a = r[k], b = r[(k + 1) % n];
+        if ((a[1] > z) !== (b[1] > z)) xs.push(a[0] + (b[0] - a[0]) * (z - a[1]) / (b[1] - a[1]));
+      }
+      xs.sort((p, q) => p - q);
+      for (let k = 0; k + 1 < xs.length; k += 2) {
+        const i0 = Math.max(0, Math.ceil((xs[k] - HM.x0) / HM.step)), i1 = Math.min(HM.nx - 1, Math.floor((xs[k + 1] - HM.x0) / HM.step));
+        for (let i = i0; i <= i1; i++) {
+          const o = j * HM.nx + i, lim = levelAt(HM.x0 + i * HM.step, z) - depth;
+          WMASK[o] = 1;
+          if (T.h[o] > lim) { T.h[o] = lim; nCarved++; }
+        }
+      }
+    }
+  }
+  log('specchi d\'acqua:', meta.waters.length, '(fiumi come area', meta.waters.filter((w) => w.k === 'r').length + '), celle scavate', nCarved);
+  void cellsOf;
+}
+// corsi d'acqua come linee -> nastri per tessera: [larghezza dm, punti, x, z, quota (cm, differenze)]
+const tileRib = new Map();
+{
+  const cmw = (v) => Math.round(v * 100);
+  let nRib = 0, nPts = 0, nCut = 0;
+  const inWater = (x, z) => {
+    const i = Math.round((x - HM.x0) / HM.step), j = Math.round((z - HM.z0) / HM.step);
+    return i >= 0 && j >= 0 && i < HM.nx && j < HM.nz && WMASK[j * HM.nx + i] === 1;
+  };
+  for (const [kind, width, p0] of wlines) {
+    if (p0.length < 2) continue;
+    // punti: quelli della linea, piu' uno ogni 8 m sui tratti lunghi (per seguire il terreno)
+    const pts = [];
+    for (let k = 0; k < p0.length; k++) {
+      if (k) {
+        const [ax, az] = p0[k - 1], [bx, bz] = p0[k], L = Math.hypot(bx - ax, bz - az), n = Math.floor(L / 8);
+        for (let s = 1; s < n; s++) pts.push([ax + (bx - ax) * s / n, az + (bz - az) * s / n]);
+      }
+      pts.push(p0[k]);
+    }
+    let hs = pts.map((p) => T.height(p[0], p[1]));
+    // verso della corrente: dalla quota piu' alta (OSM la segue quasi sempre, ma non sempre)
+    const rev = hs[0] < hs[hs.length - 1];
+    if (rev) { pts.reverse(); hs.reverse(); }
+    const lev = new Float64Array(hs.length);
+    for (let k = 0, m = Infinity; k < hs.length; k++) { m = Math.min(m, hs[k]); lev[k] = m; }   // mai in salita
+    const big = width >= 4, drop = big ? 0.45 : 0.15;
+    // letto scavato per fiumi e canali larghi
+    if (big) {
+      const r = width / 2 + 2, bottom = width >= 8 ? 1.2 : 0.8;
+      for (let k = 0; k < pts.length; k++) {
+        const [x, z] = pts[k];
+        const i0 = Math.max(0, Math.floor((x - r - HM.x0) / HM.step)), i1 = Math.min(HM.nx - 1, Math.ceil((x + r - HM.x0) / HM.step));
+        const j0 = Math.max(0, Math.floor((z - r - HM.z0) / HM.step)), j1 = Math.min(HM.nz - 1, Math.ceil((z + r - HM.z0) / HM.step));
+        for (let j = j0; j <= j1; j++) for (let i = i0; i <= i1; i++) {
+          const cx = HM.x0 + i * HM.step, cz = HM.z0 + j * HM.step;
+          if ((cx - x) ** 2 + (cz - z) ** 2 > r * r) continue;
+          const o = j * HM.nx + i, lim = lev[k] - drop - bottom;
+          if (T.h[o] > lim) { T.h[o] = lim; nCut++; }
+        }
+      }
+    }
+    // quota del nastro: livello per i fiumi scavati, appoggiato sul terreno per i ruscelli
+    const wh = pts.map((p, k) => big ? lev[k] - drop : T.height(p[0], p[1]) + 0.12);
+    // pezzi fuori dagli specchi d'acqua, divisi per tessera
+    let run = [];
+    const flush = () => {
+      if (run.length >= 2) {
+        const m = run[run.length >> 1], ti = Math.floor((m[0] - P.xmin) / TILE), tj = Math.floor((m[1] - P.zmin) / TILE);
+        if (ti >= 0 && tj >= 0 && ti < meta.tilesX && tj < meta.tilesZ) {
+          const k = tj * 1000 + ti, ox = P.xmin + ti * TILE, oz = P.zmin + tj * TILE;
+          const rec = [Math.round(width * 10), run.length];
+          let px = 0, pz = 0, ph = 0;
+          for (const [x, z, h] of run) { const qx = cmw(x - ox), qz = cmw(z - oz), qh = cmw(h); rec.push(qx - px, qz - pz, qh - ph); px = qx; pz = qz; ph = qh; }
+          if (!tileRib.has(k)) tileRib.set(k, []);
+          tileRib.get(k).push(...rec);
+          nRib++; nPts += run.length;
+        }
+      }
+      run = [];
+    };
+    let tkPrev = null;
+    for (let k = 0; k < pts.length; k++) {
+      const [x, z] = pts[k];
+      if (inWater(x, z)) { flush(); tkPrev = null; continue; }
+      const tk = Math.floor((x - P.xmin) / TILE) + ',' + Math.floor((z - P.zmin) / TILE);
+      const cur = [x, z, wh[k]];
+      if (tkPrev !== null && tk !== tkPrev && run.length) { const prev = run[run.length - 1]; run.push(cur); flush(); run = [prev, cur]; }
+      else run.push(cur);
+      tkPrev = tk;
+    }
+    flush();
+  }
+  log('corsi d\'acqua:', wlines.length, 'linee, nastri', nRib, 'punti', nPts, 'celle del letto scavate', nCut);
+}
+
 const tkey = (i, j) => j * 1000 + i;
 const tileOf = (x, z) => [Math.floor((x - P.xmin) / TILE), Math.floor((z - P.zmin) / TILE)];
 
@@ -245,7 +390,7 @@ for (let j = 0; j < TZ; j++) for (let i = 0; i < TX; i++) {
   }
   const rd = tileRoads(i, j);
   if (rd.w.length) nRoadTiles++;
-  const head = { hb: base, hs: sc, hn: n, lw };
+  const head = { hb: base, hs: sc, hn: n, lw, wr: tileRib.get(tkey(i, j)) || [] };
   gBytes += writeData(path.join(OUT, 'ground', `g_${i}_${j}.js`), `g_${i}_${j}`, 'multi', multi([json({ ...head, r: rd }), q, encodePNG(lw, lw, lp, lcPng.pal)]));
 }
 log('tessere di terreno', TX * TZ, '(con strade', nRoadTiles + ')', (gBytes / 1e6).toFixed(1), 'MB');
@@ -348,15 +493,7 @@ if (farIn) {
   log('edifici lontani: blocchi', blocks.size, (bytes / 1e6).toFixed(1), 'MB');
 }
 
-// ------------------------------------------------------------------ livello dei laghi e meta
-for (const wt of meta.waters) {
-  const holes = (wt.i || []).filter((h) => h.length >= 4);
-  wt.lv = wt.o.map((ring) => {
-    if (ring.length < 4) return null;
-    const hs = ring.concat(...holes).map((p) => T.height(p[0], p[1])).sort((a, b) => a - b);
-    return Math.round((hs[Math.floor(hs.length * 0.3)] + 0.35) * 100) / 100;
-  });
-}
+// ------------------------------------------------------------------ meta (livelli dell'acqua calcolati sopra)
 meta.stream = { v: 1, ground: TX * TZ, farBlock: FB, far: farBlocks };
 log('meta.js', writeData(path.join(OUT, 'meta.js'), 'meta', 'json', json(meta)));
 for (const f of ['roads.js', 'height.js', 'landcover.js', 'far.js']) fs.rmSync(path.join(OUT, f), { force: true });   // vecchio formato

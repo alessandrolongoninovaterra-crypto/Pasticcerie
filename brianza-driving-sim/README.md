@@ -196,6 +196,15 @@ segnaletica, edifici, fisica, navigatore, comportamento di pedoni e traffico) è
   di una tessera si costruiscono a passi su più fotogrammi (niente scatti da 100 ms). **Qualità
   automatica**: sotto ~24 fps il gioco riduce la risoluzione di disegno (fino al 60%) e poi spegne
   le ombre; risale sopra ~50 fps. Si disattiva con `index.html?auto=0`.
+- **Laghi, fiumi e corsi d'acqua** (novembre 2026): il terreno è scavato sotto ogni specchio d'acqua,
+  così la riva coincide con il bordo dell'acqua, e una fascia di sponda ne segna il confine (prima il
+  blu della mappa dei colori sbordava sul terreno). I laghi hanno un livello unico; fiumi e canali
+  disegnati come area (Adda, Lambro, Navigli) scendono con le rive: ogni vertice prende la quota più
+  bassa delle sponde entro 45 m. I corsi d'acqua disegnati come linea (Seveso, Molgora, rogge, canali)
+  sono nastri d'acqua veri con un profilo che non risale mai verso valle; da 4 m di larghezza in su
+  hanno il letto scavato, i ruscelli seguono il terreno; lungo le sponde l'erba è più verde e ci sono
+  più alberi. Anche gli stagni dai 150 m² hanno l'acqua (accorpati per blocchi da 4 km: una mesh per
+  blocco). Pontili in legno su pali dove OSM li mappa (`man_made=pier`).
 - **Aspetto**: acqua dei laghi con onde animate e riflesso del cielo, roccia sui pendii oltre ~45°,
   luce riflessa dal suolo sulle facciate in ombra.
 - **Guida**: modello a bicicletta con pneumatici a saturazione, cerchio d'attrito,
@@ -349,10 +358,10 @@ sono il terreno). Se ci sono, la pipeline:
 Darsena e all'inizio dei Navigli, con tutto il centro e il nord (Porta Ticinese, Duomo, Porta Nuova,
 Città Studi, Bicocca), Sesto, Cinisello, Rho e Monza; poi la Brianza, i laghi brianzoli, il lago di
 Como con il ramo di Como e quello di Lecco fino a Bellagio, il triangolo lariano, i Corni di Canzo,
-il San Martino e la Grigna sul bordo. Edifici e altimetria DBGT in 184 comuni (province di Monza e
-Brianza, Como, Lecco e Milano per la parte nella mappa; nella fascia da Monza ai Navigli gli
-edifici restano quelli OSM finché i pacchetti di Milano e di Monza e Brianza non vengono ridotti
-di nuovo sull'area allargata). Sulle pareti di
+il San Martino e la Grigna sul bordo. Edifici e altimetria DBGT in 226 comuni (province di Monza e
+Brianza, Como, Lecco e Milano per la parte nella mappa), anche a Milano e Monza: 955.000 volumi,
+1,55 milioni di alberi, 1,25 milioni di recinzioni e muri. La pipeline con tutti i pacchetti
+arriva a un picco di ~11,3 GB. Sulle pareti di
 roccia la griglia da 10 m non segue i salti verticali: le curve di livello lì si discostano anche
 di decine di metri e vengono scartate dalla correzione. La mappa dei colori del terreno è a 4 m
 per pixel (6.890 × 11.188 in tutto), consegnata al gioco a tessere da 1 km. Le curve di livello vengono semplificate (1,5 m in pianta) dal
