@@ -185,7 +185,9 @@ function ensureGame() {
   scene.add(G.peds.group);
   if (q.bloom) {
     // alone delle luci di notte (lampioni, fari, finestre)
-    G.composer = new EffectComposer(renderer);
+    // con il bagliore notturno si disegna su un'immagine intermedia: 4 campioni per pixel, cosi'
+    // i bordi restano lisci come senza effetti (prima erano seghettati)
+    G.composer = new EffectComposer(renderer, new THREE.WebGLRenderTarget(innerWidth * renderer.getPixelRatio(), innerHeight * renderer.getPixelRatio(), { type: THREE.HalfFloatType, samples: 4 }));
     G.composer.addPass(new RenderPass(scene, G.camera));
     G.bloom = new UnrealBloomPass(new THREE.Vector2(innerWidth, innerHeight), 0, 0.4, 0.82);
     G.composer.addPass(G.bloom);
@@ -800,8 +802,8 @@ function updateCamera(dt, lookBack) {
 }
 
 // ------------------------------------------------------------------ qualita' automatica
-// Se il computer non tiene ~24 fotogrammi al secondo si abbassa la risoluzione di disegno (fino
-// al 60%) e poi si spengono le ombre; quando c'e' margine (oltre ~50 fps) si risale.
+// Se il computer non tiene ~24 fotogrammi al secondo si spengono le ombre e poi si abbassa la
+// risoluzione di disegno (fino al 75%); quando c'e' margine (oltre ~50 fps) si risale.
 // Disattivabile con window.BDS.autoOff = true oppure index.html?auto=0.
 const AQ = { t: 0, n: 0, scale: 1, good: 0, shadowsOff: false };
 function autoQuality(frame) {
@@ -811,15 +813,17 @@ function autoQuality(frame) {
   const avg = AQ.t / AQ.n; AQ.t = 0; AQ.n = 0;
   const base = Math.min(devicePixelRatio, G.settings.pixelRatio);
   const apply = () => { const pr = Math.max(0.5, base * AQ.scale); G.renderer.setPixelRatio(pr); if (G.composer) G.composer.setPixelRatio(pr); };
+  // prima si spengono le ombre (in volo quasi non si vedono), poi si abbassa la risoluzione ma non
+  // sotto il 75%: piu' in basso l'immagine diventava sfocata
   if (avg > 0.042) {
     AQ.good = 0;
-    if (AQ.scale > 0.61) { AQ.scale = Math.max(0.6, AQ.scale - 0.14); apply(); }
-    else if (!AQ.shadowsOff && G.settings.shadows) { AQ.shadowsOff = true; G.sky.sun.castShadow = false; }
+    if (!AQ.shadowsOff && G.settings.shadows) { AQ.shadowsOff = true; G.sky.sun.castShadow = false; }
+    else if (AQ.scale > 0.76) { AQ.scale = Math.max(0.75, AQ.scale - 0.1); apply(); }
   } else if (avg < 0.02) {
     if (++AQ.good >= 3) {
       AQ.good = 0;
-      if (AQ.shadowsOff) { AQ.shadowsOff = false; G.sky.sun.castShadow = true; }
-      else if (AQ.scale < 1) { AQ.scale = Math.min(1, AQ.scale + 0.1); apply(); }
+      if (AQ.scale < 1) { AQ.scale = Math.min(1, AQ.scale + 0.1); apply(); }
+      else if (AQ.shadowsOff && !flying()) { AQ.shadowsOff = false; G.sky.sun.castShadow = true; }
     }
   } else AQ.good = 0;
   $('fps').title = `risoluzione ${Math.round(AQ.scale * 100)}%${AQ.shadowsOff ? ', ombre spente' : ''}`;
@@ -867,7 +871,10 @@ function loop(now) {
 
   const v = G.vehicle, f = G.foot, p = focus();
   // mondo
-  G.world.update(p.x, p.z);
+  // in volo veloce il mondo si carica davanti: centro spostato di qualche secondo di volo (al massimo
+  // 1,2 km, cosi' le tessere sotto l'aereo restano nell'anello)
+  if (flying() && v.u > 60) { const ah = Math.min(1200, v.u * 4); G.world.update(p.x + Math.sin(v.h) * ah, p.z + Math.cos(v.h) * ah); }
+  else G.world.update(p.x, p.z);
   G.world.pump(G.loadingWorld ? 40 : flying() ? 12 : 7);
   if (G.settings.farKm > 0) { G.world.updateFar(p.x, p.z, flying() ? G.settings.farKm * 1000 : Math.min(G.settings.farKm * 1000, 3200)); G.world.pumpFar(G.loadingWorld ? 12 : 3); }
   if (G.loadingWorld) {

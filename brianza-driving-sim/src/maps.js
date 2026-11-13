@@ -35,7 +35,10 @@ export class Maps {
     const cv = this.mini, ctx = this.miniCtx;
     const W = cv.width, H = cv.height;
     const kmh = Math.abs(car.u * 3.6);
-    const scale = 1.7 - Math.min(1.1, kmh / 110) * 1.0; // px per metro
+    // in volo: la mappa si allarga con la velocita' e la quota (col caccia ~2 km attorno) e usa la
+    // rete stradale completa, che non dipende dalle tessere gia' caricate sotto l'aereo
+    const air = car.isPlane && !car.onGround;
+    const scale = air ? Math.max(0.12, Math.min(0.6, 0.75 - kmh / 1400 - Math.max(0, car.agl || 0) / 4000)) : 1.7 - Math.min(1.1, kmh / 110) * 1.0; // px per metro
     const radius = Math.hypot(W, H) / scale * 0.62;
     ctx.save();
     ctx.fillStyle = night ? '#18222b' : '#dfe6d6';
@@ -46,7 +49,7 @@ export class Maps {
     ctx.scale(scale, scale);
     ctx.translate(-car.x, -car.z);
     this.drawWaters(ctx, car.x, car.z, radius, night);
-    this.drawRoads(ctx, car.x, car.z, radius, scale, night, false);
+    this.drawRoads(ctx, car.x, car.z, radius, scale, night, false, air);
     if (route) this.drawRoute(ctx, route, scale, car);
     ctx.restore();
     // freccia del veicolo
@@ -73,15 +76,15 @@ export class Maps {
     }
   }
 
-  drawRoads(ctx, x, z, radius, scale, night, bigMap) {
-    const R = bigMap ? this.N : this.R;
+  drawRoads(ctx, x, z, radius, scale, night, bigMap, air = false) {
+    const R = bigMap || air ? this.N : this.R;
     const byCls = Array.from({ length: 11 }, () => []);
     if (bigMap && scale < 0.18) {
       for (const wi of this.major) byCls[R.ways[wi].cls].push(wi * 16384 - 1); // vie intere
     } else {
       R.segmentsNear(x, z, radius, (wi, k) => {
         const w = R.ways[wi];
-        if (bigMap && scale < 0.35 && w.cls >= CLS.SERVICE) return;
+        if ((bigMap || air) && scale < 0.35 && w.cls >= CLS.SERVICE) return;
         byCls[w.cls].push(wi * 16384 + k);
       });
     }

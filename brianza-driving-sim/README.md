@@ -56,7 +56,9 @@ accende il postbruciatore (fiamma all'ugello). Senza comandi tiene la quota; rol
 fretta e si inclina fino a 80°, il carrello rientra sopra i 40 m. Decolla da terra a ~275 km/h
 (serve un rettilineo lungo, per esempio la SS36) e atterra sotto i 340 km/h. Tetto: 4.500 m dal
 suolo. La telecamera esterna segue il mezzo nel suo sistema di riferimento, quindi resta alla
-stessa distanza anche a 900 km/h.
+stessa distanza anche a 900 km/h. In volo la minimappa usa la rete stradale completa (non solo le
+tessere già caricate) e si allarga con velocità e quota (col caccia ~2 km attorno); il mondo si
+carica davanti all'aereo, fino a 1,2 km più avanti della posizione.
 
 ### Aereo da turismo
 
@@ -212,8 +214,9 @@ segnaletica, edifici, fisica, navigatore, comportamento di pedoni e traffico) è
   recinzioni senza facce nascoste e senza ombre, edifici dettagliati solo entro 1,5–2,2 km (oltre
   ci sono i volumi semplici), piano lontano della telecamera legato alla foschia. Strade ed edifici
   di una tessera si costruiscono a passi su più fotogrammi (niente scatti da 100 ms). **Qualità
-  automatica**: sotto ~24 fps il gioco riduce la risoluzione di disegno (fino al 60%) e poi spegne
-  le ombre; risale sopra ~50 fps. Si disattiva con `index.html?auto=0`.
+  automatica**: sotto ~24 fps il gioco spegne prima le ombre e poi riduce la risoluzione di disegno
+  (non sotto il 75%, per non sfocare l'immagine); risale sopra ~50 fps. Di notte, con il bagliore
+  delle luci, l'immagine è disegnata con antialiasing a 4 campioni. Si disattiva con `index.html?auto=0`.
 - **Laghi, fiumi e corsi d'acqua** (novembre 2026): il terreno è scavato sotto ogni specchio d'acqua,
   così la riva coincide con il bordo dell'acqua, e una fascia di sponda ne segna il confine (prima il
   blu della mappa dei colori sbordava sul terreno). I laghi hanno un livello unico; fiumi e canali
