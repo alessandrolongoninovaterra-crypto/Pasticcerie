@@ -26,6 +26,15 @@ from common import Proj, CFG, write_js
 
 pbf, bbox_json, height_dir, OUT = sys.argv[1:5]
 STAGE = os.environ.get('BDS_STAGE') or os.path.join(OUT, '..', '.stage')
+
+
+def rss(tag):
+    """memoria del processo (MB), per seguire i passaggi pesanti"""
+    try:
+        kb = int(next(l for l in open('/proc/self/status') if l.startswith('VmRSS')).split()[1])
+        print('  [memoria] %s: %d MB' % (tag, kb // 1024), flush=True)
+    except Exception:
+        pass
 os.makedirs(STAGE, exist_ok=True)
 bbox = json.load(open(bbox_json))['bbox']
 P = Proj(bbox)
@@ -724,6 +733,7 @@ for o in fp:
                             'n': t.get('name', ''), 'a': round(area),
                             'o': [[[round(x, 1), round(z, 1)] for x, z in dp_simplify(r, 1.0)] for r in wo],
                             'i': [[[round(x, 1), round(z, 1)] for x, z in dp_simplify(r, 1.0)] for r in wi]})
+rss('dopo lettura OSM')
 print('oggetti', n_obj, 'vie', len(road_ways), 'nodi strada', len(node_xy), 'edifici', len(buildings),
       'landcover', len(landcover_polys), 'alberi', len(trees_pt), 'ferrovie', len(rails), 'acque', len(waters))
 
@@ -747,6 +757,7 @@ if DBGT_DIR and os.path.isdir(DBGT_DIR):
     vols, bodies, dinfo, alti, dets = load_dbgt(DBGT_DIR, os.path.join(height_dir, 'dbgt_extract'), P.fwd, bbox)
     # la quota del piede di ogni edificio e' un punto del terreno in piu'
     alti['bld'] = [centroid(v['ring']) + (v['z0'],) for v in vols if v.get('z0')]
+    rss('dopo load_dbgt')
     print('DBGT: unita volumetriche', len(vols), 'corpi edificati', len(bodies), dict(dinfo.most_common(15)))
     if vols:
         # controllo di qualita' sui dati:
@@ -930,7 +941,8 @@ def min_rect(pts):
 # territoriali (D.M. 10/11/2011).
 # recinzione (EL_DIV_TY) -> (tipo come le barriere OSM, altezza): 0 muro, 1 siepe, 4 cancellata
 # su muretto, 5 rete metallica, 6 staccionata
-DIV_KIND = {'02': (4, 1.7), '04': (5, 1.5), '13': (5, 1.8), '17': (4, 1.6), '18': (6, 1.2), '19': (1, 1.5), '95': (0, 1.7)}
+# '95' (altro) e' quasi meta' degli elementi nei pacchetti provinciali: muretto basso, il caso piu' comune
+DIV_KIND = {'02': (4, 1.7), '04': (5, 1.5), '13': (5, 1.8), '17': (4, 1.6), '18': (6, 1.2), '19': (1, 1.5), '95': (0, 1.2)}
 # superfici -> nome della copertura del suolo e priorita' di disegno (sopra quelle OSM, sotto l'acqua)
 SURF_PRIO = {'asphalt': 9.1, 'yard': 9.2, 'pedestrian': 9.3, 'cemetery': 9.3, 'cycleway': 9.4, 'garden': 9.5, 'grass': 9.5,
              'park': 9.5, 'scrub': 9.5, 'flowerbed': 9.6, 'island': 9.6, 'pitch': 9.7, 'clay': 9.7, 'running_track': 9.7,
@@ -1004,6 +1016,7 @@ def _centerline(ring):
     return dp_simplify([((p[0] + q_[0]) / 2, (p[1] + q_[1]) / 2) for p, q_ in zip(a, b)], 0.2)
 
 
+rss('prima dei dettagli')
 if dets:
     from shapely.geometry import LineString as _DL, Point as _DP, Polygon as _DPg
     from shapely.strtree import STRtree as _DT
@@ -1127,6 +1140,10 @@ if dets:
         elif ty.startswith('06') or ty == '07':
             points.append((16, x, z, '')); dstat['pali di linea'] += 1
     print('DBGT dettagli:', dict(dstat))
+    rss('dettagli DBGT')
+dets = None      # i dati grezzi non servono piu'
+import gc
+gc.collect()
 
 # cancelli: [tipo, x, z, direzione dell'apertura (decimi di grado), larghezza (dm), stato]
 # tipo 0 battente, 1 scorrevole, 2 sbarra, 3 cancelletto pedonale, 4 catena
@@ -1163,6 +1180,7 @@ for kind, a, b, acc in gate_lines:
              2 if kind == 2 else (0 if acc == -1 else 1)))
 
 
+rss('prima altimetria')
 # ------------------------------------------------------------------ altimetria di dettaglio dal DBGT
 # Se i pacchetti DBGT contengono l'altimetria (punti quotati a terra, curve di livello, quota del
 # piede degli edifici, assi stradali con la quota) il modello del terreno passa a una griglia piu'
@@ -1504,6 +1522,7 @@ for w in road_ways:
             if wi >= 0:
                 for r in road_ways[wi]['ids']:
                     pinned.add(r)
+rss('dopo cavalcavia')
 print('cavalcavia', n_over)
 
 # propagazione delle rampe (Dijkstra "al contrario": dh decresce con la distanza)
@@ -1775,6 +1794,7 @@ for pk in parkings:
         chunk = stalls[before:]
         del stalls[before:]
         stalls.extend(sv for i, sv in enumerate(chunk) if i in keep)
+rss('dopo stalli')
 print('stalli', len(stalls), 'mappati/corsie/strada/piazzale', n_src, 'aree', len(parkings))
 
 # ------------------------------------------------------------------ gallerie: profilo e imbocchi
@@ -1909,6 +1929,7 @@ print('roads.js', sz, 'nodi', len(node_list))
 MPP = CFG['landcover_m_per_px']
 LW = int(math.ceil((P.xmax - P.xmin) / MPP))
 LH = int(math.ceil((P.zmax - P.zmin) / MPP))
+rss('prima mappa colori')
 img = Image.new('RGB', (LW, LH), LC_DEFAULT)
 
 
@@ -1947,6 +1968,7 @@ for b in buildings:
     pp = to_px(b['r'])
     md.polygon(pp, fill=255)
     md.line(pp + [pp[0]], fill=255, width=bw)
+rss('colori disegnati')
 arr = np.array(img)
 isdef = np.all(arr == np.array(LC_DEFAULT, np.uint8), axis=2)
 arr[isdef & (np.asarray(mask) > 0)] = LC['residential'][1]
@@ -1956,6 +1978,7 @@ d = ImageDraw.Draw(img)
 for col, width, pts in lc_lines:
     d.line(to_px(pts), fill=col, width=max(1, int(round(width / MPP))))
 buf = io.BytesIO()
+rss('prima quantize')
 imq = img.quantize(colors=47, method=Image.Quantize.MEDIANCUT, dither=Image.Dither.NONE)
 if tunnel_holes:
     # colore riservato per le aperture delle gallerie: una voce in piu' nella tavolozza
@@ -1971,6 +1994,7 @@ with open(lcjs, 'w') as f:
     f.write('BDS_DATA("landcover","png","%s");\n' % base64.b64encode(png).decode())
 img.resize((LW // 4, LH // 4)).save(os.path.join(height_dir, 'landcover_preview.png'))
 print('landcover', LW, LH, os.path.getsize(lcjs))
+rss('mappa dei colori')
 
 # ------------------------------------------------------------------ tessere edifici + alberi
 tiles = defaultdict(lambda: {'b': [], 'tr': [], 'rows': [], 'pa': [], 'ba': [], 'pt': [], 'pk': [], 'gt': []})
@@ -2039,30 +2063,33 @@ if fence_areas:
         from shapely.geometry import LineString as _LS, Polygon as _FP
         from shapely.strtree import STRtree as _FT
         from shapely.ops import unary_union as _uu
-        obst = []
+        # ostacoli come geometrie semplici; l'ingombro si calcola solo per quelli vicini a ogni area
+        # (con il DBGT le recinzioni sono centinaia di migliaia: bufferizzarle tutte prima esaurisce la memoria)
+        obst, opad = [], []
         for w in road_ways:
             pts_ = [node_xy[r] for r in w['ids']]
             if len(pts_) >= 2:
-                obst.append(_LS(pts_).buffer((w['width'] or 6.0) / 2 + 1.6, cap_style=2))
+                obst.append(_LS(pts_)); opad.append(((w['width'] or 6.0) / 2 + 1.6, 2))
         for kind_, pw_, pts_, brg_ in paths:
             if len(pts_) >= 2:
-                obst.append(_LS(pts_).buffer(pw_ / 2 + 0.7, cap_style=2))
+                obst.append(_LS(pts_)); opad.append((pw_ / 2 + 0.7, 2))
         for kind_, bh_, pts_ in barriers:
             if len(pts_) >= 2 and kind_ != 3:
-                obst.append(_LS(pts_).buffer(2.5))
+                obst.append(_LS(pts_)); opad.append((2.5, 1))
         for b in buildings:
             try:
-                obst.append(_FP(b['r']).buffer(0.4))
+                obst.append(_FP(b['r'])); opad.append((0.4, 1))
             except Exception:
                 pass
         otree = _FT(obst)
+        rss('ostacoli per le recinzioni dedotte')
         new_b = []
         for kind_, bh_, ring in fence_areas:
             try:
                 line = _LS(ring if ring[0] == ring[-1] else ring + [ring[0]])
                 if line.length > 2500 or line.length < 20:
                     continue
-                near = [obst[i] for i in otree.query(line)]
+                near = [obst[i].buffer(opad[i][0], cap_style=opad[i][1]) for i in otree.query(line.buffer(3.0))]
                 rest = line.difference(_uu(near)) if near else line
             except Exception:
                 continue
@@ -2073,6 +2100,7 @@ if fence_areas:
                 if len(pts_) >= 2:
                     new_b.append((kind_, bh_, pts_))
                     # una recinzione nuova fa da ostacolo per quelle dopo (aree che si toccano)
+        del obst, opad, otree
         # perimetri in comune tra aree vicine: si tiene un solo tratto
         seen_mid = set()
         for kind_, bh_, pts_ in new_b:

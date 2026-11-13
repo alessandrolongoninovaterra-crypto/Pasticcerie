@@ -278,6 +278,7 @@ export class World {
         t.parts.buildings = null; t.bldPending = true;
       }
       t.bldFar = d >= detail;
+      if (t.fence) t.fence.visible = d < 1100;
       const veg = t.parts.veg;
       if (veg && veg.userData.lod) {         // alberi: chioma piena vicino, semplificata lontano
         const L = veg.userData.lod, near = d < (L.isNear ? 750 : 650);
@@ -403,6 +404,8 @@ export class World {
       if (!('paths' in t.parts)) {
         const g = new THREE.Group();
         const pa = this.roads.buildPaths(t.data), ba = this.roads.buildBarriers(t.data, this.collision, t.key), pw = this.buildPower(t), st = this.roads.buildStalls(t.data);
+        t.fence = ba;          // muri e recinzioni: sottili, da lontano non si vedono (vedi update)
+        if (ba) ba.visible = t.d < 1100;
         for (const o of [pa, ba, pw, st]) if (o) g.add(o);
         add('paths', g.children.length ? g : null); continue;
       }

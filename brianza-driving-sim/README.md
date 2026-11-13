@@ -313,6 +313,11 @@ attorno agli edifici (codici del Catalogo dei dati territoriali, D.M. 10/11/2011
 Box, tettoie e baracche (`EDI_MIN`) sono già tra le unità volumetriche. Esempio, Cabiate (3,2 km²):
 8.370 alberi, 5.923 recinzioni e muri, 2.552 cortili, 3.393 aree verdi; il file compatto passa da
 0,35 a 0,65 MB.
+Provincia di Monza e Brianza (parte nella mappa): 440.000 alberi, 385.000 recinzioni e muri,
+180.000 cortili, 158.000 aree verdi, 68.000 carreggiate, 30.000 aree pedonali, 6.900 manufatti,
+35.000 pali; i file compatti passano da 14 a 49 MB (tre parti). Per non appesantire la grafica gli
+alberi oltre ~650 m hanno una chioma semplificata e muri e recinzioni oltre ~1,1 km non si
+disegnano. La pipeline con questi dati usa fino a ~12 GB di memoria.
 
 ### Altimetria dal DBGT
 
