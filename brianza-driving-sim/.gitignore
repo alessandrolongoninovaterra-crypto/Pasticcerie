@@ -1,0 +1,9 @@
+node_modules/
+*.map
+.work/
+dbgt/*.zip
+dbgt/*.gpkg
+dbgt/*.shp
+dbgt/*.dbf
+dbgt/*.shx
+.stage/

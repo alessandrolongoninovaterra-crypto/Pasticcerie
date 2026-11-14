@@ -1,0 +1,242 @@
+<!doctype html>
+<html lang="it">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Brianza Driving Simulator</title>
+<style>
+  :root { --bg: #0f1418; --panel: rgba(14,20,26,0.82); --text: #eef2f5; --muted: #9fb0bd; --accent: #2f8cff; --ok: #36c275; --warn: #ffb020; --bad: #ff4a3a; }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; overflow: hidden; background: var(--bg); color: var(--text); font-family: "Segoe UI", Roboto, Arial, sans-serif; }
+  canvas#game { display: block; width: 100vw; height: 100vh; }
+  .hidden { display: none !important; }
+  .panel { background: var(--panel); border: 1px solid rgba(255,255,255,0.08); border-radius: 12px; backdrop-filter: blur(6px); }
+  button { font: inherit; cursor: pointer; border: 0; border-radius: 8px; padding: 10px 16px; background: #26323c; color: var(--text); }
+  button:hover { background: #31414e; }
+  button.primary { background: var(--accent); color: #fff; font-weight: 600; }
+  button.primary:hover { background: #4a9dff; }
+  select, input[type=text] { font: inherit; background: #1b252d; color: var(--text); border: 1px solid #33424e; border-radius: 8px; padding: 8px 10px; }
+
+  /* caricamento */
+  #loading { position: fixed; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 16px; background: radial-gradient(ellipse at 50% 30%, #1d2b36, #0b0f13); z-index: 50; }
+  #loading h1 { margin: 0; font-size: 34px; letter-spacing: 1px; }
+  #loading .bar { width: min(420px, 80vw); height: 8px; background: #22303b; border-radius: 4px; overflow: hidden; }
+  #loading .bar div { height: 100%; width: 0; background: var(--accent); transition: width .2s; }
+  #loading .msg { color: var(--muted); font-size: 14px; }
+
+  /* menu */
+  #menu { position: fixed; inset: 0; overflow: auto; background: linear-gradient(180deg, rgba(8,12,16,0.92), rgba(8,12,16,0.97)); z-index: 40; padding: 28px 16px 40px; }
+  #menu .wrap { max-width: 1080px; margin: 0 auto; }
+  #menu h1 { margin: 0 0 4px; font-size: 32px; }
+  #menu .sub { color: var(--muted); margin-bottom: 22px; }
+  #menu h2 { font-size: 16px; text-transform: uppercase; letter-spacing: 1.5px; color: var(--muted); margin: 22px 0 10px; }
+  .cars { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 12px; }
+  .car { padding: 14px; cursor: pointer; border: 2px solid transparent; }
+  .car.sel { border-color: var(--accent); }
+  .car .sw { width: 100%; height: 6px; border-radius: 3px; margin-bottom: 10px; }
+  .car b { display: block; font-size: 17px; }
+  .car small { color: var(--muted); display: block; margin: 4px 0 8px; min-height: 34px; }
+  .car .spec { font-size: 13px; color: #c9d6df; display: flex; gap: 10px; flex-wrap: wrap; }
+  .opts { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 12px; }
+  .opts label { display: flex; flex-direction: column; gap: 6px; font-size: 14px; color: var(--muted); }
+  .start-row { display: flex; gap: 12px; margin-top: 26px; align-items: center; flex-wrap: wrap; }
+  .credits { color: #6f808c; font-size: 12px; margin-top: 26px; line-height: 1.6; }
+  .keys { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 4px 18px; font-size: 13px; color: #c9d6df; }
+  kbd { background: #26323c; border-radius: 4px; padding: 1px 6px; font-family: inherit; font-size: 12px; border: 1px solid #3a4955; }
+
+  /* HUD */
+  #hud { position: fixed; inset: 0; pointer-events: none; z-index: 10; }
+  #speedo { position: absolute; right: 18px; bottom: 18px; width: 210px; padding: 12px 16px; text-align: right; }
+  #speedo .v { font-size: 56px; font-weight: 700; line-height: 1; }
+  #speedo .u { color: var(--muted); font-size: 14px; }
+  #speedo .row { display: flex; justify-content: space-between; align-items: center; margin-top: 8px; font-size: 14px; color: var(--muted); }
+  #speedo .gear { font-size: 22px; color: var(--warn); font-weight: 700; }
+  #rpm { height: 6px; background: #22303b; border-radius: 3px; overflow: hidden; margin-top: 6px; }
+  #rpm div { height: 100%; width: 0; background: linear-gradient(90deg, #2f8cff, #35d0ff 70%, #ff4a3a); }
+  #limit { position: absolute; right: 240px; bottom: 26px; width: 74px; height: 74px; border-radius: 50%; background: #fff; border: 9px solid #d0121b; color: #111; display: flex; align-items: center; justify-content: center; font: 700 26px Arial; box-shadow: 0 2px 8px rgba(0,0,0,0.4); }
+  #limit.over { animation: blink .6s infinite; }
+  #limit .est { position: absolute; bottom: -22px; font: 11px Arial; color: #ddd; white-space: nowrap; text-shadow: 0 1px 2px #000; }
+  @keyframes blink { 50% { box-shadow: 0 0 0 6px rgba(255,60,40,0.8); } }
+  #road { position: absolute; left: 50%; bottom: 18px; transform: translateX(-50%); padding: 8px 22px; text-align: center; min-width: 280px; max-width: 46vw; }
+  #road .n { font-size: 22px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  #road .c { font-size: 13px; color: var(--muted); }
+  #gps { position: absolute; left: 18px; bottom: 18px; padding: 8px 12px; font: 12px/1.5 Consolas, monospace; color: #cfe1ee; }
+  #mini-wrap { position: absolute; left: 18px; bottom: 96px; width: 260px; height: 260px; border-radius: 16px; overflow: hidden; border: 3px solid rgba(255,255,255,0.15); box-shadow: 0 4px 16px rgba(0,0,0,0.4); }
+  #minimap { width: 100%; height: 100%; }
+  #mini-wrap .scale { position: absolute; right: 8px; top: 6px; font: 11px Arial; color: #333; background: rgba(255,255,255,0.6); border-radius: 4px; padding: 1px 5px; }
+  #topright { position: absolute; right: 18px; top: 16px; padding: 8px 14px; font-size: 14px; display: flex; gap: 14px; align-items: center; }
+  #nav { position: absolute; left: 18px; top: 16px; width: 360px; padding: 12px 14px; display: flex; gap: 12px; align-items: center; }
+  #nav .arrow { font-size: 44px; width: 56px; text-align: center; color: #fff; background: #1f6fe0; border-radius: 10px; line-height: 56px; height: 56px; }
+  #nav .d { font-size: 26px; font-weight: 700; }
+  #nav .t { font-size: 14px; color: #d6e2ea; }
+  #nav .eta { font-size: 12px; color: var(--muted); margin-top: 4px; }
+  #toast { position: absolute; left: 50%; top: 18%; transform: translateX(-50%); padding: 12px 22px; font-size: 18px; transition: opacity .4s; opacity: 0; }
+  #toast.show { opacity: 1; }
+  /* dall'abitacolo il nome della via sale in alto: in basso ci sono volante e quadro strumenti */
+  body.cockpit #road { bottom: auto; top: 96px; padding: 5px 16px; }
+  body.cockpit #road .n { font-size: 17px; }
+  #flash { position: absolute; inset: 0; background: #fff; opacity: 0; pointer-events: none; }
+  #flash.go { animation: flash .5s ease-out; }
+  @keyframes flash { 0% { opacity: 0.85; } 100% { opacity: 0; } }
+  #helpbar { position: absolute; left: 50%; top: 58px; opacity: 0.85; transform: translateX(-50%); font-size: 12px; color: #c2d0da; padding: 6px 12px; }
+
+  /* mappa completa */
+  #mapview { position: fixed; inset: 0; z-index: 30; background: #e4e9dc; }
+  #bigmap { width: 100%; height: 100%; display: block; cursor: crosshair; }
+  #mapbar { position: absolute; left: 16px; top: 16px; width: 360px; padding: 12px; color: var(--text); }
+  #mapbar input { width: 100%; }
+  #results { max-height: 46vh; overflow: auto; margin-top: 8px; }
+  #results div { padding: 6px 8px; border-radius: 6px; cursor: pointer; font-size: 14px; }
+  #results div:hover { background: #2a3844; }
+  #results small { color: var(--muted); }
+  #mapactions { position: absolute; right: 16px; top: 16px; padding: 10px; display: flex; flex-direction: column; gap: 8px; width: 250px; }
+  #mapinfo { font-size: 13px; color: #c9d6df; }
+  #maphint { position: absolute; left: 50%; bottom: 16px; transform: translateX(-50%); padding: 8px 14px; font-size: 13px; }
+
+  /* pausa */
+  #pause { position: fixed; inset: 0; z-index: 35; background: rgba(5,8,10,0.6); display: flex; align-items: center; justify-content: center; }
+  #pause .panel { padding: 22px 26px; width: min(560px, 92vw); max-height: 90vh; overflow: auto; }
+  #pause h2 { margin-top: 0; }
+  #pause .btns { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 16px; }
+  #wheelcal { font-size: 13px; color: #c9d6df; margin-top: 10px; }
+  #padcfg { position: fixed; inset: 0; z-index: 45; background: rgba(5,8,10,0.7); display: flex; align-items: center; justify-content: center; }
+  #padcfg .panel { padding: 22px 26px; width: min(600px, 92vw); max-height: 90vh; overflow: auto; }
+  #padcfg h2 { margin-top: 0; }
+  #padstatus { color: var(--muted); font-size: 14px; margin-bottom: 10px; }
+  #padstep { color: var(--muted); font-size: 13px; }
+  #padprompt { font-size: 22px; font-weight: 600; margin: 8px 0 12px; min-height: 60px; }
+  #padmap { font-size: 13px; color: #c9d6df; columns: 2; column-gap: 24px; margin: 10px 0; }
+  #padmap div { break-inside: avoid; }
+  #padlive { font: 12px Consolas, monospace; color: var(--muted); margin-top: 6px; word-break: break-all; }
+  #padcfg .btns { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 14px; }
+  #wheelcal .ax { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-top: 8px; }
+  #axes { font: 12px Consolas, monospace; color: var(--muted); margin-top: 6px; }
+  @media (max-width: 760px) { #nav { width: auto; right: 18px; } #mini-wrap { width: 170px; height: 170px; bottom: 120px; } #road { min-width: 0; max-width: 60vw; } #limit { right: 18px; bottom: 150px; } #gps { display: none; } }
+</style>
+</head>
+<body>
+<canvas id="game"></canvas>
+
+<div id="loading">
+  <h1>BRIANZA DRIVING SIMULATOR</h1>
+  <div class="bar"><div id="loadbar"></div></div>
+  <div class="msg" id="loadmsg">Caricamento della cartografia reale…</div>
+</div>
+
+<div id="menu" class="hidden">
+  <div class="wrap">
+    <h1>Brianza Driving Simulator</h1>
+    <div class="sub">Open world sulla rete stradale reale (OpenStreetMap) di Giussano, Meda, Seregno, Mariano Comense, Carate Brianza, Besana, Verano, Arosio, Inverigo, Briosco, Desio, Lissone, Albiate, Veduggio e Renate, fino ai laghi brianzoli, a Como, Lecco e Bellagio.</div>
+    <h2>1 · Scegli il veicolo</h2>
+    <div class="cars" id="cars"></div>
+    <h2>2 · Partenza e impostazioni</h2>
+    <div class="opts">
+      <label>Punto di partenza<select id="start"></select></label>
+      <label>Ora del giorno<select id="tod">
+        <option value="8.5">Mattina (08:30)</option><option value="12.5" selected>Mezzogiorno (12:30)</option><option value="19.6">Tramonto (19:35)</option><option value="22.5">Notte (22:30)</option></select></label>
+      <label>Traffico<select id="traffic"><option value="0">Nessuno</option><option value="18">Leggero</option><option value="35" selected>Normale</option><option value="60">Intenso</option></select></label>
+      <label>Qualità grafica<select id="quality"><option value="low">Bassa (PC datati)</option><option value="mid" selected>Media</option><option value="high">Alta</option></select></label>
+    </div>
+    <div class="start-row">
+      <button class="primary" id="go">▶ Parti</button>
+      <button id="pickstart">Scegli la partenza sulla mappa…</button>
+      <button id="padbtn">🎮 Gamepad</button>
+      <span id="pickinfo" style="color:var(--muted);font-size:14px"></span>
+    </div>
+    <h2>Comandi</h2>
+    <div class="keys">
+      <div><kbd>W</kbd>/<kbd>↑</kbd> acceleratore</div><div><kbd>S</kbd>/<kbd>↓</kbd> freno · retromarcia (da fermo)</div>
+      <div><kbd>A</kbd><kbd>D</kbd>/<kbd>←</kbd><kbd>→</kbd> sterzo</div><div><kbd>Spazio</kbd> freno a mano</div>
+      <div><kbd>Shift</kbd> acceleratore parziale</div><div><kbd>C</kbd> cambia visuale (esterna / abitacolo / cofano)</div>
+      <div><kbd>V</kbd> guarda indietro</div><div><kbd>M</kbd> mappa e destinazione</div>
+      <div><kbd>N</kbd> mostra/nascondi minimappa</div><div><kbd>H</kbd> fari</div>
+      <div><kbd>F</kbd> scendi dall'auto / sali su un veicolo vicino</div><div><kbd>E</kbd> clacson · mouse: ruota la telecamera</div>
+      <div>A piedi: <kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd>, <kbd>Shift</kbd> corsa</div>
+      <div><kbd>R</kbd> rimetti in strada</div><div><kbd>T</kbd> velocità del tempo · <kbd>+</kbd>/<kbd>-</kbd> ora</div>
+      <div><kbd>K</kbd> nomi dei luoghi</div><div><kbd>Esc</kbd> pausa / opzioni / volante</div>
+      <div>✈ Aereo: <kbd>W</kbd><kbd>S</kbd> manetta · <kbd>↑</kbd><kbd>↓</kbd> cabra/picchia · <kbd>A</kbd><kbd>D</kbd> vira</div>
+      <div>🎮 Gamepad: stick sinistro sterzo, RT/LT gas/freno, A freno a mano, B scendi, Y visuale, Start pausa — configurabile</div><div>Volante: configurabile in pausa</div>
+    </div>
+    <div class="credits">Cartografia © OpenStreetMap contributors (ODbL) — strade, edifici, boschi, laghi e confini comunali reali. Altimetria: Terrarium (Mapzen / AWS Open Data, da SRTM/EU-DEM). Limiti di velocità: da OSM quando presenti, altrimenti indicativi secondo il Codice della Strada.</div>
+  </div>
+</div>
+
+<div id="hud" class="hidden">
+  <div id="nav" class="panel hidden"><div class="arrow" id="navarrow">⬆</div><div><div class="d" id="navd"></div><div class="t" id="navt"></div><div class="eta" id="naveta"></div></div></div>
+  <div id="topright" class="panel"><span id="clock">12:00</span><span id="tspeed" style="color:var(--muted)"></span><span id="licence">🪪 20 punti · multe € 0</span><span id="fps" style="color:var(--muted)"></span></div>
+  <div id="helpbar" class="panel">F scendi/sali · E clacson · M mappa · C visuale · mouse: telecamera · Esc pausa</div>
+  <div id="mini-wrap"><canvas id="minimap" width="300" height="300"></canvas></div>
+  <div id="gps" class="panel"></div>
+  <div id="road" class="panel"><div class="n" id="roadname">—</div><div class="c" id="roadcomune"></div></div>
+  <div id="limit"><span id="limitv">50</span><span class="est" id="limitest"></span></div>
+  <div id="speedo" class="panel"><div class="v" id="spd">0</div><div class="u">km/h</div><div id="rpm"><div id="rpmbar"></div></div><div class="row"><span id="alt"></span><span class="gear" id="gear">1</span></div></div>
+  <div id="toast" class="panel"></div>
+  <div id="flash"></div>
+</div>
+
+<div id="mapview" class="hidden">
+  <canvas id="bigmap"></canvas>
+  <div id="mapbar" class="panel">
+    <input type="text" id="search" placeholder="Cerca paese, frazione, via, chiesa, stazione…" autocomplete="off">
+    <div id="results"></div>
+  </div>
+  <div id="mapactions" class="panel">
+    <div id="mapinfo">Clicca sulla mappa per scegliere un punto.</div>
+    <button class="primary" id="setdest">🏁 Imposta destinazione</button>
+    <button id="teleport">📍 Parti da qui</button>
+    <button id="cleardest">✖ Cancella percorso</button>
+    <button id="closemap">Chiudi (M)</button>
+  </div>
+  <div id="maphint" class="panel">Trascina per spostare · rotella per lo zoom · clic per selezionare</div>
+</div>
+
+<div id="padcfg" class="hidden">
+  <div class="panel">
+    <h2>🎮 Gamepad</h2>
+    <div id="padstatus">Collega il gamepad e premi un tasto qualsiasi: il browser lo rende visibile solo dopo la prima pressione.</div>
+    <div id="padwiz" class="hidden">
+      <div id="padstep"></div>
+      <div id="padprompt"></div>
+      <div class="btns"><button id="padskip">Salta questo comando</button><button id="padcancel">Annulla</button></div>
+    </div>
+    <div id="padmap"></div>
+    <div id="padlive"></div>
+    <div class="btns" id="padbtns">
+      <button class="primary" id="padstart">Configura i comandi</button>
+      <button id="padreset">Ripristina predefiniti</button>
+      <button id="padclose">Chiudi</button>
+    </div>
+  </div>
+</div>
+
+<div id="pause" class="hidden">
+  <div class="panel">
+    <h2>Pausa</h2>
+    <div class="opts">
+      <label>Traffico<select id="ptraffic"><option value="0">Nessuno</option><option value="18">Leggero</option><option value="35">Normale</option><option value="60">Intenso</option></select></label>
+      <label>Velocità del tempo<select id="ptime"><option value="0">Fermo</option><option value="1">Reale (1×)</option><option value="30">Veloce (30×)</option><option value="300">Rapidissimo (300×)</option></select></label>
+      <label>Indicazioni vocali<select id="pvoice"><option value="1">Attive</option><option value="0">Disattivate</option></select></label>
+      <label>Audio motore<select id="paudio"><option value="1">Attivo</option><option value="0">Muto</option></select></label>
+    </div>
+    <div id="wheelcal">
+      <b>Volante / pedaliera</b> (Logitech, Thrustmaster, Fanatec… via Gamepad API)
+      <label style="display:flex;gap:8px;align-items:center;margin-top:6px"><input type="checkbox" id="wheelon"> Usa volante con assi personalizzati</label>
+      <div class="ax">
+        <label>Asse sterzo<select id="axsteer"></select></label>
+        <label>Asse acceleratore<select id="axthr"></select></label>
+        <label>Asse freno<select id="axbrk"></select></label>
+      </div>
+      <label style="display:flex;gap:8px;align-items:center;margin-top:6px"><input type="checkbox" id="axinv"> Pedali invertiti (rilasciato = +1)</label>
+      <div id="axes">Nessun dispositivo rilevato: collega il volante e premi un pedale.</div>
+    </div>
+    <div class="btns">
+      <button class="primary" id="resume">Riprendi</button>
+      <button id="tomenu">Cambia auto / partenza</button>
+      <button id="padbtn2">🎮 Gamepad</button>
+    </div>
+  </div>
+</div>
+
+<script src="dist/game.js"></script>
+</body>
+</html>

@@ -1,0 +1,17 @@
+{
+  "name": "brianza-driving-simulator",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Simulatore di guida open world della Brianza su rete stradale reale OpenStreetMap",
+  "scripts": {
+    "build": "esbuild src/main.js --bundle --minify --sourcemap --format=iife --target=es2020 --outfile=dist/game.js",
+    "watch": "esbuild src/main.js --bundle --sourcemap --format=iife --target=es2020 --outfile=dist/game.js --watch",
+    "serve": "python3 -m http.server 8080"
+  },
+  "dependencies": {
+    "three": "0.170.0"
+  },
+  "devDependencies": {
+    "esbuild": "0.24.0"
+  }
+}

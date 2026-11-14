@@ -1,0 +1,593 @@
+<!doctype html>
+<html lang="it">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Riduci DBGT</title>
+<style>
+  :root { --bg: #0f1418; --panel: #172028; --text: #eef2f5; --muted: #9fb0bd; --accent: #2f8cff; --ok: #36c275; --bad: #ff6a5a; }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text); font: 15px/1.5 "Segoe UI", Roboto, Arial, sans-serif; }
+  main { max-width: 760px; margin: 0 auto; padding: 28px 16px 48px; }
+  h1 { font-size: 24px; margin: 0 0 6px; }
+  p { color: var(--muted); margin: 6px 0 14px; }
+  .box { background: var(--panel); border: 1px solid #263340; border-radius: 12px; padding: 18px; margin: 16px 0; }
+  label.pick { display: inline-block; background: var(--accent); color: #fff; padding: 11px 18px; border-radius: 8px; cursor: pointer; font-weight: 600; }
+  input[type=file] { display: none; }
+  #log { font: 13px/1.55 Consolas, monospace; white-space: pre-wrap; color: #cfe1ee; max-height: 340px; overflow: auto; }
+  .bar { height: 8px; background: #22303b; border-radius: 4px; overflow: hidden; margin-top: 12px; }
+  .bar div { height: 100%; width: 0; background: var(--accent); transition: width .2s; }
+  a.dl { display: inline-block; margin: 8px 10px 0 0; background: var(--ok); color: #06210f; padding: 9px 14px; border-radius: 8px; font-weight: 700; text-decoration: none; }
+  .err { color: var(--bad); }
+  label.opt { display: flex; gap: 8px; align-items: center; color: var(--muted); margin-top: 12px; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Riduci il pacchetto DBGT</h1>
+  <p>Questa pagina prende il pacchetto DBGT di Regione Lombardia scaricato dal Geoportale (va bene
+  anche quello provinciale da oltre 1 GB, senza estrarlo) e crea uno o più file piccoli con i soli
+  edifici e l'altimetria (punti quotati, curve di livello, quote delle strade) dell'area del gioco,
+  ognuno sotto i 28 MB. Tiene anche i dettagli dell'ambiente: alberi, filari e siepi, recinzioni,
+  muri di sostegno, carreggiate, marciapiedi, ciclabili, cortili, aree verdi, manufatti industriali,
+  impianti sportivi, pali e isole di traffico. Tutto avviene nel tuo browser: il file non
+  viene inviato da nessuna parte.</p>
+  <div class="box">
+    <label class="pick" for="file">Scegli lo zip (o il .gpkg) del DBGT…</label>
+    <input type="file" id="file" accept=".zip,.gpkg">
+    <label class="opt"><input type="checkbox" id="all"> Non ritagliare sull'area del gioco (file più grandi)</label>
+    <div class="bar"><div id="bar"></div></div>
+  </div>
+  <div class="box"><div id="log">In attesa del file…</div><div id="out"></div></div>
+  <p>Usa Chrome, Edge o Firefox aggiornati. I file prodotti (<code>*.dbgt.json.gz</code>) vanno
+  messi nella cartella <code>dbgt</code> del gioco oppure inviati per l'importazione.</p>
+</main>
+<script>
+'use strict';
+const $ = (id) => document.getElementById(id);
+const LIMIT = 28 * 1024 * 1024;
+const logEl = $('log');
+const log = (s, cls) => { const d = document.createElement('div'); d.textContent = s; if (cls) d.className = cls; logEl.appendChild(d); logEl.scrollTop = 1e9; };
+const progress = (f) => { $('bar').style.width = Math.round(f * 100) + '%'; };
+
+// ------------------------------------------------------------------ area del gioco (data/meta.js)
+// area predefinita del gioco (lat sud, lon ovest, lat nord, lon est): si usa se data/meta.js non si trova,
+// per esempio quando la pagina viene aperta da sola, fuori dalla cartella del gioco
+const DEFAULT_BBOX = [45.44, 9.06, 45.99, 9.415];
+let BBOX = null;
+window.BDS_DATA = async (key, fmt, b64) => {
+  if (key !== 'meta') return;
+  try {
+    const bin = Uint8Array.from(atob(b64), (c) => c.charCodeAt(0));
+    const txt = await new Response(new Blob([bin]).stream().pipeThrough(new DecompressionStream('gzip'))).text();
+    BBOX = JSON.parse(txt).proj.bbox;
+  } catch (e) { /* senza area: nessun ritaglio */ }
+};
+const metaScript = document.createElement('script');
+metaScript.src = 'data/meta.js';
+document.head.appendChild(metaScript);
+
+// ------------------------------------------------------------------ lettura degli zip (anche >4 GB, anche annidati)
+async function readBytes(blob, start, len) { return new Uint8Array(await blob.slice(start, start + len).arrayBuffer()); }
+const u16 = (b, o) => b[o] | (b[o + 1] << 8);
+const u32 = (b, o) => (b[o] | (b[o + 1] << 8) | (b[o + 2] << 16) | (b[o + 3] << 24)) >>> 0;
+const u64 = (b, o) => u32(b, o) + u32(b, o + 4) * 4294967296;
+const latin1 = new TextDecoder('latin1'), utf8 = new TextDecoder('utf-8');
+
+async function zipEntries(blob) {
+  const tailLen = Math.min(blob.size, 65557);
+  const tail = await readBytes(blob, blob.size - tailLen, tailLen);
+  let e = -1;
+  for (let i = tail.length - 22; i >= 0; i--) if (u32(tail, i) === 0x06054b50) { e = i; break; }
+  if (e < 0) throw new Error('non è uno zip valido');
+  let count = u16(tail, e + 10), cdSize = u32(tail, e + 12), cdOff = u32(tail, e + 16);
+  if (cdOff === 0xffffffff || count === 0xffff) { // zip64
+    const loc = e - 20;
+    if (loc >= 0 && u32(tail, loc) === 0x07064b50) {
+      const z64 = await readBytes(blob, u64(tail, loc + 8), 56);
+      count = u64(z64, 32); cdSize = u64(z64, 40); cdOff = u64(z64, 48);
+    }
+  }
+  const cd = await readBytes(blob, cdOff, cdSize);
+  const out = [];
+  for (let o = 0, k = 0; k < count && o + 46 <= cd.length; k++) {
+    if (u32(cd, o) !== 0x02014b50) break;
+    const flags = u16(cd, o + 8), method = u16(cd, o + 10);
+    let csize = u32(cd, o + 20), usize = u32(cd, o + 24), lho = u32(cd, o + 42);
+    const nlen = u16(cd, o + 28), xlen = u16(cd, o + 30), clen = u16(cd, o + 32);
+    const nameB = cd.subarray(o + 46, o + 46 + nlen);
+    const name = (flags & 0x800 ? utf8 : latin1).decode(nameB);
+    let x = o + 46 + nlen;
+    const xe = x + xlen;
+    while (x + 4 <= xe) { // campo extra zip64
+      const id = u16(cd, x), sz = u16(cd, x + 2);
+      if (id === 1) {
+        let p = x + 4;
+        if (usize === 0xffffffff) { usize = u64(cd, p); p += 8; }
+        if (csize === 0xffffffff) { csize = u64(cd, p); p += 8; }
+        if (lho === 0xffffffff) { lho = u64(cd, p); p += 8; }
+      }
+      x += 4 + sz;
+    }
+    out.push({ name, method, csize, usize, lho, blob });
+    o = xe + clen;
+  }
+  return out;
+}
+
+async function entryStream(ent) {
+  const lh = await readBytes(ent.blob, ent.lho, 30);
+  const start = ent.lho + 30 + u16(lh, 26) + u16(lh, 28);
+  const raw = ent.blob.slice(start, start + ent.csize).stream();
+  if (ent.method === 0) return raw;
+  if (ent.method === 8) return raw.pipeThrough(new DecompressionStream('deflate-raw'));
+  throw new Error('compressione non supportata (' + ent.method + ') in ' + ent.name);
+}
+async function entryBytes(ent) { return new Uint8Array(await new Response(await entryStream(ent)).arrayBuffer()); }
+async function entryBlob(ent) { return await new Response(await entryStream(ent)).blob(); }
+async function entryPrefix(ent, n) {
+  const reader = (await entryStream(ent)).getReader();
+  const parts = []; let got = 0;
+  while (got < n) { const { value, done } = await reader.read(); if (done) break; parts.push(value); got += value.length; }
+  reader.cancel().catch(() => {});
+  const out = new Uint8Array(got); let o = 0;
+  for (const p of parts) { out.set(p, o); o += p.length; }
+  return out;
+}
+
+// ------------------------------------------------------------------ shapefile / dbf
+function dbfFieldNames(b) {
+  const hlen = u16(b, 8), out = [];
+  for (let i = 32; i + 32 <= Math.min(hlen, b.length) && b[i] !== 0x0d; i += 32) out.push(latin1.decode(b.subarray(i, i + 11)).replace(/\0.*$/s, '').trim());
+  return out;
+}
+// dettagli dell'ambiente (Catalogo dei dati territoriali): classe -> [tipo, campo del tipo]
+const DETAIL = {
+  ALBERO: ['tree', 'albero_ty'], FIL_AL: ['row', 'fil_al_ty'], EL_DIV: ['div', 'el_div_ty'], MU_SOS: ['wall', 'msos_ty'],
+  AC_VEI: ['veh', null], AC_PED: ['ped', 'ac_ped_pos'], AC_CIC: ['cyc', null], AATT: ['yard', 'aatt_ty'], AR_VRD: ['green', 'ar_vrd_ty'],
+  MN_IND: ['ind', 'mn_ind_ty'], ATTR_SP: ['sport', 'attr_sp_ty'], PALO: ['pole', 'palo_imp'], MAN_TR: ['isl', 'man_tr_ty'],
+};
+const DETAIL_KINDS = new Set(Object.values(DETAIL).map((d) => d[0]));
+// codice della classe nel nome di una tabella o di un file: [codice, true se tabella principale]
+function detailCode(name) {
+  const n = String(name || '').replace(/^.*[\\/]/, '').replace(/\.[a-z]+$/i, '').toUpperCase();
+  for (const code of Object.keys(DETAIL).sort((a, b) => b.length - a.length)) {
+    if (n === code || n.endsWith('_' + code)) return [code, true];
+    if (n.startsWith(code + '_')) return [code, false];
+  }
+  return [null, false];
+}
+function layerKind(names, name = '') {
+  const k = baseKind(names);
+  if (k) return k;
+  const low = names.map((n) => n.toLowerCase());
+  for (const [kind, field] of Object.values(DETAIL)) if (field && low.some((n) => n.endsWith(field))) return kind;
+  const [code] = detailCode(name);
+  return code ? DETAIL[code][0] : null;
+}
+function baseKind(names) {
+  names = names.map((n) => n.toLowerCase());
+  if (names.some((n) => n.endsWith('un_vol_av'))) return 'vol';
+  if (names.some((n) => n.startsWith('cr_edf') || n.endsWith('edifc_uso'))) return 'body';
+  if (names.some((n) => n.endsWith('pt_quo_q'))) return 'quo';
+  if (names.some((n) => n.endsWith('cv_liv_q'))) return 'cv';
+  if (names.some((n) => n.endsWith('el_str_sed'))) return 'str';
+  return null;
+}
+const WANTED = new Set(['vol', 'quo', 'cv', 'str', ...DETAIL_KINDS]);
+const KIND_NAME = { vol: 'unità volumetriche', quo: 'punti quotati', cv: 'curve di livello', str: 'assi stradali con quota',
+  tree: 'alberi', row: 'filari e siepi', div: 'recinzioni', wall: 'muri di sostegno', veh: 'carreggiate', ped: 'aree pedonali',
+  cyc: 'piste ciclabili', yard: 'cortili', green: 'aree verdi', ind: 'manufatti industriali', sport: 'impianti sportivi',
+  pole: 'pali', isl: 'isole di traffico' };
+function readDbf(b) {
+  const nrec = u32(b, 4), hlen = u16(b, 8), rlen = u16(b, 10), fields = [];
+  for (let i = 32; i + 32 <= hlen && b[i] !== 0x0d; i += 32) fields.push([latin1.decode(b.subarray(i, i + 11)).replace(/\0.*$/s, '').trim().toLowerCase(), b[i + 16]]);
+  const out = new Array(nrec);
+  for (let r = 0; r < nrec; r++) {
+    const o = hlen + r * rlen;
+    if (o + rlen > b.length) { out.length = r; break; }
+    if (b[o] === 0x2a) { out[r] = null; continue; }
+    const rec = {}; let p = o + 1;
+    for (const [name, len] of fields) { rec[name] = latin1.decode(b.subarray(p, p + len)).trim(); p += len; }
+    out[r] = rec;
+  }
+  return out;
+}
+// geometrie di uno shapefile: [bbox, [parte piatta x,y,z,...]] (z = NaN se il file non ha quote)
+function* readShp(buf) {
+  const dv = new DataView(buf.buffer, buf.byteOffset, buf.byteLength);
+  let o = 100;
+  while (o + 8 <= buf.length) {
+    const clen = dv.getInt32(o + 4, false) * 2, c = o + 8;
+    const st = clen >= 4 ? dv.getInt32(c, true) : 0;
+    if ([3, 5, 13, 15, 23, 25].includes(st) && clen >= 44) {
+      const bb = [dv.getFloat64(c + 4, true), dv.getFloat64(c + 12, true), dv.getFloat64(c + 20, true), dv.getFloat64(c + 28, true)];
+      const np = dv.getInt32(c + 36, true), npt = dv.getInt32(c + 40, true);
+      const parts = []; for (let k = 0; k < np; k++) parts.push(dv.getInt32(c + 44 + 4 * k, true)); parts.push(npt);
+      const p0 = c + 44 + 4 * np, zOff = (st === 13 || st === 15) ? p0 + 16 * npt + 16 : 0, rings = [];
+      for (let k = 0; k < np; k++) {
+        const ring = [];
+        for (let j = parts[k]; j < parts[k + 1]; j++) ring.push(dv.getFloat64(p0 + 16 * j, true), dv.getFloat64(p0 + 16 * j + 8, true), zOff ? dv.getFloat64(zOff + 8 * j, true) : NaN);
+        rings.push(ring);
+      }
+      yield [bb, rings];
+    } else if ((st === 1 || st === 11 || st === 21) && clen >= 20) {
+      const x = dv.getFloat64(c + 4, true), y = dv.getFloat64(c + 12, true), z = st === 11 ? dv.getFloat64(c + 20, true) : NaN;
+      yield [[x, y, x, y], [[x, y, z]]];
+    } else yield null;
+    o = c + clen;
+  }
+}
+const pick = (rec, suffix) => { for (const k in rec) if (k.endsWith(suffix)) return rec[k]; return ''; };
+const ATTRS = { vol: ['un_vol_av', 'un_vol_por', 'un_vol_ex'], quo: ['pt_quo_sed'], cv: ['cv_liv_q', 'cv_liv_ty'], str: ['el_str_sed', 'el_str_liv', 'el_str_ty'], body: ['edifc_uso', 'cr_edf_ct'] };
+for (const [kind, field] of Object.values(DETAIL)) ATTRS[kind] = field ? [field] : [];
+const attrsOf = (kind, rec) => ATTRS[kind].map((suf) => pick(rec, suf));
+
+// ------------------------------------------------------------------ ritaglio nelle coordinate del livello
+function tmForward(lat, lon, a, f, lon0, k0, fe) {
+  const e2 = f * (2 - f), ep2 = e2 / (1 - e2), phi = lat * Math.PI / 180, lam = (lon - lon0) * Math.PI / 180;
+  const N = a / Math.sqrt(1 - e2 * Math.sin(phi) ** 2), T = Math.tan(phi) ** 2, C = ep2 * Math.cos(phi) ** 2, A = lam * Math.cos(phi);
+  const M = a * ((1 - e2 / 4 - 3 * e2 ** 2 / 64 - 5 * e2 ** 3 / 256) * phi - (3 * e2 / 8 + 3 * e2 ** 2 / 32 + 45 * e2 ** 3 / 1024) * Math.sin(2 * phi)
+    + (15 * e2 ** 2 / 256 + 45 * e2 ** 3 / 1024) * Math.sin(4 * phi) - (35 * e2 ** 3 / 3072) * Math.sin(6 * phi));
+  const x = fe + k0 * N * (A + (1 - T + C) * A ** 3 / 6 + (5 - 18 * T + T * T + 72 * C - 58 * ep2) * A ** 5 / 120);
+  const y = k0 * (M + N * Math.tan(phi) * (A * A / 2 + (5 - T + 9 * C + 4 * C * C) * A ** 4 / 24 + (61 - 58 * T + T * T + 600 * C - 330 * ep2) * A ** 6 / 720));
+  return [x, y];
+}
+function clipRect(prj, bbox) {
+  if (!bbox) return null;
+  const [s, w, n, e] = bbox, t = prj.toLowerCase();
+  let proj, margin;
+  if (/gauss|monte_mario|monte mario/.test(t)) {
+    const east = /zone_2|east|fuso_e/.test(t);
+    proj = (la, lo) => tmForward(la, lo, 6378388, 1 / 297, east ? 15 : 9, 0.9996, east ? 2520000 : 1500000); margin = 400;
+  } else if (!t || /utm|transverse_mercator/.test(t)) {
+    const m = t.match(/utm[^0-9]{0,12}(3[23])/), zone = m ? +m[1] : 32;
+    proj = (la, lo) => tmForward(la, lo, 6378137, 1 / 298.257222101, zone * 6 - 183, 0.9996, 500000); margin = 150;
+  } else { log('Sistema di riferimento non riconosciuto: nessun ritaglio'); return null; }
+  const P = [[s, w], [s, e], [n, w], [n, e]].map(([la, lo]) => proj(la, lo));
+  return [Math.min(...P.map((p) => p[0])) - margin, Math.min(...P.map((p) => p[1])) - margin, Math.max(...P.map((p) => p[0])) + margin, Math.max(...P.map((p) => p[1])) + margin];
+}
+
+// ------------------------------------------------------------------ GeoPackage (SQLite) in sola lettura
+// I pacchetti DBGT del Geoportale sono GeoPackage: un database SQLite. Qui c'e' un lettore minimo
+// che percorre le tabelle leggendo le pagine dal file a blocchi, cosi' funziona anche con file
+// da diversi GB senza caricarli tutti in memoria.
+class SqliteReader {
+  constructor(blob) { this.blob = blob; this.chunks = new Map(); this.CH = 4 << 20; }
+  async init() {
+    const h = await readBytes(this.blob, 0, 100);
+    if (latin1.decode(h.subarray(0, 15)) !== 'SQLite format 3') throw new Error('non è un database SQLite');
+    const ps = (h[16] << 8) | h[17];
+    this.ps = ps === 1 ? 65536 : ps;
+    this.usable = this.ps - h[20];
+  }
+  async page(n) {
+    const off = (n - 1) * this.ps, ci = Math.floor(off / this.CH);
+    let ch = this.chunks.get(ci);
+    if (!ch) {
+      if (this.chunks.size > 48) this.chunks.delete(this.chunks.keys().next().value);
+      ch = await readBytes(this.blob, ci * this.CH, this.CH);
+      this.chunks.set(ci, ch);
+    }
+    const o = off - ci * this.CH;
+    if (o + this.ps <= ch.length) return ch.subarray(o, o + this.ps);
+    return await readBytes(this.blob, off, this.ps); // pagina a cavallo di due blocchi
+  }
+  static varint(b, o) {
+    let v = 0;
+    for (let i = 0; i < 8; i++) { const c = b[o + i]; v = v * 128 + (c & 0x7f); if (!(c & 0x80)) return [v, o + i + 1]; }
+    return [v * 256 + b[o + 8], o + 9];
+  }
+  // tutte le righe di una tabella (rowid, valori), visitando il B-tree a partire dalla radice
+  async scan(root, onRow) {
+    const stack = [root];
+    while (stack.length) {
+      const pn = stack.pop();
+      const pg = await this.page(pn);
+      const h = pn === 1 ? 100 : 0, type = pg[h];
+      const n = (pg[h + 3] << 8) | pg[h + 4];
+      if (type === 0x05) {               // nodo interno: figli in ordine inverso per visitarli in ordine
+        stack.push(u32be(pg, h + 8));
+        for (let i = n - 1; i >= 0; i--) { const cp = (pg[h + 12 + 2 * i] << 8) | pg[h + 13 + 2 * i]; stack.push(u32be(pg, cp)); }
+      } else if (type === 0x0d) {        // foglia: righe
+        for (let i = 0; i < n; i++) {
+          let o = (pg[h + 8 + 2 * i] << 8) | pg[h + 9 + 2 * i];
+          let P, rowid;
+          [P, o] = SqliteReader.varint(pg, o);
+          [rowid, o] = SqliteReader.varint(pg, o);
+          const U = this.usable, X = U - 35;
+          let payload;
+          if (P <= X) payload = pg.subarray(o, o + P);
+          else {
+            const M = Math.floor((U - 12) * 32 / 255) - 23, K = M + ((P - M) % (U - 4)), local = K <= X ? K : M;
+            payload = new Uint8Array(P); payload.set(pg.subarray(o, o + local));
+            let got = local, next = u32be(pg, o + local);
+            while (got < P && next) {
+              const op = await this.page(next);
+              const take = Math.min(U - 4, P - got);
+              payload.set(op.subarray(4, 4 + take), got); got += take; next = u32be(op, 0);
+            }
+          }
+          onRow(rowid, SqliteReader.record(payload));
+        }
+      }
+    }
+  }
+  static record(b) {
+    let [hs, o] = SqliteReader.varint(b, 0);
+    const types = [];
+    while (o < hs) { let t; [t, o] = SqliteReader.varint(b, o); types.push(t); }
+    let p = hs;
+    const out = [];
+    const dv = new DataView(b.buffer, b.byteOffset, b.byteLength);
+    for (const t of types) {
+      if (t === 0) out.push(null);
+      else if (t >= 1 && t <= 6) {
+        const len = [0, 1, 2, 3, 4, 6, 8][t];
+        // intero con segno in complemento a due
+        let u = 0; for (let i = 0; i < len; i++) u = u * 256 + b[p + i];
+        if (b[p] & 0x80) u -= Math.pow(2, 8 * len);
+        out.push(u); p += len;
+      } else if (t === 7) { out.push(dv.getFloat64(p, false)); p += 8; }
+      else if (t === 8) out.push(0);
+      else if (t === 9) out.push(1);
+      else if (t >= 12 && t % 2 === 0) { const n = (t - 12) / 2; out.push(b.subarray(p, p + n)); p += n; }
+      else if (t >= 13) { const n = (t - 13) / 2; out.push(utf8.decode(b.subarray(p, p + n))); p += n; }
+      else out.push(null);
+    }
+    return out;
+  }
+}
+const u32be = (b, o) => ((b[o] << 24) >>> 0) + (b[o + 1] << 16) + (b[o + 2] << 8) + b[o + 3];
+
+function sqlColumns(sql) {
+  const a = sql.indexOf('('), z = sql.lastIndexOf(')');
+  const body = sql.slice(a + 1, z), items = [];
+  let depth = 0, cur = '';
+  for (const ch of body) {
+    if (ch === '(') depth++; else if (ch === ')') depth--;
+    if (ch === ',' && depth === 0) { items.push(cur); cur = ''; } else cur += ch;
+  }
+  items.push(cur);
+  return items.map((s) => s.trim()).filter((s) => s && !/^(primary|unique|check|foreign|constraint)\b/i.test(s))
+    .map((s) => { const m = s.match(/^(\[[^\]]+\]|"[^"]+"|`[^`]+`|\S+)/); return m[1].replace(/^[\["`]|[\]"`]$/g, ''); });
+}
+
+// geometria GeoPackage -> parti piatte [x,y,z,...]: anello esterno per i poligoni, tratto per le
+// linee, un punto per i punti (z = NaN se la geometria non ha quote)
+function gpkgParts(b) {
+  const env = (b[3] >> 1) & 7;
+  const dv = new DataView(b.buffer, b.byteOffset, b.byteLength);
+  const out = [];
+  const geom = (o) => {
+    const le = b[o] === 1;
+    let t = dv.getUint32(o + 1, le);
+    let hz = !!(t & 0x80000000), hm = !!(t & 0x40000000);
+    t &= 0x0fffffff;
+    const base = t % 1000, dim = Math.floor(t / 1000);
+    if (dim === 1 || dim === 3) hz = true;
+    if (dim === 2 || dim === 3) hm = true;
+    const nd = 2 + hz + hm;
+    o += 5;
+    const coords = (o, n) => { const r = []; for (let i = 0; i < n; i++) r.push(dv.getFloat64(o + 8 * nd * i, le), dv.getFloat64(o + 8 * nd * i + 8, le), hz ? dv.getFloat64(o + 8 * nd * i + 16, le) : NaN); return r; };
+    if (base === 1) { out.push(coords(o, 1)); return o + 8 * nd; }
+    if (base === 2) { const n = dv.getUint32(o, le); o += 4; out.push(coords(o, n)); return o + 8 * nd * n; }
+    if (base === 3) {
+      const nr = dv.getUint32(o, le); o += 4;
+      for (let r = 0; r < nr; r++) {
+        const n = dv.getUint32(o, le); o += 4;
+        if (r === 0) out.push(coords(o, n));
+        o += 8 * nd * n;
+      }
+      return o;
+    }
+    if (base >= 4 && base <= 7) { const n = dv.getUint32(o, le); o += 4; for (let i = 0; i < n; i++) o = geom(o); return o; }
+    throw new Error('geometria non gestita ' + t);
+  };
+  geom(8 + [0, 32, 48, 48, 64][env]);
+  return out;
+}
+
+// livelli degli edifici di un GeoPackage: [{name, kind, prj, rows: async iteratore}]
+async function gpkgLayers(blob, tag, found) {
+  const db = new SqliteReader(blob);
+  await db.init();
+  const master = [];
+  await db.scan(1, (rowid, v) => master.push(v)); // type, name, tbl_name, rootpage, sql
+  const tables = new Map(master.filter((v) => v[0] === 'table').map((v) => [v[1], { root: v[3], cols: sqlColumns(v[4] || '') }]));
+  const srs = new Map(), geomCol = new Map();
+  if (tables.has('gpkg_spatial_ref_sys')) {
+    const t = tables.get('gpkg_spatial_ref_sys'), iId = t.cols.indexOf('srs_id'), iDef = t.cols.indexOf('definition');
+    await db.scan(t.root, (rowid, v) => srs.set(v[iId] ?? rowid, v[iDef]));
+  }
+  if (tables.has('gpkg_geometry_columns')) {
+    const t = tables.get('gpkg_geometry_columns'), c = t.cols;
+    await db.scan(t.root, (rowid, v) => geomCol.set(v[c.indexOf('table_name')], { col: v[c.indexOf('column_name')], srs: v[c.indexOf('srs_id')] }));
+  }
+  // nel DBGT comunale molte classi hanno gli attributi in una tabella senza geometria (AR_VRD) e la
+  // geometria in una tabella collegata (AR_VRD_AR_VRD_SUP, CLASSREF = CLASSID)
+  const subs = new Map(), have = new Set();
+  const add = (name, t, kind, parent) => {
+    const g = geomCol.get(name) || { col: t.cols.find((c) => /shape|geom/i.test(c)), srs: null };
+    found.push({ base: name, kind, gpkg: { db, t, geomIdx: t.cols.indexOf(g.col), parent }, prj: (g.srs != null && srs.get(g.srs)) || '' });
+    have.add(kind);
+    log(`Trovato: ${tag ? tag + ' › ' : ''}${name} (${KIND_NAME[kind]}, GeoPackage)`);
+  };
+  for (const [name, t] of tables) {
+    if (!geomCol.has(name)) continue;
+    const kind = baseKind(t.cols);
+    if (kind) { if (WANTED.has(kind)) add(name, t, kind, null); continue; }
+    const [code, main] = detailCode(name);
+    if (!code) continue;
+    if (main) add(name, t, DETAIL[code][0], null);
+    else if (t.cols.some((c) => c.toLowerCase() === 'classref')) { if (!subs.has(code)) subs.set(code, []); subs.get(code).push([name, t]); }
+  }
+  for (const [code, list] of subs) {
+    const kind = DETAIL[code][0];
+    if (have.has(kind)) continue;
+    list.sort((a, b) => a[0].length - b[0].length);
+    const pName = [...tables.keys()].find((n) => n.toUpperCase() === code);
+    add(list[0][0], list[0][1], kind, pName ? tables.get(pName) : null);
+  }
+}
+
+// ------------------------------------------------------------------ ricerca dei livelli degli edifici
+async function findLayers(blob, tag, found, depth = 0) {
+  const ents = await zipEntries(blob);
+  const byBase = new Map();
+  for (const en of ents) {
+    const m = en.name.match(/^(.*)\.(shp|shx|dbf|prj|cpg)$/i);
+    if (m) { const k = m[1]; if (!byBase.has(k)) byBase.set(k, {}); byBase.get(k)[m[2].toLowerCase()] = en; }
+  }
+  for (const [base, parts] of byBase) {
+    if (!parts.dbf || !parts.shp) continue;
+    const head = await entryPrefix(parts.dbf, 8192);
+    const kind = layerKind(dbfFieldNames(head), base);
+    if (WANTED.has(kind)) { found.push({ base, kind, parts }); log(`Trovato: ${tag ? tag + ' › ' : ''}${base} (${KIND_NAME[kind]})`); }
+  }
+  for (const en of ents) {
+    if (/\.gpkg$/i.test(en.name)) {
+      log(`Apro il GeoPackage ${en.name} (${(en.usize / 1e6).toFixed(0)} MB)…`);
+      try { await gpkgLayers(await entryBlob(en), en.name, found); } catch (e) { log('  ' + e.message, 'err'); }
+    }
+  }
+  for (const en of ents) {
+    if (!/\.zip$/i.test(en.name) || depth > 3) continue;
+    log(`Apro lo zip interno ${en.name} (${(en.usize / 1e6).toFixed(0)} MB)…`);
+    try { await findLayers(await entryBlob(en), en.name, found, depth + 1); } catch (e) { log('  ' + e.message, 'err'); }
+  }
+}
+
+async function gzipJson(obj) {
+  const blob = new Blob([JSON.stringify(obj)]);
+  return await new Response(blob.stream().pipeThrough(new CompressionStream('gzip'))).blob();
+}
+
+// record di un livello: callback(attributi, [anelli piatti x,y,...])
+async function eachRecord(L, cb) {
+  if (L.gpkg) {
+    const { db, t, geomIdx, parent } = L.gpkg, c = t.cols.map((s) => s.toLowerCase());
+    const ids = ATTRS[L.kind].map((suf) => c.findIndex((n) => n.endsWith(suf)));
+    // tipo dalla tabella principale della classe (CLASSID -> attributi)
+    let join = null, iRef = -1;
+    if (parent) {
+      const pc = parent.cols.map((s) => s.toLowerCase()), iId = pc.indexOf('classid');
+      const pids = ATTRS[L.kind].map((suf) => pc.findIndex((n) => n.endsWith(suf)));
+      join = new Map(); iRef = c.indexOf('classref');
+      await db.scan(parent.root, (rowid, v) => join.set(String(v[iId] ?? rowid).trim(), pids.map((i) => (i < 0 || v[i] == null ? '' : String(v[i]).trim()))));
+    }
+    let n = 0;
+    await db.scan(t.root, (rowid, v) => {
+      const g = v[geomIdx];
+      if (!(g instanceof Uint8Array) || g.length < 13) return;
+      let parts;
+      try { parts = gpkgParts(g); } catch (e) { return; }
+      const a = join ? (join.get(String(v[iRef] ?? '').trim()) || ids.map(() => '')) : ids.map((i) => (i < 0 || v[i] == null ? '' : String(v[i]).trim()));
+      for (const part of parts) cb(a, [part]);
+      n++;
+    });
+    return n;
+  }
+  const recs = readDbf(await entryBytes(L.parts.dbf));
+  const shp = await entryBytes(L.parts.shp);
+  let i = 0;
+  for (const g of readShp(shp)) {
+    const r = recs[i++];
+    if (!r || !g) continue;
+    cb(attrsOf(L.kind, r), g[1]);
+  }
+  return recs.length;
+}
+
+$('file').addEventListener('change', async (ev) => {
+  const file = ev.target.files[0];
+  if (!file) return;
+  logEl.textContent = ''; $('out').textContent = ''; progress(0);
+  const clip = !$('all').checked;
+  const bbox = clip ? (BBOX || DEFAULT_BBOX) : null;
+  log(`File: ${file.name} (${(file.size / 1e6).toFixed(0)} MB)`);
+  log(bbox ? `Area del gioco${BBOX ? '' : ' (predefinita: data/meta.js non trovato)'}: lat ${bbox[0]}–${bbox[2]}, lon ${bbox[1]}–${bbox[3]}` : 'Nessun ritaglio');
+  try {
+    const found = [];
+    if (/\.gpkg$/i.test(file.name)) await gpkgLayers(file, '', found);
+    else await findLayers(file, '', found);
+    if (!found.length) { log('Nessun livello di edifici, altimetria o dettagli trovato. Mandami uno screenshot di questi messaggi.', 'err'); return; }
+    const layers = [];
+    let kept = 0, total = 0;
+    for (let li = 0; li < found.length; li++) {
+      const L = found[li];
+      log(`Leggo ${L.base}…`);
+      const prj = L.gpkg ? L.prj : (L.parts.prj ? latin1.decode(await entryBytes(L.parts.prj)) : '');
+      const rect = clipRect(prj, bbox);
+      const out = [];
+      let seen = 0;
+      let qbuf = [];   // punti quotati raccolti a blocchi
+      const enc3 = (pts) => { const f = []; let px = 0, py = 0, pz = 0; for (let j = 0; j < pts.length; j += 3) { const qx = Math.round(pts[j] * 10), qy = Math.round(pts[j + 1] * 10), qz = Math.round(pts[j + 2] * 100); f.push(qx - px, qy - py, qz - pz); px = qx; py = qy; pz = qz; } return f; };
+      await eachRecord(L, (a, rings) => {
+        seen++;
+        let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+        for (const ring of rings) for (let j = 0; j < ring.length; j += 3) { if (ring[j] < x0) x0 = ring[j]; if (ring[j] > x1) x1 = ring[j]; if (ring[j + 1] < y0) y0 = ring[j + 1]; if (ring[j + 1] > y1) y1 = ring[j + 1]; }
+        if (rect && (x1 < rect[0] || x0 > rect[2] || y1 < rect[1] || y0 > rect[3])) return;
+        if (L.kind === 'quo') {          // solo punti a terra: le quote in gronda (0302) non servono
+          if (a[0] === '0302') return;
+          for (const r of rings) for (let j = 0; j < r.length; j += 3) if (Number.isFinite(r[j + 2])) qbuf.push(r[j], r[j + 1], r[j + 2]);
+          if (qbuf.length >= 12000) { out.push({ p: enc3(qbuf) }); qbuf = []; }
+          return;
+        }
+        if (L.kind === 'cv' || L.kind === 'str') {   // linee con quota
+          const r = rings.filter((ring) => ring.length >= 6 && ring.every((v, j) => j % 3 !== 2 || Number.isFinite(v)));
+          if (r.length) out.push({ a, r: r.map(enc3) });
+          return;
+        }
+        const rec = { a, r: rings.map((ring) => {
+          const flat = []; let px = 0, py = 0;
+          for (let j = 0; j < ring.length; j += 3) { const qx = Math.round(ring[j] * 10), qy = Math.round(ring[j + 1] * 10); flat.push(qx - px, qy - py); px = qx; py = qy; }
+          return flat;
+        }) };
+        const z = rings.length && rings[0].length > 2 ? rings[0][2] : NaN;   // quota del piede dell'edificio
+        if (L.kind === 'vol' && Number.isFinite(z) && z > 1) rec.z = Math.round(z * 100);
+        out.push(rec);
+      });
+      if (qbuf.length) out.push({ p: enc3(qbuf) });
+      total += seen; kept += out.length;
+      log(`  ${KIND_NAME[L.kind]}: ${out.length.toLocaleString('it')} oggetti nell'area su ${seen.toLocaleString('it')}`);
+      layers.push({ kind: L.kind, prj, recs: out });
+      progress((li + 1) / found.length * 0.8);
+    }
+    // parti sotto il limite
+    const files = [];
+    let cur = [], curSize = 0, curPrj = null;
+    const flush = async () => {
+      if (!cur.length) return;
+      const byKind = {};
+      for (const [kind, rec] of cur) (byKind[kind] = byKind[kind] || []).push(rec);
+      const payload = { v: 1, source: 'DBGT Regione Lombardia', prj: curPrj || '', layers: Object.entries(byKind).map(([kind, recs]) => ({ kind, recs })) };
+      files.push(await gzipJson(payload));
+      cur = []; curSize = 0;
+    };
+    for (const L of layers) for (const rec of L.recs) {
+      const est = 6 + (rec.p ? rec.p.length : rec.r.reduce((s, r) => s + r.length, 0)) * 1.6;
+      if (cur.length && (curSize + est > LIMIT * 0.9 || curPrj !== L.prj)) await flush();
+      curPrj = L.prj; cur.push([L.kind, rec]); curSize += est;
+    }
+    await flush();
+    progress(1);
+    const stem = file.name.replace(/\.(zip|gpkg)$/i, '').replace(/[^A-Za-z0-9_-]+/g, '_').slice(0, 40);
+    const base = /^dbgt/i.test(stem) ? stem : 'DBGT_' + stem;
+    files.forEach((b, k) => {
+      const a = document.createElement('a');
+      a.className = 'dl'; a.href = URL.createObjectURL(b); a.download = `${base}_${k + 1}.dbgt.json.gz`;
+      a.textContent = `⬇ ${a.download} (${(b.size / 1e6).toFixed(1)} MB)`;
+      $('out').appendChild(a);
+    });
+    if (!files.length) log('Nessun edificio nell\'area del gioco in questo pacchetto.', 'err');
+    else log(`Fatto: ${kept.toLocaleString('it')} oggetti su ${total.toLocaleString('it')}, ${files.length} file. Scaricali con i pulsanti verdi.`);
+    if (files.some((b) => b.size > 30e6)) log('Attenzione: un file supera 30 MB', 'err');
+  } catch (e) {
+    log('Errore: ' + e.message, 'err');
+    console.error(e);
+  }
+});
+</script>
+</body>
+</html>
