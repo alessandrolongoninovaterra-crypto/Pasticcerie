@@ -192,6 +192,23 @@ segnaletica, edifici, fisica, navigatore, comportamento di pedoni e traffico) è
   volume alto e stretto) hanno la cella campanaria con le aperture ad arco e la cuspide in rame o in
   coppi. Gli edifici oltre 38 m hanno facciate continue in vetro (Porta Nuova, CityLife) con le luci
   degli uffici di notte; i palazzi dai tre piani hanno il cornicione in aggetto.
+- **Piazze storiche: gallerie, portici, monumenti, metro** (novembre 2026), dai dati e quindi
+  ovunque ci siano:
+  - **portici e sottopassaggi** dal DBGT (`UN_VOL_POR` 03 soffitto di portico, 05 loggia, 04
+    sottopassaggio): il volume parte dalla quota reale del soffitto (o, se manca, da circa un terzo
+    dell'altezza), sotto c'è il soffitto e, per portici e logge, una fila di pilastri con capitello
+    lungo il perimetro. Si passa a piedi e in auto sotto gli archi (es. i portici settentrionali e
+    meridionali di Piazza del Duomo, Piazza Mercanti);
+  - **gallerie coperte in vetro** da OSM (`building=roof` con `roof:material=glass` e i percorsi
+    pedonali coperti al suo interno): volta a botte in vetro e costole di ferro lungo ogni braccio,
+    larga quanto il passaggio e impostata alla gronda dei palazzi vicini, e cupola dove i bracci si
+    incrociano (Galleria Vittorio Emanuele II);
+  - **monumenti e statue** da OSM (`historic=monument|memorial`, `tourism=artwork`, `memorial=statue`
+    …): basamento in pietra e figura in bronzo o marmo (statua equestre, statua in piedi, busto,
+    stele, colonna, obelisco, scultura) con altezza, quota del basamento e colore dei tag quando ci
+    sono; sono rivolti verso la strada più vicina e hanno la collisione;
+  - **ingressi della metropolitana** (`railway=subway_entrance`): vano scala con parapetti e palina
+    con il cubo rosso della M.
 - **Palazzi**: numero intero di piani per edificio (finestre allineate in alto e in basso), piano
   terra distinto (portoni, garage, ingressi vetrati), stili condominio con balconi e palazzina
   moderna oltre a casa con persiane e capannone, base dei muri più scura, file di coppi sui tetti a

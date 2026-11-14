@@ -10,6 +10,18 @@ const ROOF_FLAT = ['#8d8a84', '#7d7b77', '#9a968e', '#6f6e6a'];
 const CHURCH = ['#e8dcc4', '#d9c09a', '#c98f6a', '#b9a58a', '#efe6d2', '#a95b43', '#ddd2bd'];   // intonaci, pietra, mattone
 const tmpC = new THREE.Color();
 
+// parallelepipedo orientato (asse lungo dx,dz) in un GeoBuilder a colori per vertice
+function boxV(g, cx, y0, cz, sx, sy, sz, dx, dz, c) {
+  const hx = sx / 2, hz = sz / 2, ex = [dx * hx, dz * hx], ez = [-dz * hz, dx * hz];
+  const P = (i, j, k) => [cx + ex[0] * i + ez[0] * k, y0 + j * sy, cz + ex[1] * i + ez[1] * k];
+  const F = [[P(-1, 1, -1), P(-1, 1, 1), P(1, 1, 1), P(1, 1, -1), 1], [P(-1, 0, 1), P(1, 0, 1), P(1, 1, 1), P(-1, 1, 1), 0.8],
+    [P(1, 0, -1), P(-1, 0, -1), P(-1, 1, -1), P(1, 1, -1), 0.8], [P(1, 0, 1), P(1, 0, -1), P(1, 1, -1), P(1, 1, 1), 0.7], [P(-1, 0, -1), P(-1, 0, 1), P(-1, 1, 1), P(-1, 1, -1), 0.7]];
+  for (const [a, b, d, e, sh] of F) {
+    const v = [a, b, d, e].map((p) => g.v(p[0], p[1], p[2], c.r * sh, c.g * sh, c.b * sh));
+    g.quad(v[0], v[1], v[2], v[3]); g.quad(v[0], v[3], v[2], v[1]);
+  }
+}
+
 // Facciate: ogni immagine ha 8 x 8 campate da 3 m. La riga in basso e' il PIANO TERRA (portoni,
 // garage, ingressi), quelle sopra i piani tipo: l'edificio le usa dal basso, con un numero intero
 // di piani, cosi' le finestre sono allineate sia alla gronda sia a terra.
@@ -194,7 +206,7 @@ export class BuildingFactory {
       const type = rec[0];
       let H = rec[1] / 10;
       const minH = rec[2] / 10;
-      const levels = rec[3], roofShape = rec[4];
+      const levels = rec[3], roofShape = rec[4] & 15, portico = (rec[4] & 16) !== 0;
       const name = names[rec[5]], colTag = names[rec[6]], roofTag = names[rec[7]];
       const ring = [];
       let x = 0, z = 0;
@@ -232,7 +244,8 @@ export class BuildingFactory {
           }
         }
       }
-      const base = minT - 0.6 + minH;
+      // volumi sospesi (portici, sottopassaggi, sporti del DBGT): il muro parte dal soffitto
+      const base = minH > 0 ? minT + minH : minT - 0.6;
       const eave = (minT + maxT) / 2 + H;
       // piani interi: l'altezza di interpiano si adatta (2,7-3,4 m) e le finestre restano allineate
       const floors = Math.max(1, Math.round(H / 3.05));
@@ -289,14 +302,107 @@ export class BuildingFactory {
       if (tower) this.towerTop(roof, ring, n, eave, col, area, rnd);
       if (church && area > 350 && H > 12) this.pinnacles(roof, ring, n, eave, col, area > 1500 || H > 30);
       if ((style === 'res' || style === 'condo' || style === 'modern') && floors >= 3) this.cornice(roof, ring, n, eave, col);
-      if (collision) collision.addPolygon(tileKey, Float32Array.from(ring), eave + (pitched ? 3 : 1));
+      if (minH > 2.2) {
+        // sotto si passa: soffitto visto dal basso e, nei portici, pilastri (sono loro l'ostacolo)
+        this.ceiling(roof, ring, n, base, col);
+        if (portico) this.pillars(roof, ring, n, minT, base, col, collision, tileKey);
+      } else if (collision) collision.addPolygon(tileKey, Float32Array.from(ring), eave + (pitched ? 3 : 1));
       if (name && (kind === 5 || kind === 8 || type === 7)) labels.push({ name, x: cx, z: cz, y: eave + 4 });
     }
     const group = new THREE.Group();
+    const glassRoof = this.glassRoofs(tile);
+    if (glassRoof) group.add(glassRoof);
     for (const k of ['res', 'condo', 'modern', 'ind', 'plain', 'church', 'glass']) if (!gb[k].empty) { yield; group.add(gb[k].mesh(this.mats[k], true)); }
     yield;
     if (!roof.empty) group.add(roof.mesh(this.mats.roof, true));
     return { group, labels };
+  }
+
+  // soffitto di un volume sospeso, visto dal basso
+  ceiling(g, ring, n, y, col) {
+    const pts = [];
+    for (let i = 0; i < n; i++) pts.push(new THREE.Vector2(ring[i * 2], ring[i * 2 + 1]));
+    let tris;
+    try { tris = THREE.ShapeUtils.triangulateShape(pts, []); } catch (e) { return; }
+    const c = col.clone().multiplyScalar(0.62);
+    const v = pts.map((p) => g.v(p.x, y, p.y, c.r, c.g, c.b));
+    for (const [a, b, d] of tris) { g.tri(v[a], v[b], v[d]); g.tri(v[a], v[d], v[b]); }
+  }
+
+  // pilastri del portico: ai vertici e ogni ~4 m lungo i lati, con un capitello appena piu' largo
+  pillars(g, ring, n, y0, y1, col, collision, tileKey) {
+    const c = col.clone().multiplyScalar(0.95), cap = col.clone().multiplyScalar(1.05);
+    const post = (x, z, dx, dz) => {
+      boxV(g, x, y0 - 0.3, z, 0.62, y1 - y0 + 0.3, 0.62, dx, dz, c);
+      boxV(g, x, y1 - 0.45, z, 0.85, 0.45, 0.85, dx, dz, cap);
+      if (collision) collision.addCircle(tileKey, x, z, 0.4, y1);
+    };
+    for (let i = 0; i < n; i++) {
+      const j = (i + 1) % n;
+      const ax = ring[i * 2], az = ring[i * 2 + 1], bx = ring[j * 2], bz = ring[j * 2 + 1];
+      const L = Math.hypot(bx - ax, bz - az);
+      if (L < 0.5) continue;
+      const dx = (bx - ax) / L, dz = (bz - az) / L, m = Math.max(1, Math.round(L / 4.2));
+      for (let k = 0; k < m; k++) post(ax + (bx - ax) * k / m, az + (bz - az) * k / m, dx, dz);
+    }
+  }
+
+  // coperture in vetro della tessera: volte a botte (gv) lungo i passaggi e cupole (gd)
+  glassRoofs(tile) {
+    const gv = tile.gv || [], gd = tile.gd || [];
+    if (!gv.length && !gd.length) return null;
+    const T = this.terrain, pos = [], uv = [], idx = [];
+    const vtx = (x, y, z, u, w) => { pos.push(x, y, z); uv.push(u, w); return pos.length / 3 - 1; };
+    const SEG = 10;
+    for (const rec of gv) {
+      const w = rec[0] / 10, sp = rec[1] / 10, pts = [];
+      for (let i = 2, x = 0, z = 0; i < rec.length; i += 2) { x += rec[i]; z += rec[i + 1]; pts.push([x / 10, z / 10]); }
+      let gmin = 1e9;
+      for (const [x, z] of pts) gmin = Math.min(gmin, T.height(x, z));
+      const y0 = gmin + sp, r = w / 2;
+      let s = 0, prev = null;
+      for (let k = 0; k < pts.length; k++) {
+        const a = pts[Math.max(0, k - 1)], b = pts[Math.min(pts.length - 1, k + 1)];
+        let dx = b[0] - a[0], dz = b[1] - a[1]; const L = Math.hypot(dx, dz) || 1; dx /= L; dz /= L;
+        if (k) s += Math.hypot(pts[k][0] - pts[k - 1][0], pts[k][1] - pts[k - 1][1]);
+        const row = [];
+        for (let q = 0; q <= SEG; q++) {
+          const t = Math.PI * q / SEG, off = -Math.cos(t) * r, up = Math.sin(t) * r * 0.85;
+          row.push(vtx(pts[k][0] - dz * off, y0 + up, pts[k][1] + dx * off, q / SEG * (Math.PI * r / 1.4), s / 1.4));
+        }
+        if (prev) for (let q = 0; q < SEG; q++) idx.push(prev[q], row[q], prev[q + 1], prev[q + 1], row[q], row[q + 1]);
+        prev = row;
+      }
+    }
+    for (let o = 0; o + 3 < gd.length; o += 4) {
+      const r = gd[o] / 10, sp = gd[o + 1] / 10, cx = gd[o + 2] / 10, cz = gd[o + 3] / 10, y0 = T.height(cx, cz) + sp;
+      const LAT = 8, LON = 16, base = pos.length / 3;
+      for (let a = 0; a <= LAT; a++) for (let b = 0; b <= LON; b++) {
+        const th = (a / LAT) * Math.PI / 2, ph = (b / LON) * Math.PI * 2;
+        vtx(cx + Math.cos(th) * Math.cos(ph) * r, y0 + Math.sin(th) * r * 0.95, cz + Math.cos(th) * Math.sin(ph) * r, b / LON * (2 * Math.PI * r / 1.4) / 4, a / LAT * (Math.PI * r / 2 / 1.4));
+      }
+      for (let a = 0; a < LAT; a++) for (let b = 0; b < LON; b++) {
+        const p0 = base + a * (LON + 1) + b, p1 = p0 + LON + 1;
+        idx.push(p0, p0 + 1, p1, p0 + 1, p1 + 1, p1);
+      }
+    }
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+    geo.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
+    geo.setIndex(idx); geo.computeVertexNormals();
+    if (!this.glassRoofMat) {
+      // vetro con l'intelaiatura in ferro (nervature ogni 1,4 m nei due versi)
+      const cv = document.createElement('canvas'); cv.width = cv.height = 64;
+      const c = cv.getContext('2d');
+      c.fillStyle = 'rgba(200,220,230,0.28)'; c.fillRect(0, 0, 64, 64);
+      c.fillStyle = 'rgba(40,44,46,1)'; c.fillRect(0, 0, 64, 5); c.fillRect(0, 0, 4, 64);
+      c.fillStyle = 'rgba(40,44,46,0.8)'; c.fillRect(31, 0, 2, 64);
+      const t = new THREE.CanvasTexture(cv); t.wrapS = t.wrapT = THREE.RepeatWrapping; t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = 4;
+      this.glassRoofMat = new THREE.MeshPhongMaterial({ map: t, transparent: true, side: THREE.DoubleSide, shininess: 90, specular: 0x99aabb, depthWrite: false });
+    }
+    const m = new THREE.Mesh(geo, this.glassRoofMat);
+    m.renderOrder = 2;
+    return m;
   }
 
   // cornicione dei palazzi: fascia in aggetto sotto la gronda, un po' piu' chiara del muro

@@ -37,6 +37,7 @@ export class World {
       return { n: c.n, rings: c.rings, minx, minz, maxx, maxz };
     });
     this.signage = new Signage(roads, terrain, (x, z) => this.comuneAt(x, z), meta);
+    this.signage.collision = this.collision;
     this.signals = [];
     this.cameras = [];      // autovelox reali nelle tessere caricate
     this.tileSet = new Set(meta.tiles.map(([i, j]) => j * 1000 + i));

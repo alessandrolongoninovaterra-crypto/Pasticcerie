@@ -17,6 +17,57 @@ export function signalState(group, t) {
   return 'R';
 }
 
+// monumento (OSM historic=monument/memorial, tourism=artwork): basamento in pietra e figura.
+// kind: e equestre, s statua, b busto, t stele, c colonna, o obelisco, a scultura
+function hexCol(h, def) {
+  const m = /^#?([0-9a-f]{6})$/i.exec(h || '');
+  if (!m) return def;
+  const v = parseInt(m[1], 16), lin = (c) => Math.pow(c / 255, 2.2);
+  return [lin(v >> 16), lin((v >> 8) & 255), lin(v & 255)];
+}
+function monument(g, x, y, z, yaw, kind, h, mh, colHex, side) {
+  const stone = [0.62, 0.6, 0.56], stoneL = [0.72, 0.7, 0.66];
+  const bronze = hexCol(colHex, kind === 's' && !colHex ? [0.62, 0.6, 0.56] : [0.12, 0.2, 0.16]);
+  const c = Math.cos(yaw), s = Math.sin(yaw);
+  const at = (f, r) => [x + r * c + f * s, z - r * s + f * c];      // f avanti, r a destra (locale)
+  const B = (f, r, y0, sx, sy, sz, col) => { const [px, pz] = at(f, r); boxTo(g, px, y0 + sy / 2, pz, sx, sy, sz, yaw, col); };
+  if (kind === 't') { B(0, 0, y - 0.3, 1.0, (h || 2.2) + 0.3, 0.35, stone); return; }
+  if (kind === 'o') { const H = h || 12; B(0, 0, y - 0.3, 2.2, 1.6, 2.2, stone); B(0, 0, y + 1.3, 1.2, H * 0.85, 1.2, stoneL); B(0, 0, y + 1.3 + H * 0.85, 0.6, H * 0.12, 0.6, stoneL); return; }
+  if (kind === 'a') {
+    const H = h || 3.5;
+    B(0, 0, y - 0.2, 1.6, 0.6, 1.6, stone);
+    B(0, 0, y + 0.4, 0.6, H * 0.7, 0.6, bronze); B(0.4, 0.3, y + 0.4 + H * 0.4, 1.4, 0.5, 0.5, bronze); B(-0.3, -0.3, y + 0.4 + H * 0.6, 0.5, 0.5, 1.2, bronze);
+    return;
+  }
+  // basamento
+  const ped = mh || (kind === 'e' ? 5 : kind === 'b' ? 1.6 : kind === 'c' ? 2 : 2.4);
+  const S = Math.max(kind === 'e' ? 3.4 : 1.4, Math.min(side || 0, kind === 'e' ? 8 : 4)) || 2;
+  B(0, 0, y - 0.3, S + 0.6, 0.6, S * (kind === 'e' ? 1.6 : 1) + 0.6, stone);
+  B(0, 0, y + 0.3, S, ped - 0.6, S * (kind === 'e' ? 1.6 : 1), stoneL);
+  B(0, 0, y + ped - 0.3, S + 0.3, 0.3, S * (kind === 'e' ? 1.6 : 1) + 0.3, stone);
+  let yb = y + ped;
+  if (kind === 'c') { B(0, 0, yb, 0.9, (h || 12) - ped - 2.4, 0.9, stoneL); yb += (h || 12) - ped - 2.4; }
+  const F = Math.max(1, (h && h > ped ? h - ped : kind === 'e' ? 5 : kind === 'b' ? 1 : 2.8));
+  if (kind === 'b') { B(0, 0, yb, 0.8 * F, 0.45 * F, 0.45 * F, bronze); B(0, 0, yb + 0.45 * F, 0.42 * F, 0.5 * F, 0.45 * F, bronze); return; }
+  if (kind === 'e') {
+    // cavallo: corpo, quattro zampe, collo e testa in avanti; cavaliere in sella
+    const k = F / 5;
+    B(0, 0, yb + 1.6 * k, 0.9 * k, 1.1 * k, 2.6 * k, bronze);
+    for (const [f, r] of [[0.95, 0.3], [0.95, -0.3], [-0.95, 0.3], [-0.95, -0.3]]) B(f * k, r * k, yb, 0.22 * k, 1.7 * k, 0.24 * k, bronze);
+    B(1.45 * k, 0, yb + 2.3 * k, 0.5 * k, 0.9 * k, 0.6 * k, bronze); B(1.85 * k, 0, yb + 2.85 * k, 0.4 * k, 0.45 * k, 0.8 * k, bronze);
+    B(-1.4 * k, 0, yb + 1.5 * k, 0.15 * k, 1.0 * k, 0.2 * k, bronze);                      // coda
+    B(0.1 * k, 0, yb + 2.7 * k, 0.75 * k, 1.2 * k, 0.5 * k, bronze);                        // cavaliere
+    for (const r of [0.45, -0.45]) B(0.1 * k, r * k, yb + 2.0 * k, 0.18 * k, 0.9 * k, 0.3 * k, bronze);
+    B(0.15 * k, 0, yb + 3.9 * k, 0.32 * k, 0.4 * k, 0.32 * k, bronze);
+    return;
+  }
+  // statua in piedi
+  B(0, 0.12 * F, yb, 0.16 * F, 0.46 * F, 0.15 * F, bronze); B(0, -0.12 * F, yb, 0.16 * F, 0.46 * F, 0.15 * F, bronze);
+  B(0, 0, yb + 0.44 * F, 0.36 * F, 0.36 * F, 0.2 * F, bronze);
+  for (const r of [0.24, -0.24]) B(0.02 * F, r * F, yb + 0.5 * F, 0.1 * F, 0.32 * F, 0.1 * F, bronze);
+  B(0, 0, yb + 0.81 * F, 0.15 * F, 0.17 * F, 0.16 * F, bronze);
+}
+
 function boxTo(g, x, y, z, sx, sy, sz, yaw, col) {
   const c = Math.cos(yaw), s = Math.sin(yaw);
   const P = [];
@@ -346,7 +397,7 @@ export class Signage {
     const lampsByGroup = [0, 1].map(() => ({ R: new GeoBuilder(false, false), Y: new GeoBuilder(false, false), G: new GeoBuilder(false, false) }));
     const greenLamp = new GeoBuilder(false, false);
     const atlas = new TextAtlas();
-    const lampPos = [], signals = [], cameras = [], utilPos = [];
+    const lampPos = [], signals = [], cameras = [], utilPos = [], metroPos = [];
     const grey = [0.42, 0.43, 0.44];
     const S = (name, size = 0.7) => ({ uv: uvStd(name), back: uvStd(name, true), w: size, h: size, name });
     const INF = new Set(['deadend', 'parking', 'curveR', 'curveL', 'steep', 'children']);
@@ -775,6 +826,20 @@ export class Signage {
         lampPos.push([x, T.height(x, z), z, yaw, 1]);
       } else if (kind === 16) {      // palo di linea elettrica o telefonica (DBGT)
         utilPos.push([x, T.height(x, z), z]);
+      } else if (kind === 17) {      // monumento o statua: rivolto verso la strada piu' vicina
+        const [mk, mh_, mph, mcol, mside, ...mn] = text.split('|');
+        const yaw = nr ? Math.atan2(nr.px - x, nr.pz - z) : 0;
+        monument(poles, x, T.height(x, z), z, yaw, mk, +mh_ || 0, +mph || 0, mcol, +mside || 0);
+        if (this.collision) this.collision.addCircle(tk, x, z, mk === 'e' ? 3 : 1.2, T.height(x, z) + (+mh_ || 6));
+        void mn;
+      } else if (kind === 18) {      // ingresso della metropolitana: scala con parapetto e palina con la M
+        const yaw = nr ? Math.atan2(dx, dz) : 0, y = T.height(x, z), c = Math.cos(yaw), sn = Math.sin(yaw);
+        const at = (f, r) => [x + r * c + f * sn, z - r * sn + f * c], grey = [0.32, 0.33, 0.34], dark = [0.06, 0.06, 0.07];
+        let [px, pz] = at(0, 0); boxTo(poles, px, y + 0.03, pz, 1.9, 0.06, 4.2, yaw, dark);            // vano scala
+        for (const r of [1.05, -1.05]) { [px, pz] = at(0, r); boxTo(poles, px, y + 0.5, pz, 0.12, 1.0, 4.4, yaw, grey); }
+        [px, pz] = at(-2.15, 0); boxTo(poles, px, y + 0.5, pz, 2.2, 1.0, 0.12, yaw, grey);
+        [px, pz] = at(2.6, 1.3); boxTo(poles, px, y + 1.4, pz, 0.08, 2.8, 0.08, yaw, grey);           // palina
+        metroPos.push([px, y + 3.05, pz, yaw]);
       } else if (kind === 3 && nr) {
         // cartello di localita' mappato: l'ingresso e' il verso che avvicina al centro abitato
         const pl = [...this.places.values()].flat().find((p) => p.n === text);
@@ -823,6 +888,21 @@ export class Signage {
       poleI.computeBoundingSphere(); headI.computeBoundingSphere(); poolI.computeBoundingSphere();
       poolI.renderOrder = 2;
       group.add(poleI, headI, poolI);
+    }
+    if (metroPos.length) {
+      if (!this.metroGeo) {
+        const cv = document.createElement('canvas'); cv.width = cv.height = 64;
+        const c2 = cv.getContext('2d');
+        c2.fillStyle = '#d0021b'; c2.fillRect(0, 0, 64, 64);
+        c2.fillStyle = '#ffffff'; c2.font = 'bold 50px Arial'; c2.textAlign = 'center'; c2.textBaseline = 'middle'; c2.fillText('M', 32, 35);
+        const t = new THREE.CanvasTexture(cv); t.colorSpace = THREE.SRGBColorSpace;
+        this.metroGeo = new THREE.BoxGeometry(0.6, 0.6, 0.6);
+        this.metroMat = new THREE.MeshLambertMaterial({ map: t, emissive: 0x220000 });
+      }
+      const inst = new THREE.InstancedMesh(this.metroGeo, this.metroMat, metroPos.length), m4 = new THREE.Matrix4(), q4 = new THREE.Quaternion(), one = new THREE.Vector3(1, 1, 1), up = new THREE.Vector3(0, 1, 0);
+      metroPos.forEach(([x, y, z, yaw], i) => { q4.setFromAxisAngle(up, yaw); m4.compose(new THREE.Vector3(x, y, z), q4, one); inst.setMatrixAt(i, m4); });
+      inst.computeBoundingSphere();
+      group.add(inst);
     }
     if (utilPos.length) {
       if (!this.utilGeo) {

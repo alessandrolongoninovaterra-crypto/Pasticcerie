@@ -246,6 +246,9 @@ rails = []
 rivers = []
 wlines = []           # corsi d'acqua come linee per bake.mjs: [tipo, larghezza, [[x, z]...]] (nastri d'acqua, letti scavati)
 piers = []            # pontili: (0 linea / 1 area, larghezza, punti)
+glass_roofs = []      # coperture in vetro (building=roof + roof:material=glass): anelli
+covered_ways = []     # passaggi pedonali coperti (covered=yes / indoor=yes): punti
+monuments = []        # monumenti e statue: (x, z, tipo, altezza, altezza basamento, colore, nome, lato)
 trees_pt = []
 tree_rows = []
 places = []
@@ -351,6 +354,32 @@ def gate_context(r, t, pts_ll, i):
                'driveway', 'parking_aisle') and gate_access(t) < 1,
            'foot': hw in ('footway', 'path', 'cycleway', 'steps', 'bridleway')}
     gate_ctx[r] = ctx
+
+
+def monument_kind(t):
+    """tipo di monumento da disegnare: e equestre, s statua, b busto, t stele/cippo, c colonna,
+    o obelisco, a scultura; None per lapidi, targhe e il resto"""
+    h, m, a = t.get('historic'), t.get('memorial') or t.get('monument'), t.get('artwork_type')
+    if not (h in ('monument', 'memorial') or t.get('tourism') == 'artwork'):
+        return None
+    if t.get('statue') == 'equestrian' or 'equestr' in (t.get('name', '') + (t.get('description') or '')).lower():
+        return 'e'
+    k = m or a or ''
+    if k in ('statue',):
+        return 's'
+    if k == 'bust':
+        return 'b'
+    if k in ('stele', 'stone', 'war_memorial', 'cross'):
+        return 't'
+    if k == 'column':
+        return 'c'
+    if k == 'obelisk':
+        return 'o'
+    if k in ('sculpture', 'installation'):
+        return 'a'
+    if h == 'monument' and not k:
+        return 's'
+    return None
 
 
 def fenced_area(t):
@@ -493,6 +522,11 @@ for o in fp:
             points.append((12, x, z, ''))
         elif t.get('emergency') == 'fire_hydrant':
             points.append((13, x, z, ''))
+        if t.get('railway') == 'subway_entrance':
+            points.append((18, x, z, t.get('name', '')))
+        mk = monument_kind(t)
+        if mk:
+            monuments.append((x, z, mk, parse_float(t.get('height')), parse_float(t.get('min_height')), t.get('building:colour') or t.get('colour') or '', t.get('name', ''), 0))
         if t.get('natural') == 'tree':
             trees_pt.append((x, z))
         pl = t.get('place')
@@ -512,6 +546,8 @@ for o in fp:
             continue
         if not any(inside(l.lat, l.lon, 0.002) for _, l in pts_ll):
             continue
+        if hw in ('pedestrian', 'footway', 'corridor') and (t.get('covered') == 'yes' or t.get('indoor') == 'yes'):
+            covered_ways.append([P.fwd(l.lat, l.lon) for _, l in pts_ll])
         if gate_nodes:
             for gi, (r, _) in enumerate(pts_ll):
                 if r in gate_nodes:
@@ -664,6 +700,15 @@ for o in fp:
             for ir in o.inner_rings(r):
                 inners.append([P.fwd(n.lat, n.lon) for n in ir])
 
+        if t.get('building') == 'roof' and t.get('roof:material') == 'glass':
+            for r in outers:
+                if len(r) >= 4:
+                    glass_roofs.append(r)
+        mk = monument_kind(t)
+        if mk and outers[0] and len(outers[0]) >= 3:
+            cx_, cz_ = centroid(outers[0])
+            side_ = math.sqrt(abs(ring_area(outers[0])))
+            monuments.append((cx_, cz_, mk, parse_float(t.get('height')), parse_float(t.get('min_height')), t.get('building:colour') or t.get('colour') or '', t.get('name', ''), round(min(side_, 14), 1)))
         if t.get('man_made') == 'pier':
             for r in outers:
                 if 4 <= len(r) < 300 and abs(ring_area(r)) < 20000:
@@ -904,7 +949,7 @@ if DBGT_DIR and os.path.isdir(DBGT_DIR):
                     if g.contains(pt) and (src is None or g.area < best):
                         src, best = b, g.area
             h = v['h'] if 0.8 < v['h'] < 250 else 0.0
-            kept.append({'r': r, 't': src['t'] if src else 0, 'h': h, 'mh': 0.0, 'l': 0,
+            kept.append({'r': r, 't': src['t'] if src else 0, 'h': h, 'mh': 0.0, 'l': 0, 'por': v['por'], 'z0': v.get('z0'),
                          'rs': src['rs'] if src else 0, 'n': src['n'] if src else '',
                          'c': src['c'] if src else '', 'rc': src['rc'] if src else ''})
             added += 1
@@ -2100,6 +2145,100 @@ def tile_of(x, z):
 far_tiles = defaultdict(list)
 FAR_H = {1: 7.5, 2: 9.0, 3: 9.5, 4: 9.5, 5: 15.0, 6: 3.2, 7: 12.0, 8: 34.0, 9: 7.0}
 n_far = 0
+
+# ---- portici e sottopassaggi del DBGT: il volume non parte da terra (prima i portici erano pieni e
+# gli archi d'ingresso murati). 02 aggetto, 04 sottopassaggio, 09 archivolto: dalla quota del piede;
+# 03 portico, 05 loggia: la quota del piede e' a terra, si stima il soffitto (30% dell'altezza, 3,5-9 m)
+n_por = Counter()
+for b in buildings:
+    por = b.get('por')
+    if por not in ('02', '03', '04', '05', '09'):
+        continue
+    cx, cz = centroid(b['r'])
+    lift = (b['z0'] - terrain_h(cx, cz)) if b.get('z0') else 0.0
+    H = b['h'] or 12.0
+    if por in ('03', '05'):
+        mh = lift if 2.5 <= lift <= 12 else min(9.0, max(3.5, 0.3 * H))
+    else:
+        mh = lift if 2.3 <= lift <= 15 else (4.5 if por in ('04', '09') else 3.5)
+    if H - mh < 2:
+        continue
+    b['mh'] = round(mh, 1)
+    if por in ('03', '05'):
+        b['rs'] = (b['rs'] or 0) | 16          # pilastri lungo il bordo
+    n_por[por] += 1
+print('portici e sottopassaggi DBGT:', dict(n_por))
+
+# ---- coperture in vetro (Galleria Vittorio Emanuele e simili): volta a botte lungo i passaggi coperti
+# che le attraversano, larga quanto lo spazio fino al bordo della copertura, e cupola dove lo spazio
+# e' piu' largo (l'ottagono); l'imposta e' all'altezza tipica degli edifici attorno
+vaults, domes = [], []
+if glass_roofs:
+    from shapely.geometry import Polygon as _GP, LineString as _GL, Point as _GPt
+    gx0 = min(p[0] for r in glass_roofs for p in r) - 60; gx1 = max(p[0] for r in glass_roofs for p in r) + 60
+    gz0 = min(p[1] for r in glass_roofs for p in r) - 60; gz1 = max(p[1] for r in glass_roofs for p in r) + 60
+    near_b = [(centroid(b['r']), b['h']) for b in buildings if b['h'] and gx0 < b['r'][0][0] < gx1 and gz0 < b['r'][0][1] < gz1]
+    near_w = [w for w in covered_ways if any(gx0 < x < gx1 and gz0 < z < gz1 for x, z in w)]
+    for ring in glass_roofs:
+        try:
+            poly = _GP(ring).buffer(0)
+        except Exception:
+            continue
+        if poly.is_empty or poly.area < 250 or poly.geom_type != 'Polygon':
+            continue
+        ring_zone = poly.buffer(25).difference(poly)
+        hs = sorted(h for (cx, cz), h in near_b if ring_zone.contains(_GPt(cx, cz)))
+        spring = min(40.0, max(8.0, hs[len(hs) // 2] if hs else 16.0))
+        maxw = 0
+        for pts in near_w:
+            if len(pts) < 2:
+                continue
+            g_ = _GL(pts).intersection(poly)
+            for seg in ([g_] if g_.geom_type == 'LineString' else getattr(g_, 'geoms', [])):
+                if seg.geom_type != 'LineString' or seg.length < 8:
+                    continue
+                w = min(24.0, max(4.0, 2 * poly.exterior.distance(seg.interpolate(0.5, normalized=True))))
+                maxw = max(maxw, w)
+                vaults.append((w, spring, dp_simplify(list(seg.coords), 0.5)))
+        if not maxw:      # nessun passaggio mappato dentro: volta lungo l'asse del rettangolo minimo
+            mr = min_rect(ring)
+            if mr:
+                cx, cz, hu, hv, ang = mr
+                ux, uz = math.sin(ang), math.cos(ang)
+                vaults.append((min(24.0, 2 * hv), spring, [(cx - ux * hu, cz - uz * hu), (cx + ux * hu, cz + uz * hu)]))
+                maxw = 2 * hv
+        # cupola: il punto piu' lontano dal bordo, se lo spazio li' e' ben piu' largo dei bracci
+        if poly.area > 1500:
+            bx0, bz0, bx1, bz1 = poly.bounds
+            best, bp = 0, None
+            for gx_ in np.arange(bx0, bx1, 2.0):
+                for gz_ in np.arange(bz0, bz1, 2.0):
+                    pt = _GPt(gx_, gz_)
+                    if poly.contains(pt):
+                        d_ = poly.exterior.distance(pt)
+                        if d_ > best:
+                            best, bp = d_, (gx_, gz_)
+            if bp and best > 0.62 * maxw:
+                domes.append((min(30.0, best), spring, bp[0], bp[1]))
+    print('coperture in vetro:', len(glass_roofs), 'volte', len(vaults), 'cupole', len(domes))
+for w, sp, pts in vaults:
+    k = tile_of(*pts[len(pts) // 2])
+    if k:
+        tiles[k].setdefault('gv', []).append([int(round(w * 10)), int(round(sp * 10))] + enc_ring(pts))
+for r_, sp, x, z in domes:
+    k = tile_of(x, z)
+    if k:
+        tiles[k].setdefault('gd', []).extend([int(round(r_ * 10)), int(round(sp * 10)), q(x), q(z)])
+
+# ---- monumenti e statue (OSM): uno solo per posto, preferendo quello con le misure
+mon_out = []
+for m_ in sorted(monuments, key=lambda m_: -(m_[3] or 0)):
+    if any(abs(m_[0] - o[0]) < 6 and abs(m_[1] - o[1]) < 6 for o in mon_out):
+        continue
+    mon_out.append(m_)
+for x, z, kind, h, mh, col, name, side in mon_out:
+    points.append((17, x, z, '%s|%g|%g|%s|%g|%s' % (kind, h or 0, mh or 0, col, side or 0, name)))
+print('monumenti e statue:', len(mon_out), 'ingressi della metropolitana:', sum(1 for p_ in points if p_[0] == 18))
 
 bnames = StrTable()
 for b in buildings:
