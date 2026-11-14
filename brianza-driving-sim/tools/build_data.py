@@ -248,6 +248,7 @@ wlines = []           # corsi d'acqua come linee per bake.mjs: [tipo, larghezza,
 piers = []            # pontili: (0 linea / 1 area, larghezza, punti)
 glass_roofs = []      # coperture in vetro (building=roof + roof:material=glass): anelli
 covered_ways = []     # passaggi pedonali coperti (covered=yes / indoor=yes): punti
+shop_pts = []         # negozi e locali (vetrine al piano terra): (x, z, tipo 0 negozio, 1 bar/ristorante, 2 farmacia, 3 banca/servizi)
 monuments = []        # monumenti e statue: (x, z, tipo, altezza, altezza basamento, colore, nome, lato)
 trees_pt = []
 tree_rows = []
@@ -354,6 +355,24 @@ def gate_context(r, t, pts_ll, i):
                'driveway', 'parking_aisle') and gate_access(t) < 1,
            'foot': hw in ('footway', 'path', 'cycleway', 'steps', 'bridleway')}
     gate_ctx[r] = ctx
+
+
+SHOP_FOOD = {'restaurant', 'cafe', 'bar', 'pub', 'fast_food', 'ice_cream', 'biergarten', 'food_court'}
+SHOP_SERV = {'bank', 'bureau_de_change', 'post_office', 'atm_no'}
+def shop_kind(t):
+    """tipo di vetrina: 0 negozio, 1 bar/ristorante, 2 farmacia, 3 banca/servizi; None se non e' un negozio"""
+    am, sh = t.get('amenity'), t.get('shop')
+    if am in SHOP_FOOD or sh in ('bakery', 'pastry', 'confectionery', 'coffee'):
+        return 1
+    if am == 'pharmacy' or t.get('healthcare') == 'pharmacy' or sh in ('chemist', 'optician', 'medical_supply'):
+        return 2
+    if am in SHOP_SERV or t.get('office') in ('estate_agent', 'insurance', 'travel_agent'):
+        return 3
+    if sh and sh not in ('no', 'vacant', 'none'):
+        return 0
+    if t.get('craft') in ('hairdresser', 'tailor', 'shoemaker', 'jeweller', 'photographer', 'watchmaker'):
+        return 0
+    return None
 
 
 def monument_kind(t):
@@ -524,6 +543,9 @@ for o in fp:
             points.append((13, x, z, ''))
         if t.get('railway') == 'subway_entrance':
             points.append((18, x, z, t.get('name', '')))
+        sk = shop_kind(t)
+        if sk is not None:
+            shop_pts.append((x, z, sk))
         mk = monument_kind(t)
         if mk:
             monuments.append((x, z, mk, parse_float(t.get('height')), parse_float(t.get('min_height')), t.get('building:colour') or t.get('colour') or '', t.get('name', ''), 0))
@@ -704,6 +726,9 @@ for o in fp:
             for r in outers:
                 if len(r) >= 4:
                     glass_roofs.append(r)
+        sk = shop_kind(t)
+        if sk is not None and len(outers[0]) >= 3 and abs(ring_area(outers[0])) < 5000:
+            shop_pts.append(centroid(outers[0]) + (sk,))
         mk = monument_kind(t)
         if mk and outers[0] and len(outers[0]) >= 3:
             cx_, cz_ = centroid(outers[0])
@@ -2169,6 +2194,112 @@ for b in buildings:
     n_por[por] += 1
 print('portici e sottopassaggi DBGT:', dict(n_por))
 
+# ---- appoggi e vetrine: griglia degli edifici per cercare chi sta accanto a chi
+def _pip(x, z, r):
+    ins = False
+    j = len(r) - 1
+    for i in range(len(r)):
+        xi, zi = r[i]; xj, zj = r[j]
+        if (zi > z) != (zj > z) and x < (xj - xi) * (z - zi) / (zj - zi) + xi:
+            ins = not ins
+        j = i
+    return ins
+
+def _segd(x, z, a, b):
+    dx, dz = b[0] - a[0], b[1] - a[1]
+    L2 = dx * dx + dz * dz or 1e-9
+    u = max(0.0, min(1.0, ((x - a[0]) * dx + (z - a[1]) * dz) / L2))
+    return math.hypot(x - a[0] - dx * u, z - a[1] - dz * u)
+
+BC = 40.0
+bgrid = defaultdict(list)
+bbx = []
+for bi, b in enumerate(buildings):
+    r = b['r']
+    xs = [p[0] for p in r]; zs = [p[1] for p in r]
+    bbx.append((min(xs), min(zs), max(xs), max(zs)))
+    for i in range(int(min(xs) // BC), int(max(xs) // BC) + 1):
+        for j in range(int(min(zs) // BC), int(max(zs) // BC) + 1):
+            bgrid[(i, j)].append(bi)
+
+def _ground(b):
+    return not (b.get('mh') or 0) > 2.2
+
+def _outward(b):
+    """punti appena fuori da ogni lato (ogni ~2 m), 0,6 m all'esterno"""
+    r = b['r']
+    sgn = 1.0 if ring_area(r) > 0 else -1.0
+    for k in range(len(r)):
+        a, c = r[k], r[(k + 1) % len(r)]
+        L = math.hypot(c[0] - a[0], c[1] - a[1])
+        if L < 0.5:
+            continue
+        nx, nz = sgn * (c[1] - a[1]) / L, -sgn * (c[0] - a[0]) / L
+        m = max(1, int(round(L / 2)))
+        for s_ in range(m):
+            f = (s_ + 0.5) / m
+            yield a[0] + (c[0] - a[0]) * f + nx * 0.6, a[1] + (c[1] - a[1]) * f + nz * 0.6
+
+def _ground_at(x, z, skip):
+    for bi in bgrid.get((int(x // BC), int(z // BC)), ()):
+        q_ = bbx[bi]
+        if bi != skip and q_[0] <= x <= q_[2] and q_[1] <= z <= q_[3] and _ground(buildings[bi]) and _pip(x, z, buildings[bi]['r']):
+            return bi
+    return -1
+
+# volumi sollevati senza appoggio (sottopassaggi e sporti isolati, case su pilotis): pilastri ai lati,
+# altrimenti restano sospesi nel vuoto; il portico rende "a vetrine" l'edificio a terra dietro di lui
+n_pil = n_back = 0
+SHOP = 32
+for bi, b in enumerate(buildings):
+    if _ground(b):
+        continue
+    tot = hit = 0
+    for x, z in _outward(b):
+        tot += 1
+        g_ = _ground_at(x, z, bi)
+        if g_ >= 0:
+            hit += 1
+            if (b['rs'] or 0) & 16 and not (buildings[g_]['rs'] or 0) & SHOP:
+                buildings[g_]['rs'] = (buildings[g_]['rs'] or 0) | SHOP
+                n_back += 1
+    if tot and hit / tot < 0.3 and not (b['rs'] or 0) & 16:
+        b['rs'] = (b['rs'] or 0) | 16
+        n_pil += 1
+# negozi e locali OSM: l'edificio a terra che li contiene, o il piu' vicino entro 6 m
+n_shop = 0
+for x, z, sk in shop_pts:
+    best, bd = -1, 6.0
+    for bi in bgrid.get((int(x // BC), int(z // BC)), ()):
+        b = buildings[bi]
+        q_ = bbx[bi]
+        if not _ground(b) or x < q_[0] - 6 or x > q_[2] + 6 or z < q_[1] - 6 or z > q_[3] + 6:
+            continue
+        r = b['r']
+        if _pip(x, z, r):
+            best, bd = bi, 0.0
+            break
+        for k in range(len(r)):
+            d_ = _segd(x, z, r[k], r[(k + 1) % len(r)])
+            if d_ < bd:
+                best, bd = bi, d_
+    if best >= 0:
+        b = buildings[best]
+        rs_ = b['rs'] or 0
+        if not rs_ & SHOP or (rs_ >> 6) & 3 == 0:
+            n_shop += not rs_ & SHOP
+            b['rs'] = (rs_ & ~(3 << 6)) | SHOP | (sk << 6)
+# edifici commerciali piccoli (building=retail/commercial/kiosk): vetrine anche senza negozi mappati
+n_retail = 0
+for b in buildings:
+    if b['t'] == 4 and _ground(b) and not (b['rs'] or 0) & SHOP and abs(ring_area(b['r'])) < 2500:
+        b['rs'] = (b['rs'] or 0) | SHOP
+        n_retail += 1
+del bgrid, bbx
+print('volumi sollevati senza appoggio -> pilastri:', n_pil, '- vetrine: dietro i portici', n_back,
+      'negozi OSM', n_shop, '(punti', len(shop_pts), ') edifici commerciali', n_retail)
+rss('vetrine')
+
 # ---- coperture in vetro (Galleria Vittorio Emanuele e simili): volta a botte lungo i passaggi coperti
 # che le attraversano, larga quanto lo spazio fino al bordo della copertura, e cupola dove lo spazio
 # e' piu' largo (l'ottagono); l'imposta e' all'altezza tipica degli edifici attorno
@@ -2255,7 +2386,7 @@ for b in buildings:
             rx, rz, hu, hv, ang = mr
             sc = math.sqrt(min(1.0, area / max(1e-6, 4 * hu * hv)))   # stessa area del poligono vero
             pitched = (kind == 1 or (kind == 2 and (area < 1400 or b['l'] <= 4)) or kind in (5, 9) or (kind == 7 and area < 900)
-                       or kind == 6) and b['rs'] != 1
+                       or kind == 6) and (b['rs'] & 15) != 1
             far_tiles[k] += [int(round((rx - (P.xmin + k[0] * TILE)) * 10)), int(round((rz - (P.zmin + k[1] * TILE)) * 10)),
                              max(10, int(round(hu * sc * 10))), max(10, int(round(hv * sc * 10))),
                              int(round(math.degrees(ang))) % 180, int(round(min(hgt, 200) * 10)),

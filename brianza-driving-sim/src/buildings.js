@@ -30,7 +30,7 @@ function boxV(g, cx, y0, cz, sx, sy, sz, dx, dz, c) {
 function makeFacadeTextures() {
   const S = 512, bay = S / 8;
   const mk = () => { const c = document.createElement('canvas'); c.width = c.height = S; return c; };
-  const cv = { res: mk(), condo: mk(), modern: mk(), ind: mk(), plain: mk(), church: mk(), glass: mk(), emiR: mk(), emiC: mk(), emiM: mk(), emiI: mk(), emiCh: mk(), emiG: mk() };
+  const cv = { res: mk(), condo: mk(), modern: mk(), ind: mk(), plain: mk(), church: mk(), glass: mk(), shop: mk(), emiR: mk(), emiC: mk(), emiM: mk(), emiI: mk(), emiCh: mk(), emiG: mk(), emiS: mk() };
   const x2 = Object.fromEntries(Object.entries(cv).map(([k, c]) => [k, c.getContext('2d')]));
   for (const k of ['res', 'condo', 'modern', 'ind', 'plain']) {
     const c = x2[k]; c.fillStyle = '#ffffff'; c.fillRect(0, 0, S, S);
@@ -150,6 +150,52 @@ function makeFacadeTextures() {
       x2.emiI.fillStyle = Math.random() < 0.25 ? '#e8f0ff' : '#000'; x2.emiI.fillRect(x0 + 3, y0 + bay * 0.3, bay - 6, bay * 0.3);
     }
   }
+  // vetrine del piano terra: 8 campate da 3 m per 4 varianti (righe dall'alto): negozio, bar e
+  // ristorante, farmacia, banca e servizi. Insegna in alto, vetrina con l'interno, porta ogni 4 campate.
+  {
+    const SH = 256, rows = 4, rh = SH / rows;
+    cv.shop.height = SH; cv.emiS.height = SH;
+    const c = x2.shop, e = x2.emiS;
+    c.fillStyle = '#ffffff'; c.fillRect(0, 0, S, SH); e.fillStyle = '#000'; e.fillRect(0, 0, S, SH);
+    const SIGN = [['#7a1f2a', '#1f3f6b', '#2e5a32', '#6b4a1f', '#3b3b3b', '#8a2f6a', '#205a5a', '#b5651d'], ['#5b2a17', '#1d3b2a', '#6e1f1f', '#2b2b2b'], ['#1f7a3a'], ['#1d3557', '#3b4652']];
+    const FRAME = ['#2b2d2f', '#4a2f1d', '#3a3f45', '#6d6e70'];
+    for (let r = 0; r < rows; r++) for (let bx = 0; bx < 8; bx++) {
+      const x0 = bx * bay, y0 = r * rh, door = bx % 4 === 1;
+      // muro attorno (prende il colore dell'edificio) e zoccolo
+      c.fillStyle = 'rgba(0,0,0,0.10)'; c.fillRect(x0, y0 + rh * 0.9, bay, rh * 0.1);
+      // insegna
+      const sc = SIGN[r][(bx >> 1) % SIGN[r].length];
+      c.fillStyle = sc; c.fillRect(x0 + 1, y0 + rh * 0.06, bay - 2, rh * 0.17);
+      if (r === 2 && bx % 4 === 0) {   // croce verde della farmacia
+        e.fillStyle = '#30ff70'; e.fillRect(x0 + bay * 0.44, y0 + rh * 0.07, bay * 0.12, rh * 0.15); e.fillRect(x0 + bay * 0.36, y0 + rh * 0.115, bay * 0.28, rh * 0.06);
+        c.fillStyle = '#9dffb8'; c.fillRect(x0 + bay * 0.44, y0 + rh * 0.07, bay * 0.12, rh * 0.15); c.fillRect(x0 + bay * 0.36, y0 + rh * 0.115, bay * 0.28, rh * 0.06);
+      } else {                          // scritta: lettere chiare
+        c.fillStyle = 'rgba(255,248,230,0.85)'; e.fillStyle = r === 1 ? '#ffd27a' : '#fff4dc';
+        for (let k = 0; k < 5; k++) { const lx = x0 + bay * (0.14 + k * 0.15), lw = bay * 0.09; c.fillRect(lx, y0 + rh * 0.1, lw, rh * 0.09); e.fillRect(lx, y0 + rh * 0.1, lw, rh * 0.09); }
+      }
+      // vetrina o porta
+      const fr = FRAME[r], wx = x0 + bay * 0.06, ww = bay * 0.88, wy = y0 + rh * 0.28, wh = rh * 0.62;
+      c.fillStyle = fr; c.fillRect(wx, wy, ww, wh);
+      if (door) {
+        c.fillStyle = '#56656c'; c.fillRect(wx + ww * 0.2, wy + 3, ww * 0.6, wh - 3);
+        c.fillStyle = 'rgba(255,255,255,0.18)'; c.fillRect(wx + ww * 0.24, wy + 5, ww * 0.12, wh - 8);
+        c.fillStyle = '#c9b27a'; c.fillRect(wx + ww * 0.46, wy + wh * 0.5, 3, 6);
+        e.fillStyle = '#c8a060'; e.fillRect(wx + ww * 0.2, wy + 3, ww * 0.6, wh - 3);
+      } else {
+        const gx = wx + 3, gy = wy + 3, gw = ww - 6, gh = wh - rh * 0.1;
+        c.fillStyle = r === 1 ? '#4a3a2c' : r === 3 ? '#4c5961' : '#5d6c74'; c.fillRect(gx, gy, gw, gh);
+        // interno: mensole e merce (o tavolini nel bar)
+        for (let k = 0; k < 7; k++) {
+          c.fillStyle = ['#c0392b', '#e1b12c', '#2f6f9f', '#e8e2d0', '#8e44ad', '#27ae60', '#d35400'][(k + bx * 3 + r) % 7];
+          if (r === 1) { c.fillRect(gx + 4 + k * gw / 7, gy + gh * 0.62, gw / 10, 3); c.fillRect(gx + 4 + k * gw / 7 + gw / 26, gy + gh * 0.62, 2, gh * 0.3); }
+          else c.fillRect(gx + 3 + k * gw / 7, gy + gh * (k % 2 ? 0.35 : 0.6), gw / 9, gh * 0.18);
+        }
+        c.fillStyle = 'rgba(255,255,255,0.16)'; c.beginPath(); c.moveTo(gx, gy + gh); c.lineTo(gx + gw * 0.35, gy); c.lineTo(gx + gw * 0.5, gy); c.lineTo(gx + gw * 0.15, gy + gh); c.fill();
+        c.fillStyle = fr; c.fillRect(wx, wy + wh - rh * 0.1, ww, rh * 0.1);        // davanzale
+        e.fillStyle = r === 3 ? '#b8c8d8' : Math.random() < 0.15 ? '#000' : r === 1 ? '#ffc070' : '#ffe8c0'; e.fillRect(gx, gy, gw, gh);
+      }
+    }
+  }
   const tex = (c) => {
     const t = new THREE.CanvasTexture(c);
     t.wrapS = t.wrapT = THREE.RepeatWrapping; t.anisotropy = 8;
@@ -167,7 +213,7 @@ export class BuildingFactory {
     this.mats = {
       res: wall(t.res, t.emiR), condo: wall(t.condo, t.emiC), modern: wall(t.modern, t.emiM), ind: wall(t.ind, t.emiI),
       plain: new THREE.MeshLambertMaterial({ map: t.plain, vertexColors: true }),
-      church: wall(t.church, t.emiCh), glass: wall(t.glass, t.emiG),
+      church: wall(t.church, t.emiCh), glass: wall(t.glass, t.emiG), shop: wall(t.shop, t.emiS),
       roof: new THREE.MeshLambertMaterial({ vertexColors: true, side: THREE.DoubleSide }),
     };
     // tetti a falde: file di coppi (bande lungo le linee di livello della falda), da vicino
@@ -184,7 +230,7 @@ export class BuildingFactory {
     };
   }
 
-  setNight(f) { for (const k of ['res', 'condo', 'modern', 'glass']) this.mats[k].emissiveIntensity = f * 0.55; this.mats.ind.emissiveIntensity = f * 0.4; this.mats.church.emissiveIntensity = f * 0.3; }
+  setNight(f) { for (const k of ['res', 'condo', 'modern', 'glass']) this.mats[k].emissiveIntensity = f * 0.55; this.mats.ind.emissiveIntensity = f * 0.4; this.mats.church.emissiveIntensity = f * 0.3; this.mats.shop.emissiveIntensity = f * 0.95; }
 
   build(tile, collision, tileKey) {
     const g = this.buildGen(tile, collision, tileKey);
@@ -196,17 +242,20 @@ export class BuildingFactory {
   // costruzione a passi (vedi RoadNetwork.buildTileGen): una pausa ogni 12 edifici
   *buildGen(tile, collision, tileKey) {
     const T = this.terrain;
-    const gb = { res: new GeoBuilder(), condo: new GeoBuilder(), modern: new GeoBuilder(), ind: new GeoBuilder(), plain: new GeoBuilder(), church: new GeoBuilder(), glass: new GeoBuilder() };
+    const gb = { res: new GeoBuilder(), condo: new GeoBuilder(), modern: new GeoBuilder(), ind: new GeoBuilder(), plain: new GeoBuilder(), church: new GeoBuilder(), glass: new GeoBuilder(), shop: new GeoBuilder() };
+    // vicini nella tessera: per ogni lato si capisce se e' muro in comune, sotto un portico o su strada
+    const nb = this.neighbours(tile.b);
     const roof = new GeoBuilder(true, false);
     const names = tile.s;
     const labels = [];
     let nDone = 0;
-    for (const rec of tile.b) {
+    for (let bi = 0; bi < tile.b.length; bi++) {
+      const rec = tile.b[bi];
       if (++nDone % 12 === 0) yield;
       const type = rec[0];
       let H = rec[1] / 10;
       const minH = rec[2] / 10;
-      const levels = rec[3], roofShape = rec[4] & 15, portico = (rec[4] & 16) !== 0;
+      const levels = rec[3], roofShape = rec[4] & 15, portico = (rec[4] & 16) !== 0, shopKind = rec[4] & 32 ? (rec[4] >> 6) & 3 : -1;
       const name = names[rec[5]], colTag = names[rec[6]], roofTag = names[rec[7]];
       const ring = [];
       let x = 0, z = 0;
@@ -221,6 +270,7 @@ export class BuildingFactory {
         const th = T.height(ring[i * 2], ring[i * 2 + 1]);
         minT = Math.min(minT, th); maxT = Math.max(maxT, th);
       }
+      const ccw = area > 0;
       area = Math.abs(area / 2); cx /= n; cz /= n;
       const rnd = hash(Math.floor(ring[0] * 10) * 7919 + Math.floor(ring[1] * 10));
       const rnd2 = hash(Math.floor(ring[1] * 10) * 104729 + 17);
@@ -273,6 +323,13 @@ export class BuildingFactory {
       }
       col.convertSRGBToLinear();
       const g = gb[style];
+      // lati: 0 su strada, 1 muro in comune con un edificio a terra, 2 sotto un portico
+      const sides = (shopKind >= 0 || portico) ? this.sideKinds(nb, bi, ring, n, ccw) : null;
+      // negozi: il piano terra (una riga di piani) diventa una fila di vetrine
+      const shopRow = shopKind >= 0 && minH <= 2.2 && style !== 'church' && style !== 'glass' && floors >= 1 && H >= 3.2;
+      const gTop = eave - H + H / floors;
+      const sv0 = 1 - (shopKind + 1) / 4, sv1 = 1 - shopKind / 4;
+      const sg = gb.shop, tint = 0.92 + rnd * 0.08;
       let per = 0;
       for (let i = 0; i < n; i++) {
         const j = (i + 1) % n;
@@ -284,11 +341,20 @@ export class BuildingFactory {
         const ue = u0 + bays / 8;
         // v = 0 al piano di campagna (riga del piano terra), floors/8 alla gronda
         const vTop = style === 'church' ? 1 : floors / 8, vBot = vTop * (base - (eave - H)) / H;
+        const shopHere = shopRow && sides[i] !== 1 && len > 1.5;
+        if (shopHere) {
+          const s0 = sg.v(ax, base, az, tint, tint, tint, u0, sv0 - 0.012), s1 = sg.v(ax, gTop, az, tint, tint, tint, u0, sv1);
+          const s2 = sg.v(bx, gTop, bz, tint, tint, tint, ue, sv1), s3 = sg.v(bx, base, bz, tint, tint, tint, ue, sv0 - 0.012);
+          sg.quad(s0, s1, s2, s3);
+          if (sides[i] === 0 && rnd2 < 0.75) this.awnings(roof, ax, az, bx, bz, len, bays, gTop, ccw, rnd + i);
+        }
+        const y0 = shopHere ? gTop : base, v0 = shopHere ? 1 / 8 : vBot;
         // base dei muri piu' scura (ombra di contatto col suolo)
-        const a = g.v(ax, base, az, col.r * 0.78, col.g * 0.78, col.b * 0.78, u0, vBot);
+        const k0 = shopHere ? 1 : 0.78;
+        const a = g.v(ax, y0, az, col.r * k0, col.g * k0, col.b * k0, u0, v0);
         const b = g.v(ax, eave, az, col.r, col.g, col.b, u0, vTop);
         const c = g.v(bx, eave, bz, col.r, col.g, col.b, ue, vTop);
-        const d = g.v(bx, base, bz, col.r * 0.78, col.g * 0.78, col.b * 0.78, ue, vBot);
+        const d = g.v(bx, y0, bz, col.r * k0, col.g * k0, col.b * k0, ue, v0);
         g.quad(a, b, c, d);
         per += len;
       }
@@ -305,14 +371,14 @@ export class BuildingFactory {
       if (minH > 2.2) {
         // sotto si passa: soffitto visto dal basso e, nei portici, pilastri (sono loro l'ostacolo)
         this.ceiling(roof, ring, n, base, col);
-        if (portico) this.pillars(roof, ring, n, minT, base, col, collision, tileKey);
+        if (portico) this.pillars(roof, ring, n, minT, base, col, collision, tileKey, sides);
       } else if (collision) collision.addPolygon(tileKey, Float32Array.from(ring), eave + (pitched ? 3 : 1));
       if (name && (kind === 5 || kind === 8 || type === 7)) labels.push({ name, x: cx, z: cz, y: eave + 4 });
     }
     const group = new THREE.Group();
     const glassRoof = this.glassRoofs(tile);
     if (glassRoof) group.add(glassRoof);
-    for (const k of ['res', 'condo', 'modern', 'ind', 'plain', 'church', 'glass']) if (!gb[k].empty) { yield; group.add(gb[k].mesh(this.mats[k], true)); }
+    for (const k of ['res', 'condo', 'modern', 'ind', 'plain', 'church', 'glass', 'shop']) if (!gb[k].empty) { yield; group.add(gb[k].mesh(this.mats[k], true)); }
     yield;
     if (!roof.empty) group.add(roof.mesh(this.mats.roof, true));
     return { group, labels };
@@ -329,22 +395,117 @@ export class BuildingFactory {
     for (const [a, b, d] of tris) { g.tri(v[a], v[b], v[d]); g.tri(v[a], v[d], v[b]); }
   }
 
-  // pilastri del portico: ai vertici e ogni ~4 m lungo i lati, con un capitello appena piu' largo
-  pillars(g, ring, n, y0, y1, col, collision, tileKey) {
-    const c = col.clone().multiplyScalar(0.95), cap = col.clone().multiplyScalar(1.05);
+  // pilastri del portico: ai vertici e ogni ~4 m lungo i lati aperti (non contro l'edificio dietro),
+  // con capitello e archi a tutto sesto tra un pilastro e l'altro
+  pillars(g, ring, n, y0, y1, col, collision, tileKey, sides) {
+    const c = col.clone().multiplyScalar(0.95), cap = col.clone().multiplyScalar(1.05), arc = col.clone().multiplyScalar(0.9);
+    const done = new Set();
     const post = (x, z, dx, dz) => {
+      const key = Math.round(x * 5) * 100003 + Math.round(z * 5);
+      if (done.has(key)) return;
+      done.add(key);
       boxV(g, x, y0 - 0.3, z, 0.62, y1 - y0 + 0.3, 0.62, dx, dz, c);
       boxV(g, x, y1 - 0.45, z, 0.85, 0.45, 0.85, dx, dz, cap);
       if (collision) collision.addCircle(tileKey, x, z, 0.4, y1);
     };
+    const AS = 7;
     for (let i = 0; i < n; i++) {
+      if (sides && sides[i] === 1) continue;     // lato contro l'edificio dietro il portico
       const j = (i + 1) % n;
       const ax = ring[i * 2], az = ring[i * 2 + 1], bx = ring[j * 2], bz = ring[j * 2 + 1];
       const L = Math.hypot(bx - ax, bz - az);
       if (L < 0.5) continue;
       const dx = (bx - ax) / L, dz = (bz - az) / L, m = Math.max(1, Math.round(L / 4.2));
-      for (let k = 0; k < m; k++) post(ax + (bx - ax) * k / m, az + (bz - az) * k / m, dx, dz);
+      for (let k = 0; k <= m; k++) post(ax + (bx - ax) * k / m, az + (bz - az) * k / m, dx, dz);
+      // archi: pannello tra l'intradosso a semicerchio e il soffitto, sui due lati
+      const span = L / m, inner = span - 0.85, rise = Math.min(inner / 2, (y1 - y0) * 0.38, 2.6);
+      if (inner < 1 || rise < 0.4) continue;
+      const yc = y1 - 0.3 - rise;
+      for (let k = 0; k < m; k++) {
+        const mx = ax + (bx - ax) * (k + 0.5) / m, mz = az + (bz - az) * (k + 0.5) / m;
+        let prev = null;
+        for (let q = 0; q <= AS; q++) {
+          const t = Math.PI * q / AS, off = -Math.cos(t) * inner / 2, y = yc + Math.sin(t) * rise;
+          const px = mx + dx * off, pz = mz + dz * off;
+          const lo = g.v(px, y, pz, arc.r, arc.g, arc.b), hi = g.v(px, y1, pz, arc.r, arc.g, arc.b);
+          if (prev) { g.quad(prev[0], lo, hi, prev[1]); g.quad(prev[0], prev[1], hi, lo); }
+          prev = [lo, hi];
+        }
+        // piedritti fino all'imposta dell'arco
+        for (const sgn of [-1, 1]) {
+          const px = mx + dx * sgn * inner / 2, pz = mz + dz * sgn * inner / 2, ex = mx + dx * sgn * span / 2, ez = mz + dz * sgn * span / 2;
+          const a0 = g.v(px, yc, pz, arc.r, arc.g, arc.b), a1 = g.v(px, y1, pz, arc.r, arc.g, arc.b), a2 = g.v(ex, y1, ez, arc.r, arc.g, arc.b), a3 = g.v(ex, yc, ez, arc.r, arc.g, arc.b);
+          g.quad(a0, a1, a2, a3); g.quad(a0, a3, a2, a1);
+        }
+      }
     }
+  }
+
+  // tende da sole sopra le vetrine su strada: una per campata, inclinata, con la mantovana
+  awnings(g, ax, az, bx, bz, len, bays, y, ccw, seed) {
+    const AW = ['#7a1f1f', '#1f4d2b', '#24365e', '#8a6d1f', '#4d4d4d', '#9a4a22', '#5b2a4a', '#2c5e5e'];
+    const h0 = hash(Math.floor(seed * 1000) + 7), col = new THREE.Color(AW[Math.floor(h0 * AW.length)]).convertSRGBToLinear();
+    const dark = col.clone().multiplyScalar(0.7);
+    const dx = (bx - ax) / len, dz = (bz - az) / len, s = ccw ? 1 : -1, nx = s * dz, nz = -s * dx;
+    const D = 1.1, drop = 0.55, top = y - 0.25;
+    for (let k = 0; k < bays; k++) {
+      if (hash(Math.floor(seed * 1000) + k * 31) < 0.3) continue;
+      const t0 = (k + 0.08) / bays, t1 = (k + 0.92) / bays;
+      const p0 = [ax + (bx - ax) * t0, az + (bz - az) * t0], p1 = [ax + (bx - ax) * t1, az + (bz - az) * t1];
+      const a = g.v(p0[0] + nx * 0.05, top, p0[1] + nz * 0.05, col.r, col.g, col.b), b = g.v(p1[0] + nx * 0.05, top, p1[1] + nz * 0.05, col.r, col.g, col.b);
+      const c = g.v(p1[0] + nx * D, top - drop, p1[1] + nz * D, col.r, col.g, col.b), d = g.v(p0[0] + nx * D, top - drop, p0[1] + nz * D, col.r, col.g, col.b);
+      g.quad(a, b, c, d); g.quad(a, d, c, b);
+      const e = g.v(p0[0] + nx * D, top - drop - 0.25, p0[1] + nz * D, dark.r, dark.g, dark.b), f = g.v(p1[0] + nx * D, top - drop - 0.25, p1[1] + nz * D, dark.r, dark.g, dark.b);
+      const c2 = g.v(p1[0] + nx * D, top - drop, p1[1] + nz * D, dark.r, dark.g, dark.b), d2 = g.v(p0[0] + nx * D, top - drop, p0[1] + nz * D, dark.r, dark.g, dark.b);
+      g.quad(d2, c2, f, e); g.quad(d2, e, f, c2);
+    }
+  }
+
+  // anelli e riquadri degli edifici della tessera su una griglia di 16 m
+  neighbours(recs) {
+    const C = 16, grid = new Map(), rings = [], lifted = [], box = [];
+    recs.forEach((rec, bi) => {
+      const r = []; let x = 0, z = 0, x0 = 1e9, z0 = 1e9, x1 = -1e9, z1 = -1e9;
+      for (let i = 8; i < rec.length; i += 2) { x += rec[i]; z += rec[i + 1]; const X = x / 10, Z = z / 10; r.push(X, Z); x0 = Math.min(x0, X); x1 = Math.max(x1, X); z0 = Math.min(z0, Z); z1 = Math.max(z1, Z); }
+      rings.push(r); lifted.push(rec[2] / 10 > 2.2); box.push([x0, z0, x1, z1]);
+      for (let i = Math.floor(x0 / C); i <= Math.floor(x1 / C); i++) for (let j = Math.floor(z0 / C); j <= Math.floor(z1 / C); j++) {
+        const k = i * 100003 + j; let l = grid.get(k); if (!l) grid.set(k, l = []); l.push(bi);
+      }
+    });
+    return { C, grid, rings, lifted, box };
+  }
+
+  // tipo di ogni lato: 0 su strada (libero), 1 contro un edificio a terra, 2 sotto un volume sospeso (portico)
+  sideKinds(nb, bi, ring, n, ccw) {
+    const out = new Uint8Array(n), s = ccw ? 1 : -1;
+    const at = (x, z) => {
+      let res = 0;
+      for (const o of nb.grid.get(Math.floor(x / nb.C) * 100003 + Math.floor(z / nb.C)) || []) {
+        if (o === bi) continue;
+        const b = nb.box[o];
+        if (x < b[0] || x > b[2] || z < b[1] || z > b[3]) continue;
+        const r = nb.rings[o];
+        let ins = false;
+        for (let i = 0, j = r.length / 2 - 1; i < r.length / 2; j = i++) {
+          const xi = r[i * 2], zi = r[i * 2 + 1], xj = r[j * 2], zj = r[j * 2 + 1];
+          if ((zi > z) !== (zj > z) && x < (xj - xi) * (z - zi) / (zj - zi) + xi) ins = !ins;
+        }
+        if (ins) { if (!nb.lifted[o]) return 1; res = 2; }
+      }
+      return res;
+    };
+    for (let i = 0; i < n; i++) {
+      const j = (i + 1) % n;
+      const ax = ring[i * 2], az = ring[i * 2 + 1], bx = ring[j * 2], bz = ring[j * 2 + 1];
+      const L = Math.hypot(bx - ax, bz - az) || 1, nx = s * (bz - az) / L * 0.6, nz = -s * (bx - ax) / L * 0.6;
+      let c1 = 0, c2 = 0;
+      for (const f of [0.2, 0.5, 0.8]) {
+        const k = at(ax + (bx - ax) * f + nx, az + (bz - az) * f + nz);
+        if (k === 1) c1++; else if (k === 2) c2++;
+      }
+      out[i] = c1 >= 2 ? 1 : c2 >= 2 ? 2 : 0;
+    }
+    return out;
   }
 
   // coperture in vetro della tessera: volte a botte (gv) lungo i passaggi e cupole (gd)
