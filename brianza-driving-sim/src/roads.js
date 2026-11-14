@@ -319,6 +319,7 @@ export class RoadNetwork {
   // superficie guidabile sotto un punto: strada (anche su ponti) o terreno
   surfaceAt(x, z, yRef = 1e9) {
     let best = null, bestH = -1e9;
+    const near = yRef < 1e8;
     const cand = this._cand || (this._cand = []);
     cand.length = 0;
     this.segmentsNear(x, z, 8, (wi, k) => {
@@ -329,13 +330,18 @@ export class RoadNetwork {
       const h = this.heightOn(wi, k, pr.t, x, z);
       if (h > yRef + 1.3) return;
       cand.push(h, Math.max(0.03, 1 - pr.d / lim));
-      if (h > bestH + 0.01 || (Math.abs(h - bestH) <= 0.01 && best && pr.d < best.d)) { bestH = h; best = { wi, k, t: pr.t, d: pr.d }; }
+      // con una quota di riferimento (chi e' gia' su una carreggiata) vince la carreggiata piu' vicina a
+      // quella quota: in una galleria poco profonda la via in superficie sopra la volta non "risucchia"
+      // l'auto. Senza riferimento (posizionamento) vince la piu' alta.
+      const better = !best ? true : near ? Math.abs(h - yRef) < Math.abs(bestH - yRef) - 0.01 || (Math.abs(Math.abs(h - yRef) - Math.abs(bestH - yRef)) <= 0.01 && pr.d < best.d)
+        : h > bestH + 0.01 || (Math.abs(h - bestH) <= 0.01 && pr.d < best.d);
+      if (better) { bestH = h; best = { wi, k, t: pr.t, d: pr.d }; }
     });
     // incroci: dove due vie alla stessa quota si sovrappongono si usa la media pesata (vicinanza
     // all'asse di ciascuna), cosi' passando dall'una all'altra non ci sono scalini
     if (cand.length > 2) {
       let sw = 0, sh = 0;
-      for (let i = 0; i < cand.length; i += 2) if (bestH - cand[i] < 0.8) { sh += cand[i] * cand[i + 1]; sw += cand[i + 1]; }
+      for (let i = 0; i < cand.length; i += 2) if (Math.abs(bestH - cand[i]) < 0.8) { sh += cand[i] * cand[i + 1]; sw += cand[i + 1]; }
       if (sw > 0) bestH = sh / sw;
     }
     const th = this.terrain.height(x, z);
@@ -1117,7 +1123,7 @@ export class RoadNetwork {
           const [ax, az] = pts[i], [bx, bz] = pts[i + 1], L = Math.hypot(bx - ax, bz - az);
           if (L < 1.5) continue;
           const ex = -(bz - az) / L * 0.3, ez = (bx - ax) / L * 0.3;
-          collision.addPolygon(tileKey, Float32Array.from([ax - ex, az - ez, bx - ex, bz - ez, bx + ex, bz + ez, ax + ex, az + ez]));
+          collision.addPolygon(tileKey, Float32Array.from([ax - ex, az - ez, bx - ex, bz - ez, bx + ex, bz + ez, ax + ex, az + ez]), Math.max(T.height(ax, az), T.height(bx, bz)) + H);
         }
         continue;
       }
@@ -1144,7 +1150,7 @@ export class RoadNetwork {
         }
         if (collision && rec[0] !== 3 && L > 1.5) {
           const e = Math.max(0.4, st.th / 2), ex = -(bz - az) / L * e, ez = (bx - ax) / L * e;
-          collision.addPolygon(tileKey, Float32Array.from([ax - ex, az - ez, bx - ex, bz - ez, bx + ex, bz + ez, ax + ex, az + ez]));
+          collision.addPolygon(tileKey, Float32Array.from([ax - ex, az - ez, bx - ex, bz - ez, bx + ex, bz + ez, ax + ex, az + ez]), Math.max(T.height(ax, az), T.height(bx, bz)) + H);
         }
       }
     }

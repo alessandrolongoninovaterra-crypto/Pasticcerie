@@ -39,6 +39,13 @@ function monument(g, x, y, z, yaw, kind, h, mh, colHex, side) {
     B(0, 0, y + 0.4, 0.6, H * 0.7, 0.6, bronze); B(0.4, 0.3, y + 0.4 + H * 0.4, 1.4, 0.5, 0.5, bronze); B(-0.3, -0.3, y + 0.4 + H * 0.6, 0.5, 0.5, 1.2, bronze);
     return;
   }
+  // statua in cima a un edificio o a una guglia (Madonnina: min_height 108 m): niente basamento
+  if (mh > 15) {
+    const F = h || 3, gold = hexCol(colHex, [0.83, 0.62, 0.2]);
+    B(0, 0, y + mh - 0.3, 0.5, 0.3, 0.5, gold);
+    B(0, 0, y + mh, 0.42 * F / 2, F * 0.75, 0.32 * F / 2, gold); B(0, 0, y + mh + F * 0.75, 0.18 * F / 2, F * 0.17, 0.18 * F / 2, gold);
+    return;
+  }
   // basamento
   const ped = mh || (kind === 'e' ? 5 : kind === 'b' ? 1.6 : kind === 'c' ? 2 : 2.4);
   const S = Math.max(kind === 'e' ? 3.4 : 1.4, Math.min(side || 0, kind === 'e' ? 8 : 4)) || 2;
@@ -830,7 +837,7 @@ export class Signage {
         const [mk, mh_, mph, mcol, mside, ...mn] = text.split('|');
         const yaw = nr ? Math.atan2(nr.px - x, nr.pz - z) : 0;
         monument(poles, x, T.height(x, z), z, yaw, mk, +mh_ || 0, +mph || 0, mcol, +mside || 0);
-        if (this.collision) this.collision.addCircle(tk, x, z, mk === 'e' ? 3 : 1.2, T.height(x, z) + (+mh_ || 6));
+        if (this.collision && !(+mph > 15)) this.collision.addCircle(tk, x, z, mk === 'e' ? 3 : 1.2, T.height(x, z) + (+mh_ || 6));
         void mn;
       } else if (kind === 18) {      // ingresso della metropolitana: scala con parapetto e palina con la M
         const yaw = nr ? Math.atan2(dx, dz) : 0, y = T.height(x, z), c = Math.cos(yaw), sn = Math.sin(yaw);

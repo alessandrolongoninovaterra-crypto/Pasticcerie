@@ -209,6 +209,19 @@ segnaletica, edifici, fisica, navigatore, comportamento di pedoni e traffico) è
     sono; sono rivolti verso la strada più vicina e hanno la collisione;
   - **ingressi della metropolitana** (`railway=subway_entrance`): vano scala con parapetti e palina
     con il cubo rosso della M.
+- **Correzioni (novembre 2026)**:
+  - *quadrati neri a schermo* (di notte, all'imbrunire, in galleria): alcuni vertici avevano la
+    normale nulla (triangoli degeneri o facce opposte che si annullano); nello shader diventava NaN,
+    e il bloom notturno sfocava quel pixel in un quadrato nero grande come mezzo schermo. Ora le
+    normali nulle sono sostituite alla costruzione (`fixNormals` in `src/geo.js`, agganciato a ogni
+    `computeVertexNormals`, modelli importati compresi) e un passaggio di pulizia prima del bloom
+    scarta comunque i pixel NaN o infiniti;
+  - *gallerie non percorribili*: le collisioni sono in pianta, e alberi, recinzioni e case sul monte
+    sopra la galleria fermavano l'auto in galleria. Ora in galleria (o sotto terra) gli ostacoli in
+    superficie non contano, e gli ostacoli con la sommità sotto l'auto (isole delle rotatorie,
+    muretti, alberi bassi sotto un viadotto) non la fermano. Nelle gallerie poco profonde (Monza) la
+    superficie scelta è la carreggiata più vicina alla quota dell'auto, non la via sopra la volta.
+    Verifica: Galleria Monte Barro (3,3 km) e Galleria Monza (1,9 km) percorse da un capo all'altro.
 - **Palazzi**: numero intero di piani per edificio (finestre allineate in alto e in basso), piano
   terra distinto (portoni, garage, ingressi vetrati), stili condominio con balconi e palazzina
   moderna oltre a casa con persiane e capannone, base dei muri più scura, file di coppi sui tetti a

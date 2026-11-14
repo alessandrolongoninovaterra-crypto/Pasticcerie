@@ -220,9 +220,13 @@ export class Vehicle {
     const fx = Math.sin(this.h), fz = Math.cos(this.h);
     const r = s.W / 2;
     const offs = [s.L / 2 - r, 0, -(s.L / 2 - r)];
+    // in galleria (o comunque sotto terra) gli ostacoli in superficie (alberi, recinzioni, case sul
+    // monte sopra la galleria) non si toccano: le collisioni sono in pianta
+    const rd = this.surface && this.surface.road ? W.roads.ways[this.surface.road.wi] : null;
+    const under = (rd && rd.flags & 8) || (W.terrain && W.terrain.height(this.x, this.z) - this.y > 3);
     for (const o of offs) {
       const cx = this.x + fx * o, cz = this.z + fz * o;
-      let hit = W.collision.resolveCircle(cx, cz, r);
+      let hit = under ? null : W.collision.resolveCircle(cx, cz, r, this.y);
       const hitCar = W.traffic ? W.traffic.resolveCircle(cx, cz, r) : null;
       if (hitCar && (!hit || hitCar.depth > hit.depth)) hit = hitCar;
       if (!hit) continue;

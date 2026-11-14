@@ -81,7 +81,9 @@ export class Collision {
     return top;
   }
 
-  resolveCircle(x, z, r) {
+  // y (facoltativo): quota dei piedi di chi si muove. Gli ostacoli con la sommita' sotto di lui
+  // (alberi, isole e muretti sotto un viadotto) non contano.
+  resolveCircle(x, z, r, y = null) {
     let best = null;
     const seen = new Set();
     this._cells(x - r, z - r, x + r, z + r, (k) => {
@@ -90,6 +92,7 @@ export class Collision {
       for (const o of a) {
         if (seen.has(o)) continue;
         seen.add(o);
+        if (y !== null && o.top !== undefined && o.top < y - 1.0) continue;
         if (x + r < o.minx || x - r > o.maxx || z + r < o.minz || z - r > o.maxz) continue;
         let res = null;
         if (o.ring) res = circlePoly(x, z, r, o.ring);

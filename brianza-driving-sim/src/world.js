@@ -496,7 +496,7 @@ export class World {
           if (!r.done) return false;
           t.gen = null; add('buildings', r.value.group);
         } else add('buildings', null);
-        if (!t.rbDone) { t.rbDone = true; for (const rb of this.roads.roundabouts) if (this.roads.tileKey(rb.x, rb.z) === t.key) this.collision.addCircle(t.key, rb.x, rb.z, rb.r); }
+        if (!t.rbDone) { t.rbDone = true; for (const rb of this.roads.roundabouts) if (this.roads.tileKey(rb.x, rb.z) === t.key) this.collision.addCircle(t.key, rb.x, rb.z, rb.r, this.terrain.height(rb.x, rb.z) + 1.5); }
         continue;
       }
       if (!('paths' in t.parts)) {
@@ -604,7 +604,7 @@ export class World {
         if (!Number.isNaN(dir)) rot = Math.PI - dir * Math.PI / 180;
         const onWalk = nr && nr.d < this.roads.ways[nr.wi].width / 2 + 1.9 && this.roads.sidewalkSides(this.roads.ways[nr.wi], x, z);
         set.setAt(i, x, z, rot, this.terrain.height(x, z) + (onWalk ? 0.31 : 0.08));
-        if (+k === 12 || +k === 13) this.collision.addCircle(t.key, x, z, 0.16);
+        if (+k === 12 || +k === 13) this.collision.addCircle(t.key, x, z, 0.16, this.terrain.height(x, z) + 1.2);
       });
       set.mesh.traverse((o) => { if (o.isInstancedMesh) { o.computeBoundingSphere(); o.castShadow = true; } });
       g.add(set.mesh);

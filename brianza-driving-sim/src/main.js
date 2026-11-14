@@ -21,6 +21,22 @@ import { EffectComposer } from 'three/examples/jsm/postprocessing/EffectComposer
 import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from 'three/examples/jsm/postprocessing/UnrealBloomPass.js';
 import { OutputPass } from 'three/examples/jsm/postprocessing/OutputPass.js';
+import { ShaderPass } from 'three/examples/jsm/postprocessing/ShaderPass.js';
+import './geo.js';   // aggancio di computeVertexNormals (normali nulle) prima di costruire qualsiasi modello
+
+// Pulizia del buffer HDR prima del bloom: un solo pixel NaN o infinito, sfocato dal bloom su piu'
+// livelli, diventava un quadrato nero grande come mezzo schermo. Qui diventa nero (NaN) o viene
+// limitato (valori enormi vicino alle luci).
+const SanitizeShader = {
+  uniforms: { tDiffuse: { value: null } },
+  vertexShader: 'varying vec2 vUv; void main() { vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }',
+  fragmentShader: `uniform sampler2D tDiffuse; varying vec2 vUv;
+    void main() {
+      vec4 c = texture2D(tDiffuse, vUv);
+      if (any(isnan(c)) || any(isinf(c)) || !(c.r >= 0.0 && c.g >= 0.0 && c.b >= 0.0 && c.r < 1e5 && c.g < 1e5 && c.b < 1e5)) c = vec4(0.0, 0.0, 0.0, 1.0);
+      gl_FragColor = vec4(min(c.rgb, vec3(64.0)), c.a);
+    }`,
+};
 
 const $ = (id) => document.getElementById(id);
 const QUALITY = {
@@ -37,6 +53,7 @@ const G = { started: false, paused: false, mapOpen: false, camMode: 0, route: nu
 // posizione "viva" del giocatore: l'auto oppure la persona a piedi
 const focus = () => (G.foot.on ? G.foot : G.vehicle);
 window.BDS = G; // utile per il debug dalla console
+G.THREE = THREE;
 window.BDS_LOAD = loadData;
 if (new URLSearchParams(location.search).get('auto') === '0') G.autoOff = true;
 
@@ -189,6 +206,7 @@ function ensureGame() {
     // i bordi restano lisci come senza effetti (prima erano seghettati)
     G.composer = new EffectComposer(renderer, new THREE.WebGLRenderTarget(innerWidth * renderer.getPixelRatio(), innerHeight * renderer.getPixelRatio(), { type: THREE.HalfFloatType, samples: 4 }));
     G.composer.addPass(new RenderPass(scene, G.camera));
+    G.composer.addPass(new ShaderPass(SanitizeShader));
     G.bloom = new UnrealBloomPass(new THREE.Vector2(innerWidth, innerHeight), 0, 0.4, 0.82);
     G.composer.addPass(G.bloom);
     G.composer.addPass(new OutputPass());
@@ -357,7 +375,8 @@ function updateFoot(dt, ctl) {
   // ostacoli: edifici, muri, alberi, veicoli
   const own = { x: G.vehicle.x, z: G.vehicle.z, h: G.vehicle.h, box: ownBox() };
   for (let pass = 0; pass < 2; pass++) {
-    const a = G.world.collision.resolveCircle(f.x, f.z, 0.32);
+    const fr = f.surface && f.surface.road ? G.roads.ways[f.surface.road.wi] : null;
+    const a = fr && fr.flags & 8 ? null : G.world.collision.resolveCircle(f.x, f.z, 0.32, f.y);
     if (a) { f.x += a.nx * a.depth; f.z += a.nz * a.depth; }
     G.traffic.statics.push(own);
     const b = G.traffic.resolveCircle(f.x, f.z, 0.32);

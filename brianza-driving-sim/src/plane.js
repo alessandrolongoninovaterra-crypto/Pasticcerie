@@ -160,7 +160,7 @@ export class Plane {
   collideGround() {
     const W = this.world;
     const r = 1.6;
-    let hit = W.collision.resolveCircle(this.x, this.z, r);
+    let hit = W.collision.resolveCircle(this.x, this.z, r, this.y);
     const car = W.traffic ? W.traffic.resolveCircle(this.x, this.z, r) : null;
     if (car && (!hit || car.depth > hit.depth)) hit = car;
     if (!hit) return;

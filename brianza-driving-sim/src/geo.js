@@ -21,7 +21,7 @@ export class GeoBuilder {
     if (this.c) g.setAttribute('color', new THREE.Float32BufferAttribute(this.c, 3));
     if (this.u) g.setAttribute('uv', new THREE.Float32BufferAttribute(this.u, 2));
     g.setIndex(this.n > 65535 ? new THREE.Uint32BufferAttribute(this.i, 1) : new THREE.Uint16BufferAttribute(this.i, 1));
-    g.computeVertexNormals();
+    g.computeVertexNormals();     // fixNormals applicato dall'aggancio qui sotto
     g.computeBoundingSphere();
     return g;
   }
@@ -31,6 +31,26 @@ export class GeoBuilder {
     return m;
   }
 }
+
+// Normali nulle (vertici di soli triangoli degeneri, o condivisi da facce opposte che si annullano):
+// nello shader normalize(0) da' NaN, e di notte il bloom allarga quei pixel in quadrati neri.
+// Le sostituiamo con la verticale.
+export function fixNormals(g) {
+  const n = g.attributes.normal;
+  if (!n) return 0;
+  const a = n.array;
+  let bad = 0;
+  for (let i = 0; i < a.length; i += 3) {
+    const l = a[i] * a[i] + a[i + 1] * a[i + 1] + a[i + 2] * a[i + 2];
+    if (!(l > 1e-8)) { a[i] = 0; a[i + 1] = 1; a[i + 2] = 0; bad++; }
+  }
+  if (bad) n.needsUpdate = true;
+  return bad;
+}
+
+// aggancio globale: ogni computeVertexNormals (anche nei modelli importati) ripulisce le normali nulle
+const _cvn = THREE.BufferGeometry.prototype.computeVertexNormals;
+THREE.BufferGeometry.prototype.computeVertexNormals = function () { _cvn.call(this); fixNormals(this); };
 
 // numero pseudo-casuale deterministico da un intero
 export function hash(n) {
