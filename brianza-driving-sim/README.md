@@ -209,6 +209,24 @@ segnaletica, edifici, fisica, navigatore, comportamento di pedoni e traffico) è
     sono; sono rivolti verso la strada più vicina e hanno la collisione;
   - **ingressi della metropolitana** (`railway=subway_entrance`): vano scala con parapetti e palina
     con il cubo rosso della M.
+- **Portici e vetrine su tutta la mappa** (novembre 2026):
+  - controllo dei 30.000 volumi sollevati del DBGT (portici, sottopassaggi, sporti): quelli che non
+    toccano nessun edificio a terra per almeno il 30% del perimetro (circa 1.500, prima sospesi nel
+    vuoto) ora hanno i pilastri;
+  - i portici hanno i pilastri solo sui lati aperti (non più contro le vetrine dell'edificio
+    dietro) e archi a tutto sesto tra un pilastro e l'altro;
+  - **vetrine al piano terra**: negli edifici che contengono un negozio o un locale OSM (o ne hanno
+    uno entro 6 m: `shop=*`, bar, ristoranti, farmacie, banche…), negli edifici dietro un portico e
+    negli edifici commerciali piccoli (`building=retail/commercial/kiosk`). Quattro tipi: negozio,
+    bar e ristorante, farmacia (croce verde accesa), banca e servizi; insegna, vetrina con la merce,
+    porta ogni quattro campate. Di notte le vetrine e le insegne sono illuminate;
+  - **tende da sole** sulle vetrine che danno sulla strada (non sui muri in comune né sotto i
+    portici), di colori diversi da negozio a negozio;
+  - nel gioco ogni lato di un edificio è classificato (su strada, muro in comune, sotto un portico)
+    guardando gli edifici vicini della tessera; nei dati il bit 32 di `flags` segna le vetrine e i
+    bit 64-128 il tipo.
+  Numeri dell'ultima elaborazione: 33.281 negozi e locali OSM, vetrine in 21.487 edifici con negozi,
+  9.200 dietro i portici e 12.791 edifici commerciali.
 - **Correzioni (novembre 2026)**:
   - *quadrati neri a schermo* (di notte, all'imbrunire, in galleria): alcuni vertici avevano la
     normale nulla (triangoli degeneri o facce opposte che si annullano); nello shader diventava NaN,

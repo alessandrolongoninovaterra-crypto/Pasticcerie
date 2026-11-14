@@ -18,7 +18,7 @@ function boxV(g, cx, y0, cz, sx, sy, sz, dx, dz, c) {
     [P(1, 0, -1), P(-1, 0, -1), P(-1, 1, -1), P(1, 1, -1), 0.8], [P(1, 0, 1), P(1, 0, -1), P(1, 1, -1), P(1, 1, 1), 0.7], [P(-1, 0, -1), P(-1, 0, 1), P(-1, 1, 1), P(-1, 1, -1), 0.7]];
   for (const [a, b, d, e, sh] of F) {
     const v = [a, b, d, e].map((p) => g.v(p[0], p[1], p[2], c.r * sh, c.g * sh, c.b * sh));
-    g.quad(v[0], v[1], v[2], v[3]); g.quad(v[0], v[3], v[2], v[1]);
+    g.quad(v[0], v[1], v[2], v[3]);   // il materiale e' a doppia faccia: una sola faccia, normali giuste
   }
 }
 
@@ -343,8 +343,10 @@ export class BuildingFactory {
         const vTop = style === 'church' ? 1 : floors / 8, vBot = vTop * (base - (eave - H)) / H;
         const shopHere = shopRow && sides[i] !== 1 && len > 1.5;
         if (shopHere) {
-          const s0 = sg.v(ax, base, az, tint, tint, tint, u0, sv0 - 0.012), s1 = sg.v(ax, gTop, az, tint, tint, tint, u0, sv1);
-          const s2 = sg.v(bx, gTop, bz, tint, tint, tint, ue, sv1), s3 = sg.v(bx, base, bz, tint, tint, tint, ue, sv0 - 0.012);
+          // il muro attorno alle vetrine prende il colore dell'edificio (schiarito: le insegne restano vive)
+          const tr = Math.min(1, col.r * 0.5 + 0.5) * tint, tg = Math.min(1, col.g * 0.5 + 0.5) * tint, tb = Math.min(1, col.b * 0.5 + 0.5) * tint;
+          const s0 = sg.v(ax, base, az, tr, tg, tb, u0, sv0 - 0.012), s1 = sg.v(ax, gTop, az, tr, tg, tb, u0, sv1);
+          const s2 = sg.v(bx, gTop, bz, tr, tg, tb, ue, sv1), s3 = sg.v(bx, base, bz, tr, tg, tb, ue, sv0 - 0.012);
           sg.quad(s0, s1, s2, s3);
           if (sides[i] === 0 && rnd2 < 0.75) this.awnings(roof, ax, az, bx, bz, len, bays, gTop, ccw, rnd + i);
         }
@@ -392,7 +394,7 @@ export class BuildingFactory {
     try { tris = THREE.ShapeUtils.triangulateShape(pts, []); } catch (e) { return; }
     const c = col.clone().multiplyScalar(0.62);
     const v = pts.map((p) => g.v(p.x, y, p.y, c.r, c.g, c.b));
-    for (const [a, b, d] of tris) { g.tri(v[a], v[b], v[d]); g.tri(v[a], v[d], v[b]); }
+    for (const [a, b, d] of tris) g.tri(v[a], v[b], v[d]);
   }
 
   // pilastri del portico: ai vertici e ogni ~4 m lungo i lati aperti (non contro l'edificio dietro),
@@ -428,14 +430,14 @@ export class BuildingFactory {
           const t = Math.PI * q / AS, off = -Math.cos(t) * inner / 2, y = yc + Math.sin(t) * rise;
           const px = mx + dx * off, pz = mz + dz * off;
           const lo = g.v(px, y, pz, arc.r, arc.g, arc.b), hi = g.v(px, y1, pz, arc.r, arc.g, arc.b);
-          if (prev) { g.quad(prev[0], lo, hi, prev[1]); g.quad(prev[0], prev[1], hi, lo); }
+          if (prev) g.quad(prev[0], lo, hi, prev[1]);
           prev = [lo, hi];
         }
         // piedritti fino all'imposta dell'arco
         for (const sgn of [-1, 1]) {
           const px = mx + dx * sgn * inner / 2, pz = mz + dz * sgn * inner / 2, ex = mx + dx * sgn * span / 2, ez = mz + dz * sgn * span / 2;
           const a0 = g.v(px, yc, pz, arc.r, arc.g, arc.b), a1 = g.v(px, y1, pz, arc.r, arc.g, arc.b), a2 = g.v(ex, y1, ez, arc.r, arc.g, arc.b), a3 = g.v(ex, yc, ez, arc.r, arc.g, arc.b);
-          g.quad(a0, a1, a2, a3); g.quad(a0, a3, a2, a1);
+          g.quad(a0, a1, a2, a3);
         }
       }
     }
@@ -446,18 +448,23 @@ export class BuildingFactory {
     const AW = ['#7a1f1f', '#1f4d2b', '#24365e', '#8a6d1f', '#4d4d4d', '#9a4a22', '#5b2a4a', '#2c5e5e'];
     const h0 = hash(Math.floor(seed * 1000) + 7), col = new THREE.Color(AW[Math.floor(h0 * AW.length)]).convertSRGBToLinear();
     const dark = col.clone().multiplyScalar(0.7);
+    // la tela vista da sotto e' in controluce: lato inferiore a parte, piu' chiaro (da sotto arriva poca luce)
+    const und = new THREE.Color(Math.min(1, col.r * 2.6 + 0.08), Math.min(1, col.g * 2.6 + 0.08), Math.min(1, col.b * 2.6 + 0.08));
     const dx = (bx - ax) / len, dz = (bz - az) / len, s = ccw ? 1 : -1, nx = s * dz, nz = -s * dx;
-    const D = 1.1, drop = 0.55, top = y - 0.25;
+    const D = 0.95, drop = 0.45, top = y - 0.12;
     for (let k = 0; k < bays; k++) {
       if (hash(Math.floor(seed * 1000) + k * 31) < 0.3) continue;
       const t0 = (k + 0.08) / bays, t1 = (k + 0.92) / bays;
       const p0 = [ax + (bx - ax) * t0, az + (bz - az) * t0], p1 = [ax + (bx - ax) * t1, az + (bz - az) * t1];
       const a = g.v(p0[0] + nx * 0.05, top, p0[1] + nz * 0.05, col.r, col.g, col.b), b = g.v(p1[0] + nx * 0.05, top, p1[1] + nz * 0.05, col.r, col.g, col.b);
       const c = g.v(p1[0] + nx * D, top - drop, p1[1] + nz * D, col.r, col.g, col.b), d = g.v(p0[0] + nx * D, top - drop, p0[1] + nz * D, col.r, col.g, col.b);
-      g.quad(a, b, c, d); g.quad(a, d, c, b);
+      g.quad(a, b, c, d);
+      const ua = g.v(p0[0] + nx * 0.05, top - 0.03, p0[1] + nz * 0.05, und.r, und.g, und.b), ub = g.v(p1[0] + nx * 0.05, top - 0.03, p1[1] + nz * 0.05, und.r, und.g, und.b);
+      const uc = g.v(p1[0] + nx * D, top - drop - 0.03, p1[1] + nz * D, und.r, und.g, und.b), ud = g.v(p0[0] + nx * D, top - drop - 0.03, p0[1] + nz * D, und.r, und.g, und.b);
+      g.quad(ua, ud, uc, ub);
       const e = g.v(p0[0] + nx * D, top - drop - 0.25, p0[1] + nz * D, dark.r, dark.g, dark.b), f = g.v(p1[0] + nx * D, top - drop - 0.25, p1[1] + nz * D, dark.r, dark.g, dark.b);
       const c2 = g.v(p1[0] + nx * D, top - drop, p1[1] + nz * D, dark.r, dark.g, dark.b), d2 = g.v(p0[0] + nx * D, top - drop, p0[1] + nz * D, dark.r, dark.g, dark.b);
-      g.quad(d2, c2, f, e); g.quad(d2, e, f, c2);
+      g.quad(d2, c2, f, e);
     }
   }
 
@@ -604,7 +611,7 @@ export class BuildingFactory {
         for (let q = 0; q < 4; q++) {
           const [px, pz] = P[q], [qx, qz] = P[(q + 1) % 4], cc = q % 2 ? c : sh;
           const a = g.v(px, yb, pz, cc.r, cc.g, cc.b), b = g.v(qx, yb, qz, cc.r, cc.g, cc.b), e = g.v(qx, ym, qz, cc.r, cc.g, cc.b), f = g.v(px, ym, pz, cc.r, cc.g, cc.b);
-          g.quad(a, b, e, f); g.quad(a, f, e, b);
+          g.quad(a, b, e, f);
           const t = g.v(x, top, z, cc.r, cc.g, cc.b), f2 = g.v(px, ym, pz, cc.r, cc.g, cc.b), e2 = g.v(qx, ym, qz, cc.r, cc.g, cc.b);
           g.tri(f2, e2, t); g.tri(f2, t, e2);
         }
@@ -627,7 +634,7 @@ export class BuildingFactory {
       const o = 0.04, ow = Math.min(1.6, L * 0.32), mx = (ax + bx) / 2 + nx * o, mz = (az + bz) / 2 + nz * o, dx = (bx - ax) / L, dz = (bz - az) / L;
       const y0 = eave - 4.2, y1 = eave - 1.6, ya = eave - 0.9;
       const p = [g.v(mx - dx * ow / 2, y0, mz - dz * ow / 2, ...dark), g.v(mx + dx * ow / 2, y0, mz + dz * ow / 2, ...dark), g.v(mx + dx * ow / 2, y1, mz + dz * ow / 2, ...dark), g.v(mx - dx * ow / 2, y1, mz - dz * ow / 2, ...dark)];
-      g.quad(p[0], p[1], p[2], p[3]); g.quad(p[0], p[3], p[2], p[1]);
+      g.quad(p[0], p[1], p[2], p[3]);
       const t = g.v(mx, ya, mz, ...dark);
       g.tri(p[3], p[2], t); g.tri(p[3], t, p[2]);
     }
