@@ -23,6 +23,8 @@ import { UnrealBloomPass } from 'three/examples/jsm/postprocessing/UnrealBloomPa
 import { OutputPass } from 'three/examples/jsm/postprocessing/OutputPass.js';
 import { ShaderPass } from 'three/examples/jsm/postprocessing/ShaderPass.js';
 import { DriveFX } from './effects.js';
+import { Weather, WEATHER } from './weather.js';
+const WEATHER_ICON = () => (G.weather ? WEATHER[G.weather.state].icon : '');
 import './geo.js';   // aggancio di computeVertexNormals (normali nulle) prima di costruire qualsiasi modello
 
 // Pulizia del buffer HDR prima del bloom: un solo pixel NaN o infinito, sfocato dal bloom su piu'
@@ -195,6 +197,7 @@ function ensureGame() {
   G.sky = new Sky(scene, G.meta.proj.lat0);
   G.world = new World(scene, G.meta, G.terrain, G.roads, G.settings);
   G.fx = new DriveFX(scene);
+  G.weather = new Weather(scene);
   G.traffic = new Traffic(G.world);
   G.world.traffic = G.traffic;
   scene.add(G.traffic.group);
@@ -433,6 +436,7 @@ function startGame() {
   G.traffic.target = +$('traffic').value;
   $('ptraffic').value = $('traffic').value;
   G.sky.hours = +$('tod').value;
+  G.weather.set($('weather').value);
   makePlayer();
   const sp = spawnPoint($('start').value);
   G.vehicle.place(sp.x, sp.z, sp.h);
@@ -598,7 +602,7 @@ function updateHUD(dt) {
   const dirs = ['N', 'NE', 'E', 'SE', 'S', 'SO', 'O', 'NO'];
   $('gps').innerHTML = `GPS ${lat.toFixed(6)}° N, ${lon.toFixed(6)}° E<br>Quota ${Math.round(v.y)} m s.l.m. · Rotta ${Math.round(hd)}° ${dirs[Math.round(hd / 45) % 8]}`;
   $('alt').textContent = !G.foot.on && car.isPlane ? `manetta ${Math.round(car.lever * 100)}% · ${car.vy >= 0 ? '↑' : '↓'} ${Math.abs(car.vy).toFixed(1)} m/s` : '';
-  $('clock').textContent = '🕒 ' + G.sky.clock();
+  $('clock').textContent = '🕒 ' + G.sky.clock() + '  ' + WEATHER_ICON();
   $('tspeed').textContent = G.sky.speed === 0 ? '⏸' : G.sky.speed === 1 ? '1×' : G.sky.speed + '×';
   if (!G.foot.on && car.isPlane && G.camMode === 1) drawPlaneCluster(G.carModel.dashCanvas, G.carModel.dashTex, kmh, car.agl, car.vy, car.lever, car.stall && !car.onGround);
   else if (!G.foot.on && G.carModel.dashCanvas && G.camMode === 1) drawCluster(G.carModel.dashCanvas, G.carModel.dashTex, kmh, car.rpm, car.spec.rpmMax, $('gear').textContent, G.curLimit);
@@ -950,6 +954,11 @@ function loop(now) {
   const rd = !f.on && v.surface && v.surface.road ? G.roads.ways[v.surface.road.wi] : null;
   const inT = rd && (rd.flags & 8) && G.terrain.height(v.x, v.z) - v.y > 4 ? 1 : 0;
   G.tunnelK = (G.tunnelK || 0) + (inT - (G.tunnelK || 0)) * Math.min(1, dt * 2.5);
+  // meteo: dopo il giorno/notte, prima della galleria (in galleria non piove)
+  G.weather.update(dt, G.sky, G.camera.position, G.tunnelK, G.audio);
+  const wk = 1 - 0.4 * G.weather.wet, RM = G.roads.materials();
+  if (Math.abs((G.wetK || 1) - wk) > 0.005) { G.wetK = wk; for (const k of ['road', 'stone', 'path', 'walk']) RM[k].color.setScalar(wk); }
+  v.gripMul = 1 - 0.3 * G.weather.wet;          // asfalto bagnato: meno aderenza
   if (G.tunnelK > 0.01) { G.sky.sun.intensity *= 1 - 0.92 * G.tunnelK; G.sky.hemi.intensity *= 1 - 0.6 * G.tunnelK; G.scene.fog.color.multiplyScalar(1 - 0.88 * G.tunnelK); }
   G.world.updateWater(now / 1000, G.scene.fog.color);
   autoQuality(frame);

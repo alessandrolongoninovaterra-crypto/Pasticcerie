@@ -86,6 +86,7 @@ export class Vehicle {
     let mu = s.grip * (onRoad ? ((way.flags & 64) ? 0.78 : 1.0) : paved ? 0.95 : 0.68);
     let crr = onRoad ? ((way.flags & 64) ? 0.03 : 0.013) : paved ? 0.016 : 0.06;
     if (s.drive === 'A' && !onRoad) { mu *= 1.12; crr *= 0.7; }
+    mu *= this.gripMul || 1;                   // meteo: asfalto bagnato
     this.mu = mu;
     const hF = W.roads.surfaceAt(this.x + fx * this.a, this.z + fz * this.a, this.y + 0.5).h;
     const hR = W.roads.surfaceAt(this.x - fx * this.b, this.z - fz * this.b, this.y + 0.5).h;

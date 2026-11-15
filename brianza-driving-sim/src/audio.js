@@ -29,6 +29,32 @@ export class EngineAudio {
       this.o1.start(); this.o2.start(); this.noise.start(); this.sq.start(0.37);
     } catch (e) { this.ctx = null; }
   }
+  // pioggia: rumore rosa filtrato, volume con l'intensita'
+  rain(k) {
+    if (!this.ctx) return;
+    const C = this.ctx;
+    if (!this.rainG) {
+      const len = C.sampleRate * 3, buf = C.createBuffer(1, len, C.sampleRate), d = buf.getChannelData(0);
+      let b0 = 0, b1 = 0, b2 = 0;
+      for (let i = 0; i < len; i++) { const w = Math.random() * 2 - 1; b0 = 0.99765 * b0 + w * 0.099; b1 = 0.963 * b1 + w * 0.2965; b2 = 0.57 * b2 + w * 1.0527; d[i] = (b0 + b1 + b2 + w * 0.1848) * 0.2; }
+      const src = C.createBufferSource(); src.buffer = buf; src.loop = true;
+      const f = C.createBiquadFilter(); f.type = 'highpass'; f.frequency.value = 900;
+      this.rainG = C.createGain(); this.rainG.gain.value = 0;
+      src.connect(f); f.connect(this.rainG); this.rainG.connect(C.destination); src.start();
+    }
+    this.rainG.gain.setTargetAtTime(this.muted ? 0 : k * 0.22, C.currentTime, 0.5);
+  }
+  // tuono: rombo basso che sale e si spegne
+  thunder() {
+    if (!this.ctx || this.muted) return;
+    const C = this.ctx, len = C.sampleRate * 4, buf = C.createBuffer(1, len, C.sampleRate), d = buf.getChannelData(0);
+    let b = 0;
+    for (let i = 0; i < len; i++) { b = 0.985 * b + (Math.random() * 2 - 1) * 0.15; const t = i / len; d[i] = b * Math.min(1, t * 20) * Math.pow(1 - t, 2) * (1 + 0.6 * Math.sin(t * 37)); }
+    const s = C.createBufferSource(); s.buffer = buf;
+    const f = C.createBiquadFilter(); f.type = 'lowpass'; f.frequency.value = 220;
+    const g = C.createGain(); g.gain.value = 1.4;
+    s.connect(f); f.connect(g); g.connect(C.destination); s.start();
+  }
   horn(on) {
     if (!this.ctx) return;
     if (on && !this.hornOsc) {
