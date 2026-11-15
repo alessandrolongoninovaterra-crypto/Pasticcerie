@@ -74,6 +74,19 @@
   #wanted.search { animation: blink 0.8s steps(2) infinite; }
   #wanted small { display: block; font-size: 12px; letter-spacing: 0; color: #fff; text-align: center; }
   @keyframes blink { 50% { opacity: 0.35; } }
+  #mission { position: absolute; left: 18px; top: 110px; width: 340px; padding: 10px 14px; font-size: 14px; line-height: 1.45; }
+  #mission b { color: #ffd34e; }
+  #mission .timer { font-size: 20px; font-weight: 700; margin-top: 4px; }
+  #mission .timer.late { color: #ff6b5b; }
+  #shop { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); width: min(560px, 92vw); padding: 16px 18px; pointer-events: auto; z-index: 20; }
+  #shop h3 { margin: 0 0 4px; } #shop .money { color: #ffd34e; margin-bottom: 8px; }
+  #shop button { display: block; width: 100%; text-align: left; margin: 5px 0; padding: 8px 10px; border-radius: 8px; border: 1px solid rgba(255,255,255,.12); background: rgba(255,255,255,.06); color: #fff; font-size: 14px; cursor: pointer; }
+  #shop button:disabled { opacity: .4; cursor: default; }
+  #shop button b { display: inline-block; width: 20px; color: #ffd34e; }
+  #shop .hint { font-size: 12px; opacity: .6; margin-top: 6px; }
+  #subs { position: absolute; left: 50%; bottom: 96px; transform: translateX(-50%); max-width: min(760px, 90vw); padding: 8px 16px; font-size: 16px; opacity: 0; transition: opacity .3s; text-align: center; }
+  #subs.show { opacity: 1; }
+  #ihint { position: absolute; right: 18px; bottom: 150px; padding: 6px 12px; font-size: 14px; color: #ffd34e; }
   #toast { position: absolute; left: 50%; top: 18%; transform: translateX(-50%); padding: 12px 22px; font-size: 18px; transition: opacity .4s; opacity: 0; }
   #toast.show { opacity: 1; }
   /* dall'abitacolo il nome della via sale in alto: in basso ci sono volante e quadro strumenti */
@@ -170,7 +183,11 @@
 <div id="hud" class="hidden">
   <div id="nav" class="panel hidden"><div class="arrow" id="navarrow">⬆</div><div><div class="d" id="navd"></div><div class="t" id="navt"></div><div class="eta" id="naveta"></div></div></div>
   <div id="wanted" class="panel hidden"></div>
-  <div id="topright" class="panel"><span id="clock">12:00</span><span id="tspeed" style="color:var(--muted)"></span><span id="licence">🪪 20 punti · multe € 0</span><span id="fps" style="color:var(--muted)"></span></div>
+  <div id="mission" class="panel hidden"></div>
+  <div id="shop" class="panel hidden"></div>
+  <div id="subs" class="panel"></div>
+  <div id="ihint" class="panel hidden"></div>
+  <div id="topright" class="panel"><span id="clock">12:00</span><span id="tspeed" style="color:var(--muted)"></span><span id="money"></span><span id="licence">🪪 20 punti · multe € 0</span><span id="fps" style="color:var(--muted)"></span></div>
   <div id="helpbar" class="panel">F scendi/sali · E clacson · M mappa · C visuale · mouse: telecamera · Esc pausa</div>
   <div id="mini-wrap"><canvas id="minimap" width="300" height="300"></canvas></div>
   <div id="gps" class="panel"></div>

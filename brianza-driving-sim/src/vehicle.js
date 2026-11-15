@@ -86,7 +86,7 @@ export class Vehicle {
     let mu = s.grip * (onRoad ? ((way.flags & 64) ? 0.78 : 1.0) : paved ? 0.95 : 0.68);
     let crr = onRoad ? ((way.flags & 64) ? 0.03 : 0.013) : paved ? 0.016 : 0.06;
     if (s.drive === 'A' && !onRoad) { mu *= 1.12; crr *= 0.7; }
-    mu *= this.gripMul || 1;                   // meteo: asfalto bagnato
+    mu *= (this.gripMul || 1) * (this.gripBonus || 1);   // meteo (asfalto bagnato) e gomme sportive
     this.mu = mu;
     const hF = W.roads.surfaceAt(this.x + fx * this.a, this.z + fz * this.a, this.y + 0.5).h;
     const hR = W.roads.surfaceAt(this.x - fx * this.b, this.z - fz * this.b, this.y + 0.5).h;
@@ -123,6 +123,7 @@ export class Vehicle {
     }
     let Fdrive = 0;
     if (this.shiftT <= 0 && this.rpm < s.rpmMax * 1.02) Fdrive = this.torque(this.rpm) * ratio * s.final * 0.88 / s.wheelR * thr;
+    Fdrive *= this.powerMul ?? 1;                // elaborazioni, danni, serbatoio vuoto
     if (this.gear < 0) Fdrive = this.u < -7 ? 0 : -Fdrive * 0.6; // retromarcia limitata a ~25 km/h
     // freno motore
     if (thr < 0.05 && Math.abs(this.u) > 1 && this.gear > 0) Fdrive -= Math.sign(this.u) * this.torque(this.rpm) * 0.12 * ratio * s.final / s.wheelR * (this.rpm / s.rpmMax);
@@ -134,7 +135,7 @@ export class Vehicle {
 
     // --- freni
     let Fbrake = 0;
-    const brakeF = s.brake * brk;
+    const brakeF = s.brake * brk * (this.brakeMul || 1);
     if (Math.abs(this.u) > 0.05) Fbrake = -Math.sign(this.u) * Math.min(brakeF, mu * (Nf + Nr));
     let handF = 0;
     if (this.handbrake > 0 && Math.abs(this.u) > 0.05) handF = -Math.sign(this.u) * mu * Nr * 0.8 * this.handbrake;

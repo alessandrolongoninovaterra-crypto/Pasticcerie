@@ -248,6 +248,7 @@ wlines = []           # corsi d'acqua come linee per bake.mjs: [tipo, larghezza,
 piers = []            # pontili: (0 linea / 1 area, larghezza, punti)
 glass_roofs = []      # coperture in vetro (building=roof + roof:material=glass): anelli
 covered_ways = []     # passaggi pedonali coperti (covered=yes / indoor=yes): punti
+pois = []             # luoghi per missioni ed economia: (tipo, x, z, nome) tipo 0 negozio di partenza, 1 officina, 2 concessionario
 shop_pts = []         # negozi e locali (vetrine al piano terra): (x, z, tipo 0 negozio, 1 bar/ristorante, 2 farmacia, 3 banca/servizi)
 monuments = []        # monumenti e statue: (x, z, tipo, altezza, altezza basamento, colore, nome, lato)
 trees_pt = []
@@ -359,6 +360,19 @@ def gate_context(r, t, pts_ll, i):
 
 SHOP_FOOD = {'restaurant', 'cafe', 'bar', 'pub', 'fast_food', 'ice_cream', 'biergarten', 'food_court'}
 SHOP_SERV = {'bank', 'bureau_de_change', 'post_office', 'atm_no'}
+POI_FOOD = {'pastry', 'bakery', 'confectionery', 'deli', 'butcher', 'greengrocer', 'florist', 'wine', 'cheese', 'chocolate', 'coffee', 'beverages', 'seafood'}
+def poi_kind(t):
+    """0 negozio da cui partono le consegne, 1 officina, 2 concessionario; None altrimenti"""
+    sh, am = t.get('shop'), t.get('amenity')
+    if sh in ('car_repair', 'tyres') or am == 'car_wash':
+        return 1
+    if sh == 'car':
+        return 2
+    if t.get('name') and (sh in POI_FOOD or am in ('restaurant', 'fast_food', 'ice_cream', 'cafe')):
+        return 0
+    return None
+
+
 def shop_kind(t):
     """tipo di vetrina: 0 negozio, 1 bar/ristorante, 2 farmacia, 3 banca/servizi; None se non e' un negozio"""
     am, sh = t.get('amenity'), t.get('shop')
@@ -546,6 +560,9 @@ for o in fp:
         sk = shop_kind(t)
         if sk is not None:
             shop_pts.append((x, z, sk))
+        pk = poi_kind(t)
+        if pk is not None:
+            pois.append((pk, x, z, (t.get('name') or '') + ('|' + t['shop'] if t.get('shop') else '|' + (t.get('amenity') or ''))))
         mk = monument_kind(t)
         if mk:
             monuments.append((x, z, mk, parse_float(t.get('height')), parse_float(t.get('min_height')), t.get('building:colour') or t.get('colour') or '', t.get('name', ''), 0))
@@ -729,6 +746,10 @@ for o in fp:
         sk = shop_kind(t)
         if sk is not None and len(outers[0]) >= 3 and abs(ring_area(outers[0])) < 5000:
             shop_pts.append(centroid(outers[0]) + (sk,))
+        pk = poi_kind(t)
+        if pk is not None and len(outers[0]) >= 3:
+            cx_, cz_ = centroid(outers[0])
+            pois.append((pk, cx_, cz_, (t.get('name') or '') + ('|' + t['shop'] if t.get('shop') else '|' + (t.get('amenity') or ''))))
         mk = monument_kind(t)
         if mk and outers[0] and len(outers[0]) >= 3:
             cx_, cz_ = centroid(outers[0])
@@ -2536,6 +2557,7 @@ meta = {
     'proj': P.meta(), 'height': HMETA, 'tile': TILE, 'tilesX': TX, 'tilesZ': TZ, 'tiles': tile_keys,
     'landcover': {'w': LW, 'h': LH, 'mpp': MPP, 'palette': dict({k: v[1] for k, v in LC.items()}, tunnel=HOLE_RGB), 'default': LC_DEFAULT},
     'comuni': comuni, 'featured': config_comuni, 'dbgt': dbgt_comuni, 'places': places, 'landmarks': lm_out, 'waters': waters,
+    'pois': [[k_, round(x_), round(z_), n_] for k_, x_, z_, n_ in pois if P.xmin <= x_ <= P.xmax and P.zmin <= z_ <= P.zmax],
     'rivers': rivers, 'power': power_lines, 'wlines': wlines,
     'source': 'Dati (c) OpenStreetMap contributors, ODbL. Altimetria: Terrarium tiles (Mapzen / AWS Open Data).'
               + (' Edifici: DBGT Regione Lombardia (comuni: ' + ', '.join(dbgt_comuni) + ').' if dbgt_comuni else ''),

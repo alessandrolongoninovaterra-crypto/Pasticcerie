@@ -13,6 +13,8 @@ import { CLS } from './roads.js';
 //  - Arresto: fermo vicino a una volante per qualche secondo. Fuga: nessuna volante ti vede per
 //    abbastanza tempo (piu' stelle, piu' tempo).
 const SPEC = { ...CARS.find((c) => c.id === 'sedan'), name: 'Volante', kw: 200, nm: 430, grip: 1.12, brake: 15500, color: '#1d3d7a' };
+// auto in fuga (missione di inseguimento): una compatta veloce
+const RUNNER = { ...CARS.find((c) => c.id === 'compact'), name: 'Fuggitivo', kw: 150, color: '#c9c9c4' };
 
 export class Police {
   constructor(G) {
@@ -63,10 +65,16 @@ export class Police {
     return true;
   }
 
-  makeCar(x, z, h) {
-    const G = this.G, v = new Vehicle(SPEC, G.world);
+  makeCar(x, z, h, runner = false) {
+    const G = this.G, spec = runner ? RUNNER : SPEC, v = new Vehicle(spec, G.world);
     v.place(x, z, h);
-    const model = buildCarModel(SPEC, { color: SPEC.color });
+    const model = buildCarModel(spec, { color: spec.color });
+    if (runner) {
+      G.scene.add(model.root);
+      const c = { v, model, lamps: [], mode: 'runner', route: null, routeT: 0, routeTo: null, stuck: 0, rev: 0, id: 'run' + Math.random().toString(36).slice(2, 7), hp: 100, goal: null };
+      this.cars.push(c);
+      return c;
+    }
     // fascia bianca e barra luminosa
     const white = new THREE.MeshLambertMaterial({ color: 0xf2f2f2 });
     for (const s of [-1, 1]) { const band = new THREE.Mesh(new THREE.BoxGeometry(0.02, 0.22, SPEC.L * 0.78), white); band.position.set(s * SPEC.W * 0.505, SPEC.H * 0.42, 0); model.ext.add(band); }
@@ -165,6 +173,7 @@ export class Police {
     const want = Math.min(maxKmh, turn > 1.2 ? 30 : turn > 0.6 ? 45 : turn > 0.3 ? 65 : maxKmh) / 3.6;
     const sp = Math.max(0, v.u) + Math.max(-6 * dt, Math.min(4 * dt, want - Math.max(0, v.u)));
     c.rs = Math.min(r.length, c.rs + sp * dt);
+    if (c.rs >= r.length - 1) c.goal = null;          // in fondo al percorso: nuova meta (pattuglie, fuggitivi)
     while (k < r.cum.length - 2 && r.cum[k + 1] < c.rs) k++;
     const L = r.cum[k + 1] - r.cum[k] || 1, t = (c.rs - r.cum[k]) / L;
     const x = r.pts[k][0] + (r.pts[k + 1][0] - r.pts[k][0]) * t, z = r.pts[k][1] + (r.pts[k + 1][1] - r.pts[k][1]) * t;
@@ -194,7 +203,7 @@ export class Police {
   }
 
   // urti tra volanti e auto del giocatore (scambio di quantita' di moto lungo la normale)
-  bump(c, pv) {
+  bump(c, pv, any = false) {
     const v = c.v, rP = (pv.spec.W || 1.8) / 2, rC = SPEC.W / 2;
     const pts = (q, r, L) => { const fx = Math.sin(q.h), fz = Math.cos(q.h), s = L / 2 - r; return [[q.x + fx * s, q.z + fz * s], [q.x, q.z], [q.x - fx * s, q.z - fz * s]]; };
     let hit = null;
@@ -216,19 +225,21 @@ export class Police {
     pv.w += (Math.random() - 0.5) * Math.min(1.5, -vn * 0.08);
     // chi ha urtato chi: se il giocatore andava verso la volante, e' speronamento
     const pTowards = -(pvx * hit.nx + pvz * hit.nz), cTowards = cvx * hit.nx + cvz * hit.nz;
+    if (any) return -vn;
     return pTowards > cTowards + 1 && -vn > 3 ? -vn : 0;
   }
 
   update(dt, p, now) {
     const G = this.G;
-    if (!this.enabled || G.foot.on && !this.heat) { for (const c of this.cars) this.place(c, now); return; }
+    const hasRunner = this.cars.some((c) => c.mode === 'runner' || c.mode === 'caught');
+    if (!hasRunner && (!this.enabled || G.foot.on && !this.heat)) { for (const c of this.cars) this.place(c, now); if (!this.enabled && G.audio && G.audio.siren) G.audio.siren(0); return; }
     const pv = G.vehicle, px = p.x, pz = p.z;
-    const pursuit = this.heat >= 1;
+    const pursuit = this.enabled && this.heat >= 1;
     // quante volanti servono
     const want = pursuit ? [0, 2, 3, 4, 5, 6][this.stars] : 2;
-    const active = this.cars.filter((c) => c.mode !== 'block');
+    const active = this.cars.filter((c) => c.mode !== 'block' && c.mode !== 'runner' && c.mode !== 'caught');
     this.spawnT -= dt;
-    if (active.length < want && this.spawnT <= 0) {
+    if (this.enabled && active.length < want && this.spawnT <= 0) {
       const sp = this.spawnPoint(p, pursuit ? 170 + Math.random() * 110 : 300 + Math.random() * 200, true);
       if (sp) { const c = this.makeCar(sp.x, sp.z, sp.h); c.mode = pursuit ? 'pursuit' : 'patrol'; }
       this.spawnT = pursuit ? 3 : 6;
@@ -282,6 +293,27 @@ export class Police {
       const v = c.v, d = Math.hypot(v.x - px, v.z - pz);
       if (d < nearest) { nearest = d; nearC = c; }
       if ((d > 750 && !pursuit) || d > 1100 || !G.world.ready(v.x, v.z) || ((c.stuckN || 0) > 2 && d > 90)) { this.remove(c); continue; }
+      if (c.mode === 'runner' || c.mode === 'caught') {
+        if (d > 1500) { this.events.push({ type: 'runnerLost' }); this.remove(c); continue; }
+        if (c.mode === 'caught') v.update(dt, { throttle: 0, brake: 1, steer: 0, handbrake: 1, pitch: 0 });
+        else {
+          // fugge verso un punto lontano dalla parte opposta al giocatore; lo cambia quando ci arriva
+          if (!c.goal || Math.hypot(c.goal[0] - v.x, c.goal[1] - v.z) < 60 || Math.hypot(c.goal[0] - px, c.goal[1] - pz) < Math.hypot(c.goal[0] - v.x, c.goal[1] - v.z) - 30) {
+            const away = Math.atan2(v.x - px, v.z - pz);
+            const sp = this.spawnPoint({ x: v.x, z: v.z, h: away }, 500 + Math.random() * 300, false);
+            c.goal = sp ? [sp.x, sp.z] : [v.x + Math.sin(away) * 500, v.z + Math.cos(away) * 500]; c.route = null;
+          }
+          if (d > 110) this.rail(c, c.goal[0], c.goal[1], 95, dt);
+          else { const [tx, tz] = this.follow(c, c.goal[0], c.goal[1], dt); this.drive(c, tx, tz, 105, dt); }
+        }
+        if (!G.foot.on) {
+          const hit = this.bump(c, pv, true);
+          if (hit > 2 && c.mode === 'runner') { c.hp -= hit * 3.2; this.events.push({ type: 'runnerHit', hp: Math.max(0, c.hp) }); if (c.hp <= 0) { c.mode = 'caught'; this.events.push({ type: 'runnerCaught' }); } }
+        }
+        G.fx.fromVehicle(c.id, v, G.weather ? G.weather.wet : 0);
+        this.place(c, now);
+        continue;
+      }
       if (c.mode === 'block') {
         c.block -= dt;
         if (c.block <= 0 && d > 200) { this.remove(c); continue; }
@@ -350,5 +382,5 @@ export class Police {
   }
 
   // posizioni per la minimappa
-  blips() { return this.cars.map((c) => ({ x: c.v.x, z: c.v.z, c: this.heat >= 1 ? '#2f6bff' : '#6f8fcf', r: 7 })); }
+  blips() { return this.cars.map((c) => ({ x: c.v.x, z: c.v.z, c: c.mode === 'runner' || c.mode === 'caught' ? '#ff3b30' : this.heat >= 1 ? '#2f6bff' : '#6f8fcf', r: c.mode === 'runner' ? 9 : 7 })); }
 }

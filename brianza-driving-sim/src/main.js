@@ -25,6 +25,8 @@ import { ShaderPass } from 'three/examples/jsm/postprocessing/ShaderPass.js';
 import { DriveFX } from './effects.js';
 import { Weather, WEATHER } from './weather.js';
 import { Police } from './police.js';
+import { Career } from './career.js';
+import { Dialogue } from './dialogue.js';
 const WEATHER_ICON = () => (G.weather ? WEATHER[G.weather.state].icon : '');
 import './geo.js';   // aggancio di computeVertexNormals (normali nulle) prima di costruire qualsiasi modello
 
@@ -202,6 +204,15 @@ function ensureGame() {
   G.traffic = new Traffic(G.world);
   G.world.traffic = G.traffic;
   G.police = new Police(G);
+  G.career = new Career(G);
+  G.dlg = new Dialogue($('subs'));
+  G.toast = showToast;
+  G.dialog = (who, text) => { G.dlg.voiceOn = G.voice; G.dlg.say(who, text); };
+  G.say = (kind, arg) => sayLine(kind, arg);
+  // destinazione dal codice (missioni): con il navigatore e la voce
+  G.setDest = (pt, silent) => { if (!pt) { G.dest = null; G.route = null; $('nav').classList.add('hidden'); return; } G.dest = pt; recalcRoute(!!silent); };
+  // cambio d'auto al concessionario: stessa posizione e direzione
+  G.switchCar = (id) => { const i = CARS.findIndex((c) => c.id === id); if (i < 0) return; const o = G.vehicle; G.carIdx = i; makePlayer(CARS[i]); G.vehicle.place(o.x, o.z, o.h); G.camInit = true; };
   scene.add(G.traffic.group);
   G.peds = new Pedestrians(G.world);
   G.peds.setTarget(q.peds);
@@ -308,7 +319,7 @@ function makePlayer(spec = CARS[G.carIdx], color = null) {
   G.lightsOn = false;
   $('helpbar').textContent = spec.kind === 'plane'
     ? 'W/S manetta · ↑/↓ cabra/picchia · A/D vira · Spazio freni a terra · R riparti in volo · C visuale · F scendi (a terra)'
-    : 'F scendi/sali · E clacson · M mappa · C visuale · mouse: telecamera · Esc pausa';
+    : 'F scendi/sali · E clacson · M mappa · J lavori · G negozi (fermo) · C visuale · Esc pausa';
   flashHelp(spec.kind === 'plane' ? 20000 : 12000);
 }
 
@@ -412,9 +423,28 @@ function fine(kind, value, key = kind) {
   if (kind === 'red' || kind === 'ped') G.police.crime(kind, G.vehicle.x, G.vehicle.z);
   if (kind === 'arrest') { euro = value.euro; pts = value.pts; msg = value.msg; }
   G.fines += euro; G.licence -= pts;
+  if (G.career) G.career.pay(euro);          // le multe si pagano dal conto
   showToast(`🚨 ${msg} — multa € ${euro}${pts ? `, −${pts} punti` : ''}`, 3200);
   if (G.licence <= 0) { G.licence = 20; setTimeout(() => showToast('🪪 Patente sospesa! Corso di recupero: riparti da 20 punti', 4000), 3300); }
   $('licence').textContent = `🪪 ${G.licence} punti · multe € ${G.fines.toLocaleString('it')}`;
+  if (G.career) $('money').innerHTML = G.career.status();
+}
+
+// battute dei personaggi per gli eventi del gioco
+function sayLine(kind, arg) {
+  const pick = (a) => a[Math.floor(Math.random() * a.length)];
+  const R = G.roads, v = G.vehicle, rd = v.surface && v.surface.road ? R.ways[v.surface.road.wi] : null, via = rd && rd.name ? rd.name : 'zona';
+  const lines = {
+    radio: () => ['centrale', arg >= 3 ? `A tutte le pattuglie: veicolo in fuga in ${via}, livello ${arg}. Predisporre posti di blocco.` : pick([`Centrale a pattuglie: inseguimento in corso in ${via}.`, `Veicolo sospetto in ${via}, intercettare.`])],
+    roadblock: () => ['centrale', 'Posto di blocco predisposto più avanti. Attenzione.'],
+    escape: () => ['centrale', pick(['Abbiamo perso il contatto con il veicolo. Le pattuglie rientrino.', 'Nessuna traccia del sospetto. Interrompere la ricerca.'])],
+    arrest: () => ['agente', pick(['Fermo! Spenga il motore e scenda con le mani in vista.', 'Fine della corsa. Documenti, prego.'])],
+    benzinaio: () => ['cliente', pick(['Buongiorno! Il solito pieno?', 'Prego, la pompa sei è libera.'])],
+    officina: () => ['ugo', pick(['Uè, cosa hai combinato stavolta? Dai, che te la sistemo.', 'Vuoi un po\' di cavalli in più? Qui si fa tutto.'])],
+    concessionario: () => ['cliente', pick(['Benvenuto! Guardi pure, oggi facciamo un prezzo speciale.', 'Cerca qualcosa di più brillante?'])],
+  };
+  const l = lines[kind] && lines[kind]();
+  if (l && G.dialog) G.dialog(l[0], l[1]);
 }
 
 // eventi della polizia: stelle, posti di blocco, arresto, fuga
@@ -422,6 +452,8 @@ function policeEvents() {
   const P = G.police;
   for (const e of P.events.splice(0)) {
     if (e.type === 'stars') { showToast(`🚨 Polizia: ${'★'.repeat(e.stars)} — ti stanno cercando!`, 2200); if (G.say) G.say('radio', e.stars); }
+    if (G.career) G.career.onPolice(e);
+    if (e.type === 'runnerHit' || e.type === 'runnerCaught' || e.type === 'runnerLost') continue;
     else if (e.type === 'roadblock') { showToast('🚧 Posto di blocco più avanti!', 2200); if (G.say) G.say('roadblock'); }
     else if (e.type === 'escape') { showToast(`😮‍💨 Hai seminato la polizia (${'★'.repeat(Math.max(1, e.stars))})`, 3000); if (G.say) G.say('escape'); if (G.onEscape) G.onEscape(e.stars); }
     else if (e.type === 'arrest') {
@@ -906,6 +938,7 @@ function loop(now) {
   }
   if (!G.started) return;
   const inp = G.input;
+  if (G.career.panel && inp.consume('Escape')) G.career.close();
   if (inp.consume('Escape')) togglePause(!G.paused);
   if (G.paused) {
     if (inp.read(dt).actions.has('pause') && $('padcfg').classList.contains('hidden')) togglePause(false);
@@ -919,7 +952,10 @@ function loop(now) {
   if (inp.consume('KeyM') || ctl.actions.has('map')) { openMap('dest'); return; }
   if (inp.consume('KeyN')) $('mini-wrap').classList.toggle('hidden');
   if (inp.consume('KeyH') || ctl.actions.has('lights')) { G.lightsOn = !G.lightsOn; showToast(G.lightsOn ? 'Fari accesi' : 'Fari spenti', 900); }
-  if ((inp.consume('KeyR') || ctl.actions.has('reset')) && !G.foot.on) respawnOnRoad();
+  if ((inp.consume('KeyR') || ctl.actions.has('reset')) && !G.foot.on) { if (G.career.tow()) respawnOnRoad(); else respawnOnRoad(); }
+  if (inp.consume('KeyJ')) G.career.jobs();
+  if (inp.consume('KeyG')) G.career.interact();
+  if (G.career.panel) for (let i = 1; i <= 9; i++) if (inp.consume('Digit' + i) || inp.consume('Numpad' + i)) G.career.choose(i - 1);
   if (inp.consume('KeyK')) { G.world.labelsOn = !G.world.labelsOn; showToast(G.world.labelsOn ? 'Nomi dei luoghi visibili' : 'Nomi dei luoghi nascosti', 1000); }
   if (inp.consume('KeyT')) { const sp = [30, 300, 0, 1]; G.sky.speed = sp[(sp.indexOf(G.sky.speed) + 1) % sp.length]; showToast('Velocità del tempo: ' + (G.sky.speed ? G.sky.speed + '×' : 'ferma'), 1000); }
   if (inp.consume('Equal') || inp.consume('NumpadAdd')) G.sky.hours = (G.sky.hours + 1) % 24;
@@ -963,6 +999,9 @@ function loop(now) {
   G.traffic.obstacles = onRoad;
   G.traffic.update(dt, { x: v.x, z: v.z, h: v.h, u: v.u, wi: v.surface && v.surface.road ? v.surface.road.wi : -1, active: !flying() }, now / 1000);
   if (!flying() && !G.loadingWorld) { G.police.update(dt, p, now); policeEvents(); }
+  if (!G.loadingWorld) G.career.update(dt, v, f.on);
+  G.dlg.update();
+  const ih = G.career.hint(); $('ihint').classList.toggle('hidden', !ih); if (ih) $('ihint').textContent = ih;
   const movers = flying() ? [] : [{ x: v.x, z: v.z }];
   for (const c of G.traffic.cars) if (Math.abs(c.x - p.x) < 300 && Math.abs(c.z - p.z) < 300) movers.push(c);
   G.world.gates.update(dt, movers);
