@@ -27,17 +27,18 @@ function boxV(g, cx, y0, cz, sx, sy, sz, dx, dz, c) {
 // di piani, cosi' le finestre sono allineate sia alla gronda sia a terra.
 // Stili: res (casa con persiane), condo (condominio con balconi), modern (palazzina recente),
 // ind (capannone / commerciale), plain (muro cieco: chiese, torri, box).
+const hashN = (n) => { n = Math.imul(n ^ 0x9e3779b9, 0x85ebca6b); n ^= n >>> 13; n = Math.imul(n, 0xc2b2ae35); n ^= n >>> 16; return (n >>> 0) / 4294967296; };
 function makeFacadeTextures() {
   const S = 512, bay = S / 8;
   const mk = () => { const c = document.createElement('canvas'); c.width = c.height = S; return c; };
-  const cv = { res: mk(), condo: mk(), modern: mk(), ind: mk(), plain: mk(), church: mk(), glass: mk(), shop: mk(), emiR: mk(), emiC: mk(), emiM: mk(), emiI: mk(), emiCh: mk(), emiG: mk(), emiS: mk() };
+  const cv = { res: mk(), condo: mk(), modern: mk(), ind: mk(), plain: mk(), church: mk(), glass: mk(), shop: mk(), villa: mk(), pal: mk(), emiR: mk(), emiC: mk(), emiM: mk(), emiI: mk(), emiCh: mk(), emiG: mk(), emiS: mk(), emiV: mk(), emiP: mk() };
   const x2 = Object.fromEntries(Object.entries(cv).map(([k, c]) => [k, c.getContext('2d')]));
-  for (const k of ['res', 'condo', 'modern', 'ind', 'plain']) {
+  for (const k of ['res', 'condo', 'modern', 'ind', 'plain', 'villa', 'pal']) {
     const c = x2[k]; c.fillStyle = '#ffffff'; c.fillRect(0, 0, S, S);
     // intonaco leggermente irregolare
     for (let i = 0; i < 2500; i++) { c.fillStyle = `rgba(0,0,0,${Math.random() * 0.05})`; c.fillRect(Math.random() * S, Math.random() * S, 3 + Math.random() * 8, 3 + Math.random() * 8); }
   }
-  for (const k of ['emiR', 'emiC', 'emiM', 'emiI', 'emiCh', 'emiG']) { x2[k].fillStyle = '#000'; x2[k].fillRect(0, 0, S, S); }
+  for (const k of ['emiR', 'emiC', 'emiM', 'emiI', 'emiCh', 'emiG', 'emiV', 'emiP']) { x2[k].fillStyle = '#000'; x2[k].fillRect(0, 0, S, S); }
   // chiesa: tutta l'altezza del muro e' una sola immagine (vedi buildGen): conci di pietra, lesene
   // a campate alterne, finestroni ad arco con vetrate scure, oculo in alto, zoccolo
   {
@@ -150,6 +151,94 @@ function makeFacadeTextures() {
       x2.emiI.fillStyle = Math.random() < 0.25 ? '#e8f0ff' : '#000'; x2.emiI.fillRect(x0 + 3, y0 + bay * 0.3, bay - 6, bay * 0.3);
     }
   }
+  // villetta: finestre ampie con persiane in legno e davanzale in pietra, una portafinestra con
+  // balconcino ogni tre campate; al piano terra garage, portoncino con pensilina e zoccolo in pietra
+  {
+    const c = x2.villa, e = x2.emiV, SH = ['#5b3a24', '#3f5d3a', '#6e4a2c', '#7a7a72', '#4a5560'];
+    for (let fy = 0; fy < 8; fy++) for (let bx = 0; bx < 8; bx++) {
+      const x0 = bx * bay, y0 = fy * bay, sh = SH[(bx >> 2) % SH.length];
+      if (fy === 7) {
+        c.fillStyle = 'rgba(90,80,70,0.35)'; c.fillRect(x0, y0 + bay * 0.82, bay, bay * 0.18);           // zoccolo in pietra
+        c.fillStyle = 'rgba(255,255,255,0.18)'; for (let k = 0; k < 4; k++) c.fillRect(x0 + k * bay / 4, y0 + bay * 0.82, 1, bay * 0.18);
+        if (bx % 4 === 0) {        // garage sezionale
+          c.fillStyle = '#d9d4c8'; c.fillRect(x0 + bay * 0.06, y0 + bay * 0.18, bay * 0.88, bay * 0.82);
+          c.fillStyle = bx % 8 ? '#8a6a4a' : '#9aa0a3'; c.fillRect(x0 + bay * 0.1, y0 + bay * 0.22, bay * 0.8, bay * 0.78);
+          c.fillStyle = 'rgba(0,0,0,0.18)'; for (let k = 1; k < 6; k++) c.fillRect(x0 + bay * 0.1, y0 + bay * (0.22 + k * 0.13), bay * 0.8, 1.5);
+        } else if (bx % 4 === 2) { // portoncino con pensilina
+          c.fillStyle = 'rgba(0,0,0,0.25)'; c.fillRect(x0 + bay * 0.2, y0 + bay * 0.14, bay * 0.6, bay * 0.06);
+          c.fillStyle = '#e6e0d2'; c.fillRect(x0 + bay * 0.28, y0 + bay * 0.22, bay * 0.44, bay * 0.78);
+          c.fillStyle = '#5a3a22'; c.fillRect(x0 + bay * 0.32, y0 + bay * 0.26, bay * 0.36, bay * 0.74);
+          c.fillStyle = 'rgba(255,255,255,0.12)'; for (let k = 0; k < 3; k++) c.fillRect(x0 + bay * 0.35, y0 + bay * (0.3 + k * 0.22), bay * 0.3, bay * 0.16);
+          c.fillStyle = '#c9b27a'; c.fillRect(x0 + bay * 0.62, y0 + bay * 0.62, 3, 3);
+          e.fillStyle = '#ffd890'; e.fillRect(x0 + bay * 0.45, y0 + bay * 0.16, bay * 0.1, bay * 0.04);
+        } else {                   // finestra con persiane e inferriata
+          const wx = x0 + bay * 0.3, ww = bay * 0.4, wy = y0 + bay * 0.28, wh = bay * 0.46;
+          c.fillStyle = '#e8e2d4'; c.fillRect(wx - 3, wy - 3, ww + 6, wh + 8); glass(c, wx, wy, ww, wh);
+          c.fillStyle = sh; c.fillRect(wx - ww / 2 - 2, wy, ww / 2, wh); c.fillRect(wx + ww + 2, wy, ww / 2, wh);
+          c.fillStyle = 'rgba(0,0,0,0.25)'; for (let k = 0; k < 7; k++) { c.fillRect(wx - ww / 2 - 2, wy + k * wh / 7, ww / 2, 1); c.fillRect(wx + ww + 2, wy + k * wh / 7, ww / 2, 1); }
+          lit(e, wx, wy, ww, wh, 0.35);
+        }
+        continue;
+      }
+      // piani: davanzale in pietra, persiane in legno; portafinestra con balconcino ogni tre campate
+      const door = bx % 3 === 1;
+      const ww = bay * (door ? 0.36 : 0.4), wh = bay * (door ? 0.68 : 0.48), wx = x0 + (bay - ww) / 2, wy = y0 + bay * (door ? 0.2 : 0.24);
+      c.fillStyle = '#ebe5d8'; c.fillRect(wx - 3, wy - 3, ww + 6, wh + 3);
+      glass(c, wx, wy, ww, wh);
+      const open = hashN(bx * 13 + fy * 7);
+      c.fillStyle = sh;
+      if (open < 0.65) { c.fillRect(wx - ww / 2 - 2, wy, ww / 2, wh); c.fillRect(wx + ww + 2, wy, ww / 2, wh); }
+      else c.fillRect(wx, wy, ww, wh);
+      c.fillStyle = 'rgba(0,0,0,0.25)'; for (let k = 0; k < 8; k++) c.fillRect(wx - ww / 2 - 2, wy + k * wh / 8, ww * 2 + 4, 1);
+      c.fillStyle = '#d7d0c0'; c.fillRect(wx - 5, wy + wh, ww + 10, 4);                                   // davanzale
+      if (door) {                  // balconcino in ferro battuto
+        c.fillStyle = 'rgba(0,0,0,0.3)'; c.fillRect(x0 + bay * 0.18, y0 + bay * 0.9, bay * 0.64, 3);
+        c.fillStyle = 'rgba(30,30,30,0.85)'; c.fillRect(x0 + bay * 0.18, y0 + bay * 0.62, bay * 0.64, 2);
+        for (let k = 0; k <= 8; k++) c.fillRect(x0 + bay * 0.18 + k * bay * 0.08, y0 + bay * 0.62, 1.5, bay * 0.28);
+      }
+      if (open < 0.65 || open >= 0.9) lit(e, wx, wy, ww, wh, 0.35);
+      c.fillStyle = 'rgba(0,0,0,0.06)'; c.fillRect(x0, y0, bay, 2);
+    }
+  }
+  // palazzina: finestre con cassonetto e tapparella, logge con parapetto alternate, marcapiano;
+  // al piano terra androne vetrato con pensilina, box e zoccolo rivestito
+  {
+    const c = x2.pal, e = x2.emiP;
+    for (let fy = 0; fy < 8; fy++) for (let bx = 0; bx < 8; bx++) {
+      const x0 = bx * bay, y0 = fy * bay;
+      c.fillStyle = 'rgba(0,0,0,0.09)'; c.fillRect(x0, y0 + bay - 4, bay, 4);                              // marcapiano
+      if (fy === 7) {
+        c.fillStyle = 'rgba(120,110,100,0.35)'; c.fillRect(x0, y0 + bay * 0.4, bay, bay * 0.6);              // rivestimento
+        if (bx % 8 === 3) {
+          c.fillStyle = 'rgba(0,0,0,0.3)'; c.fillRect(x0 + bay * 0.05, y0 + bay * 0.12, bay * 0.9, bay * 0.07);
+          c.fillStyle = '#3a4248'; c.fillRect(x0 + bay * 0.15, y0 + bay * 0.22, bay * 0.7, bay * 0.78);
+          c.fillStyle = '#8fa3ad'; c.fillRect(x0 + bay * 0.19, y0 + bay * 0.26, bay * 0.3, bay * 0.74); c.fillRect(x0 + bay * 0.51, y0 + bay * 0.26, bay * 0.3, bay * 0.74);
+          e.fillStyle = '#ffe4b0'; e.fillRect(x0 + bay * 0.19, y0 + bay * 0.26, bay * 0.62, bay * 0.74);
+        } else if (bx % 2 === 0) {
+          c.fillStyle = '#a9adae'; c.fillRect(x0 + bay * 0.1, y0 + bay * 0.3, bay * 0.8, bay * 0.7);
+          c.fillStyle = 'rgba(0,0,0,0.2)'; for (let k = 0; k < 9; k++) c.fillRect(x0 + bay * 0.1, y0 + bay * (0.33 + k * 0.075), bay * 0.8, 1.5);
+        } else {
+          const wx = x0 + bay * 0.25, ww = bay * 0.5, wy = y0 + bay * 0.24, wh = bay * 0.36;
+          glass(c, wx, wy, ww, wh); c.strokeStyle = 'rgba(20,20,20,0.7)'; for (let k = 1; k < 6; k++) { c.beginPath(); c.moveTo(wx + ww * k / 6, wy); c.lineTo(wx + ww * k / 6, wy + wh); c.stroke(); }
+          lit(e, wx, wy, ww, wh, 0.2);
+        }
+        continue;
+      }
+      if (bx % 2 === 1) {          // loggia con portafinestra e parapetto pieno
+        c.fillStyle = 'rgba(0,0,0,0.28)'; c.fillRect(x0 + 3, y0 + bay * 0.14, bay - 6, bay * 0.78);
+        const dx = x0 + bay * 0.3, dw = bay * 0.4; glass(c, dx, y0 + bay * 0.2, dw, bay * 0.66); lit(e, dx, y0 + bay * 0.2, dw, bay * 0.66, 0.4);
+        c.fillStyle = hashN(fy * 5 + bx) < 0.5 ? '#d8d4ca' : 'rgba(150,170,180,0.9)'; c.fillRect(x0 + 3, y0 + bay * 0.58, bay - 6, bay * 0.34);
+        c.fillStyle = 'rgba(0,0,0,0.2)'; c.fillRect(x0 + 3, y0 + bay * 0.58, bay - 6, 2);
+      } else {                     // finestra con cassonetto e tapparella
+        const wx = x0 + bay * 0.27, ww = bay * 0.46, wy = y0 + bay * 0.26, wh = bay * 0.44;
+        c.fillStyle = '#e2ded4'; c.fillRect(wx - 3, wy - 7, ww + 6, wh + 11); glass(c, wx, wy, ww, wh);
+        const down = hashN(fy * 11 + bx * 3);
+        c.fillStyle = '#9a9c98'; c.fillRect(wx, wy, ww, wh * (down < 0.4 ? 0.12 : down < 0.75 ? 0.45 : 0.95));
+        c.fillStyle = 'rgba(0,0,0,0.15)'; for (let k = 0; k < 6; k++) c.fillRect(wx, wy + k * wh * 0.08, ww, 1);
+        if (down < 0.75) lit(e, wx, wy + wh * 0.45, ww, wh * 0.55, 0.4);
+      }
+    }
+  }
   // vetrine del piano terra: 8 campate da 3 m per 4 varianti (righe dall'alto): negozio, bar e
   // ristorante, farmacia, banca e servizi. Insegna in alto, vetrina con l'interno, porta ogni 4 campate.
   {
@@ -213,7 +302,7 @@ export class BuildingFactory {
     this.mats = {
       res: wall(t.res, t.emiR), condo: wall(t.condo, t.emiC), modern: wall(t.modern, t.emiM), ind: wall(t.ind, t.emiI),
       plain: new THREE.MeshLambertMaterial({ map: t.plain, vertexColors: true }),
-      church: wall(t.church, t.emiCh), glass: wall(t.glass, t.emiG), shop: wall(t.shop, t.emiS),
+      church: wall(t.church, t.emiCh), glass: wall(t.glass, t.emiG), shop: wall(t.shop, t.emiS), villa: wall(t.villa, t.emiV), pal: wall(t.pal, t.emiP),
       roof: new THREE.MeshLambertMaterial({ vertexColors: true, side: THREE.DoubleSide }),
     };
     // tetti a falde: file di coppi (bande lungo le linee di livello della falda), da vicino
@@ -230,7 +319,7 @@ export class BuildingFactory {
     };
   }
 
-  setNight(f) { for (const k of ['res', 'condo', 'modern', 'glass']) this.mats[k].emissiveIntensity = f * 0.55; this.mats.ind.emissiveIntensity = f * 0.4; this.mats.church.emissiveIntensity = f * 0.3; this.mats.shop.emissiveIntensity = f * 0.95; }
+  setNight(f) { for (const k of ['res', 'condo', 'modern', 'glass']) this.mats[k].emissiveIntensity = f * 0.55; this.mats.ind.emissiveIntensity = f * 0.4; this.mats.church.emissiveIntensity = f * 0.3; this.mats.shop.emissiveIntensity = f * 0.95; this.mats.villa.emissiveIntensity = f * 0.5; this.mats.pal.emissiveIntensity = f * 0.55; }
 
   build(tile, collision, tileKey) {
     const g = this.buildGen(tile, collision, tileKey);
@@ -242,7 +331,7 @@ export class BuildingFactory {
   // costruzione a passi (vedi RoadNetwork.buildTileGen): una pausa ogni 12 edifici
   *buildGen(tile, collision, tileKey) {
     const T = this.terrain;
-    const gb = { res: new GeoBuilder(), condo: new GeoBuilder(), modern: new GeoBuilder(), ind: new GeoBuilder(), plain: new GeoBuilder(), church: new GeoBuilder(), glass: new GeoBuilder(), shop: new GeoBuilder() };
+    const gb = { res: new GeoBuilder(), condo: new GeoBuilder(), modern: new GeoBuilder(), ind: new GeoBuilder(), plain: new GeoBuilder(), church: new GeoBuilder(), glass: new GeoBuilder(), shop: new GeoBuilder(), villa: new GeoBuilder(), pal: new GeoBuilder() };
     // vicini nella tessera: per ogni lato si capisce se e' muro in comune, sotto un portico o su strada
     const nb = this.neighbours(tile.b);
     const roof = new GeoBuilder(true, false);
@@ -316,10 +405,20 @@ export class BuildingFactory {
       let style = (kind === 3 || kind === 4) ? 'ind' : church ? 'church' : (kind === 5 || kind === 6 || kind === 8 || kind === 9 || kind === 10) ? 'plain' : 'res';
       // grattacieli: facciata continua in vetro (Porta Nuova, CityLife, torri per uffici)
       if (H > 38 && area > 250 && !church && !tower && kind !== 9 && (style === 'res' || style === 'ind' || rnd < 0.7)) style = 'glass';
-      if (style === 'res') {
-        if (floors >= 4 && area > 160) style = rnd2 < 0.75 ? 'condo' : 'modern';      // palazzi: quasi sempre condomini con balconi
-        else if (floors >= 2 && area > 110 && rnd < 0.16) style = 'modern';          // qualche palazzina recente
-        else if (floors === 3 && area > 220 && rnd2 < 0.45) style = 'condo';
+      // tipologia residenziale (il DBGT non ha l'uso: forma, altezza vera e muri in comune)
+      //  villetta: isolata, fino a 3 piani; case in linea/a schiera e centri storici: muri in comune
+      //  (stile con persiane); palazzina: 3-5 piani isolata; condominio: 6 piani e oltre
+      let shared = 0;
+      if (style === 'res' && kind <= 2) {
+        const sk = this.sideKinds(nb, bi, ring, n, ccw);
+        let tot = 0, sh = 0;
+        for (let i = 0; i < n; i++) { const j = (i + 1) % n, L = Math.hypot(ring[j * 2] - ring[i * 2], ring[j * 2 + 1] - ring[i * 2 + 1]); tot += L; if (sk[i] === 1) sh += L; }
+        shared = tot > 0 ? sh / tot : 0;
+        if (floors >= 6 && area > 160) style = rnd2 < 0.75 ? 'condo' : 'modern';
+        else if (shared >= 0.45) style = floors >= 4 && area > 300 ? (rnd2 < 0.6 ? 'condo' : 'pal') : 'res';
+        else if (floors <= 3 && area <= 320 && area >= 40) style = rnd < 0.12 ? 'modern' : 'villa';
+        else if (floors >= 3) style = rnd < 0.2 ? 'modern' : rnd < 0.45 ? 'condo' : 'pal';
+        else if (area > 110 && rnd < 0.16) style = 'modern';
       }
       let col;
       if (colTag && /^#?[0-9a-f]{6}$|^[a-z]+$/i.test(colTag)) { try { tmpC.set(colTag); col = tmpC.clone(); } catch (e) { col = null; } }
@@ -380,7 +479,7 @@ export class BuildingFactory {
       this.roof(roof, ring, n, eave, pitched, rc, area, kind, col, rnd2);
       if (tower) this.towerTop(roof, ring, n, eave, col, area, rnd);
       if (church && area > 350 && H > 12) this.pinnacles(roof, ring, n, eave, col, area > 1500 || H > 30);
-      if ((style === 'res' || style === 'condo' || style === 'modern') && floors >= 3) this.cornice(roof, ring, n, eave, col);
+      if ((style === 'res' || style === 'condo' || style === 'modern' || style === 'pal') && floors >= 3) this.cornice(roof, ring, n, eave, col);
       if (minH > 2.2 || passage) {
         // sotto si passa: soffitto visto dal basso e, nei portici, pilastri (sono loro l'ostacolo)
         this.ceiling(roof, ring, n, base, col);
@@ -391,7 +490,7 @@ export class BuildingFactory {
     const group = new THREE.Group();
     const glassRoof = this.glassRoofs(tile);
     if (glassRoof) group.add(glassRoof);
-    for (const k of ['res', 'condo', 'modern', 'ind', 'plain', 'church', 'glass', 'shop']) if (!gb[k].empty) { yield; group.add(gb[k].mesh(this.mats[k], true)); }
+    for (const k of ['res', 'condo', 'modern', 'ind', 'plain', 'church', 'glass', 'shop', 'villa', 'pal']) if (!gb[k].empty) { yield; group.add(gb[k].mesh(this.mats[k], true)); }
     yield;
     if (!roof.empty) group.add(roof.mesh(this.mats.roof, true));
     return { group, labels };

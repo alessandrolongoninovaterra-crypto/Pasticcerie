@@ -227,6 +227,38 @@ segnaletica, edifici, fisica, navigatore, comportamento di pedoni e traffico) è
     bit 64-128 il tipo.
   Numeri dell'ultima elaborazione: 33.281 negozi e locali OSM, vetrine in 21.487 edifici con negozi,
   9.200 dietro i portici e 12.791 edifici commerciali.
+- **Tutto esplorabile, strade senza blocchi** (novembre 2026):
+  - tutti i cancelli e le sbarre restano aperti (il navigatore evita comunque i passaggi privati);
+  - controllo automatico di tutte le autostrade, superstrade, statali e provinciali, dei ponti e
+    delle gallerie (1.234 tessere, corsie campionate ogni 4 m con le regole del veicolo): da 5.387
+    punti con ostacoli o salti a 7 ostacoli residui al centro della corsia (i caselli della barriera
+    autostradale e pochi casi di dati) e gradini sotto i 60 cm. Correzioni:
+    - gli ostacoli hanno quota di base e di sommità: la superstrada che passa sotto una rotatoria
+      sopraelevata o sotto un muro sul ciglio della trincea non urta, e nemmeno l'auto che passa
+      sopra un muro o una recinzione (rilevati); le isole delle rotatorie stanno alla quota
+      dell'anello e mancano se una via attraversa il piazzale;
+    - muri e recinzioni si tagliano dove entrano nella carreggiata di qualunque via alla stessa
+      quota; alberi e paletti in carreggiata restano senza collisione;
+    - edifici attraversati da una via carrozzabile: diventano androni o pensiline (si passa sotto);
+      se la via li tocca solo ai bordi o li attraversa in quota, perdono la collisione;
+    - la superficie su cui sta l'auto è la sua carreggiata (rampe che si staccano da una via alla
+      stessa quota, terreno che sporge ai bordi di trincee e spalle dei cavalcavia);
+    - profili stradali con pendenza massima (16%, 25% su servizio e sterrati) attorno a incroci ed
+      estremi di ponti e gallerie, e quote degli imbocchi corrette dove la strada di accesso era
+      impossibile (330 casi: imbocchi presi dal terreno su versanti ripidi);
+  - prova di guida automatica in tutte le 152 gallerie stradali oltre 120 m: 131 percorse da un
+    capo all'altro, comprese tutte quelle delle strade principali (Monte Barro, San Martino,
+    Valsassina, Pusiano, Somana, Scoglio, Melgone, Tangenziale Nord…); gli altri casi sono rampe
+    di autorimesse e vie di servizio dove il pilota automatico della prova parte fuori strada.
+- **Tipologie edilizie** (novembre 2026): i pacchetti DBGT usati non contengono il livello degli
+  edifici con l'uso (EDIFC: la pipeline trova 0 "corpi edificati"; se un pacchetto lo contiene,
+  il riduttore lo tiene già). La tipologia si ricava da altezza vera DBGT, piani, superficie e
+  muri in comune con gli edifici vicini: **villetta** (isolata, fino a 3 piani: persiane in legno,
+  davanzali in pietra, balconcino in ferro, garage e portoncino con pensilina, zoccolo in pietra),
+  **palazzina** (3-5 piani: finestre con tapparella, logge con parapetto, androne vetrato, box),
+  **condominio** (6 piani e oltre, balconi), **case in linea e centri storici** (muri in comune:
+  persiane e portoni), oltre a capannoni, chiese, torri e grattacieli. Di notte le finestre si
+  accendono in tutte le tipologie.
 - **Correzioni (novembre 2026)**:
   - *quadrati neri a schermo* (di notte, all'imbrunire, in galleria): alcuni vertici avevano la
     normale nulla (triangoli degeneri o facce opposte che si annullano); nello shader diventava NaN,
