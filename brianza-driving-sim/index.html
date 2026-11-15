@@ -70,6 +70,10 @@
   #nav .d { font-size: 26px; font-weight: 700; }
   #nav .t { font-size: 14px; color: #d6e2ea; }
   #nav .eta { font-size: 12px; color: var(--muted); margin-top: 4px; }
+  #wanted { position: absolute; left: 50%; top: 104px; transform: translateX(-50%); padding: 6px 16px; font-size: 24px; letter-spacing: 3px; color: #ffd34e; text-shadow: 0 0 8px rgba(0,0,0,.8); }
+  #wanted.search { animation: blink 0.8s steps(2) infinite; }
+  #wanted small { display: block; font-size: 12px; letter-spacing: 0; color: #fff; text-align: center; }
+  @keyframes blink { 50% { opacity: 0.35; } }
   #toast { position: absolute; left: 50%; top: 18%; transform: translateX(-50%); padding: 12px 22px; font-size: 18px; transition: opacity .4s; opacity: 0; }
   #toast.show { opacity: 1; }
   /* dall'abitacolo il nome della via sale in alto: in basso ci sono volante e quadro strumenti */
@@ -135,6 +139,7 @@
       <label>Ora del giorno<select id="tod">
         <option value="8.5">Mattina (08:30)</option><option value="12.5" selected>Mezzogiorno (12:30)</option><option value="19.6">Tramonto (19:35)</option><option value="22.5">Notte (22:30)</option></select></label>
       <label>Meteo<select id="weather"><option value="dynamic" selected>Variabile</option><option value="clear">Sereno</option><option value="cloudy">Nuvoloso</option><option value="rain">Pioggia</option><option value="storm">Temporale</option><option value="fog">Nebbia</option></select></label>
+      <label>Polizia<select id="police"><option value="1" selected>Attiva (inseguimenti)</option><option value="0">Disattivata</option></select></label>
       <label>Traffico<select id="traffic"><option value="0">Nessuno</option><option value="18">Leggero</option><option value="35" selected>Normale</option><option value="60">Intenso</option></select></label>
       <label>Qualità grafica<select id="quality"><option value="low">Bassa (PC datati)</option><option value="mid" selected>Media</option><option value="high">Alta</option></select></label>
     </div>
@@ -164,6 +169,7 @@
 
 <div id="hud" class="hidden">
   <div id="nav" class="panel hidden"><div class="arrow" id="navarrow">⬆</div><div><div class="d" id="navd"></div><div class="t" id="navt"></div><div class="eta" id="naveta"></div></div></div>
+  <div id="wanted" class="panel hidden"></div>
   <div id="topright" class="panel"><span id="clock">12:00</span><span id="tspeed" style="color:var(--muted)"></span><span id="licence">🪪 20 punti · multe € 0</span><span id="fps" style="color:var(--muted)"></span></div>
   <div id="helpbar" class="panel">F scendi/sali · E clacson · M mappa · C visuale · mouse: telecamera · Esc pausa</div>
   <div id="mini-wrap"><canvas id="minimap" width="300" height="300"></canvas></div>

@@ -51,6 +51,11 @@ export class Maps {
     this.drawWaters(ctx, car.x, car.z, radius, night);
     this.drawRoads(ctx, car.x, car.z, radius, scale, night, false, air);
     if (route) this.drawRoute(ctx, route, scale, car);
+    // segnaposti (volanti, obiettivi delle missioni)
+    for (const m of this.markers || []) {
+      ctx.fillStyle = m.c; ctx.strokeStyle = '#fff'; ctx.lineWidth = 2 / scale;
+      ctx.beginPath(); ctx.arc(m.x, m.z, (m.r || 6) / scale, 0, 7); ctx.fill(); ctx.stroke();
+    }
     ctx.restore();
     // freccia del veicolo
     ctx.save();

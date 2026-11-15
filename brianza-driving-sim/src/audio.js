@@ -55,6 +55,20 @@ export class EngineAudio {
     const g = C.createGain(); g.gain.value = 1.4;
     s.connect(f); f.connect(g); g.connect(C.destination); s.start();
   }
+  // sirena bitonale della polizia (volume con la distanza della volante piu' vicina)
+  siren(k) {
+    if (!this.ctx) return;
+    const C = this.ctx;
+    if (!this.sirG) {
+      this.sirO = C.createOscillator(); this.sirO.type = 'triangle'; this.sirO.frequency.value = 660;
+      const f = C.createBiquadFilter(); f.type = 'lowpass'; f.frequency.value = 2400;
+      this.sirG = C.createGain(); this.sirG.gain.value = 0;
+      this.sirO.connect(f); f.connect(this.sirG); this.sirG.connect(C.destination); this.sirO.start();
+    }
+    const t = C.currentTime;
+    this.sirO.frequency.setValueAtTime(Math.floor(t / 0.55) % 2 ? 588 : 784, t);
+    this.sirG.gain.setTargetAtTime(this.muted ? 0 : k * k * 0.09, t, 0.15);
+  }
   horn(on) {
     if (!this.ctx) return;
     if (on && !this.hornOsc) {

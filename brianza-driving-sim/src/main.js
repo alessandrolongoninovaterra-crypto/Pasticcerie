@@ -24,6 +24,7 @@ import { OutputPass } from 'three/examples/jsm/postprocessing/OutputPass.js';
 import { ShaderPass } from 'three/examples/jsm/postprocessing/ShaderPass.js';
 import { DriveFX } from './effects.js';
 import { Weather, WEATHER } from './weather.js';
+import { Police } from './police.js';
 const WEATHER_ICON = () => (G.weather ? WEATHER[G.weather.state].icon : '');
 import './geo.js';   // aggancio di computeVertexNormals (normali nulle) prima di costruire qualsiasi modello
 
@@ -200,6 +201,7 @@ function ensureGame() {
   G.weather = new Weather(scene);
   G.traffic = new Traffic(G.world);
   G.world.traffic = G.traffic;
+  G.police = new Police(G);
   scene.add(G.traffic.group);
   G.peds = new Pedestrians(G.world);
   G.peds.setTarget(q.peds);
@@ -407,10 +409,38 @@ function fine(kind, value, key = kind) {
     msg = `Autovelox: +${Math.round(over)} km/h oltre il limite`;
     const fl = $('flash'); fl.classList.remove('go'); void fl.offsetWidth; fl.classList.add('go');
   }
+  if (kind === 'red' || kind === 'ped') G.police.crime(kind, G.vehicle.x, G.vehicle.z);
+  if (kind === 'arrest') { euro = value.euro; pts = value.pts; msg = value.msg; }
   G.fines += euro; G.licence -= pts;
   showToast(`🚨 ${msg} — multa € ${euro}${pts ? `, −${pts} punti` : ''}`, 3200);
   if (G.licence <= 0) { G.licence = 20; setTimeout(() => showToast('🪪 Patente sospesa! Corso di recupero: riparti da 20 punti', 4000), 3300); }
   $('licence').textContent = `🪪 ${G.licence} punti · multe € ${G.fines.toLocaleString('it')}`;
+}
+
+// eventi della polizia: stelle, posti di blocco, arresto, fuga
+function policeEvents() {
+  const P = G.police;
+  for (const e of P.events.splice(0)) {
+    if (e.type === 'stars') { showToast(`🚨 Polizia: ${'★'.repeat(e.stars)} — ti stanno cercando!`, 2200); if (G.say) G.say('radio', e.stars); }
+    else if (e.type === 'roadblock') { showToast('🚧 Posto di blocco più avanti!', 2200); if (G.say) G.say('roadblock'); }
+    else if (e.type === 'escape') { showToast(`😮‍💨 Hai seminato la polizia (${'★'.repeat(Math.max(1, e.stars))})`, 3000); if (G.say) G.say('escape'); if (G.onEscape) G.onEscape(e.stars); }
+    else if (e.type === 'arrest') {
+      const st = Math.max(1, e.stars);
+      fine('arrest', { euro: 400 * st, pts: Math.min(10, 2 * st), msg: `Arrestato! (${'★'.repeat(st)})` }, 'arrest' + performance.now());
+      G.vehicle.u = G.vehicle.v = G.vehicle.w = 0;
+      if (G.say) G.say('arrest');
+      if (G.onArrest) G.onArrest(st);
+    }
+  }
+  // livello in alto al centro
+  const el = $('wanted'), st = P.stars;
+  if (P.heat >= 1) {
+    el.classList.remove('hidden');
+    el.classList.toggle('search', !P.seen);
+    el.innerHTML = '★'.repeat(st) + '<span style="opacity:.3">' + '★'.repeat(5 - st) + '</span>' +
+      (P.bust > 0.2 ? `<small>🚔 Arresto in corso… ${Math.round(P.bust / 3 * 100)}%</small>` : !P.seen ? `<small>Ti cercano: fatti perdere di vista (${Math.max(0, Math.ceil(10 + st * 5 - P.unseen))} s)</small>` : '<small>Inseguimento</small>');
+  } else el.classList.add('hidden');
+  G.maps.markers = P.blips();
 }
 
 function checkInfractions(v, kmh, now) {
@@ -422,6 +452,10 @@ function checkInfractions(v, kmh, now) {
     const fx = Math.sin(v.h), fz = Math.cos(v.h);
     if (signalState(Math.abs(fx) > Math.abs(fz) ? 1 : 0, now / 1000) === 'R') fine('red', 0, 'red' + nd);
   }
+  // velocita' folle sotto gli occhi della polizia
+  if (kmh > w.limit + 35) G.police.crime('speed', v.x, v.z);
+  // incidente con il traffico
+  if (v.impact > 0.45 && G.traffic.nearestCar(v.x, v.z, 6, 1e9)) G.police.crime('crash', v.x, v.z);
   // autovelox
   if (kmh > w.limit + 5) for (const c of G.world.cameras) if (Math.hypot(c.x - v.x, c.z - v.z) < 16) fine('camera', kmh - w.limit, 'cam' + Math.round(c.x) + '_' + Math.round(c.z));
 }
@@ -437,6 +471,7 @@ function startGame() {
   $('ptraffic').value = $('traffic').value;
   G.sky.hours = +$('tod').value;
   G.weather.set($('weather').value);
+  G.police.clear(); G.police.enabled = $('police').value === '1';
   makePlayer();
   const sp = spawnPoint($('start').value);
   G.vehicle.place(sp.x, sp.z, sp.h);
@@ -927,6 +962,7 @@ function loop(now) {
   if (f.on) onRoad.push([f.x, f.z]);
   G.traffic.obstacles = onRoad;
   G.traffic.update(dt, { x: v.x, z: v.z, h: v.h, u: v.u, wi: v.surface && v.surface.road ? v.surface.road.wi : -1, active: !flying() }, now / 1000);
+  if (!flying() && !G.loadingWorld) { G.police.update(dt, p, now); policeEvents(); }
   const movers = flying() ? [] : [{ x: v.x, z: v.z }];
   for (const c of G.traffic.cars) if (Math.abs(c.x - p.x) < 300 && Math.abs(c.z - p.z) < 300) movers.push(c);
   G.world.gates.update(dt, movers);
