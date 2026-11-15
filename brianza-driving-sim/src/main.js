@@ -22,6 +22,7 @@ import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from 'three/examples/jsm/postprocessing/UnrealBloomPass.js';
 import { OutputPass } from 'three/examples/jsm/postprocessing/OutputPass.js';
 import { ShaderPass } from 'three/examples/jsm/postprocessing/ShaderPass.js';
+import { DriveFX } from './effects.js';
 import './geo.js';   // aggancio di computeVertexNormals (normali nulle) prima di costruire qualsiasi modello
 
 // Pulizia del buffer HDR prima del bloom: un solo pixel NaN o infinito, sfocato dal bloom su piu'
@@ -193,6 +194,7 @@ function ensureGame() {
   G.camera = new THREE.PerspectiveCamera(62, innerWidth / innerHeight, 0.5, 5000);
   G.sky = new Sky(scene, G.meta.proj.lat0);
   G.world = new World(scene, G.meta, G.terrain, G.roads, G.settings);
+  G.fx = new DriveFX(scene);
   G.traffic = new Traffic(G.world);
   G.world.traffic = G.traffic;
   scene.add(G.traffic.group);
@@ -965,7 +967,10 @@ function loop(now) {
   checkInfractions(v, Math.abs(v.u) * 3.6, now);
   miniT += dt;
   if (miniT > 0.05 && !$('mini-wrap').classList.contains('hidden')) { miniT = 0; G.maps.drawMini(p, G.route, G.sky.night > 0.5); }
-  if (f.on) G.audio.update(800, 0, 0, 0); else G.audio.update(v.rpm, v.throttle, Math.abs(v.u) * 3.6, v.slip);
+  // derapate: segni sull'asfalto, fumo e stridio delle gomme
+  const skid = f.on || G.loadingWorld ? 0 : G.fx.fromVehicle('p', v, G.weather ? G.weather.wet : 0);
+  G.fx.update(dt);
+  if (f.on) G.audio.update(800, 0, 0, 0, 0); else G.audio.update(v.rpm, v.throttle, Math.abs(v.u) * 3.6, v.slip, skid);
   if (v.impact > 0.25 && !f.on && !v.isPlane) { showToast('💥 Urto!', 700); }
   v.impact = 0;
   if (G.composer && G.sky.night > 0.2) { G.bloom.strength = G.sky.night * 0.55; G.composer.render(); }

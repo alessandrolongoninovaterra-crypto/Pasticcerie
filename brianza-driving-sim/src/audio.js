@@ -21,7 +21,12 @@ export class EngineAudio {
       this.ng = C.createGain(); this.ng.gain.value = 0;
       this.noise.connect(this.nf); this.nf.connect(this.ng); this.ng.connect(C.destination);
       filt.connect(this.gain); this.gain.connect(C.destination);
-      this.o1.start(); this.o2.start(); this.noise.start();
+      // stridio delle gomme: rumore filtrato stretto attorno a 1,5-2 kHz
+      this.sq = C.createBufferSource(); this.sq.buffer = buf; this.sq.loop = true;
+      this.sqf = C.createBiquadFilter(); this.sqf.type = 'bandpass'; this.sqf.frequency.value = 1700; this.sqf.Q.value = 9;
+      this.sqg = C.createGain(); this.sqg.gain.value = 0;
+      this.sq.connect(this.sqf); this.sqf.connect(this.sqg); this.sqg.connect(C.destination);
+      this.o1.start(); this.o2.start(); this.noise.start(); this.sq.start(0.37);
     } catch (e) { this.ctx = null; }
   }
   horn(on) {
@@ -32,7 +37,7 @@ export class EngineAudio {
       this.hornGain = g;
     } else if (!on && this.hornOsc) { for (const o of this.hornOsc) o.stop(); this.hornGain.disconnect(); this.hornOsc = null; }
   }
-  update(rpm, throttle, speed, slip) {
+  update(rpm, throttle, speed, slip, squeal = 0) {
     if (!this.ctx) return;
     const t = this.ctx.currentTime;
     const f = rpm / 60 * 2; // 4 cilindri: 2 scoppi per giro
@@ -43,5 +48,7 @@ export class EngineAudio {
     this.gain.gain.setTargetAtTime(vol, t, 0.05);
     this.ng.gain.setTargetAtTime(this.muted ? 0 : Math.min(0.12, speed / 300 + slip * 0.25), t, 0.1);
     this.nf.frequency.setTargetAtTime(300 + speed * 6 + slip * 1500, t, 0.1);
+    this.sqg.gain.setTargetAtTime(this.muted ? 0 : Math.min(0.16, squeal * 0.2), t, 0.06);
+    this.sqf.frequency.setTargetAtTime(1500 + squeal * 500 + Math.sin(t * 13) * 80, t, 0.05);
   }
 }
