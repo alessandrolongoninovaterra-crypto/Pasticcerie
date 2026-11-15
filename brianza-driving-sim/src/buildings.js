@@ -254,7 +254,7 @@ export class BuildingFactory {
       if (++nDone % 12 === 0) yield;
       const type = rec[0];
       let H = rec[1] / 10;
-      const minH = rec[2] / 10;
+      let minH = rec[2] / 10;
       const levels = rec[3], roofShape = rec[4] & 15, portico = (rec[4] & 16) !== 0, shopKind = rec[4] & 32 ? (rec[4] >> 6) & 3 : -1;
       const name = names[rec[5]], colTag = names[rec[6]], roofTag = names[rec[7]];
       const ring = [];
@@ -295,6 +295,17 @@ export class BuildingFactory {
         }
       }
       // volumi sospesi (portici, sottopassaggi, sporti del DBGT): il muro parte dal soffitto
+      // una strada carrozzabile passa sotto l'edificio (androne, passaggio, pensilina del distributore):
+      // il volume parte dall'alto e sotto si passa
+      let passage = false, noCol = false;
+      this.curH = H > 0 ? H : 12;
+      const cross = !(minH > 2.2) && this.roads ? this.crossedByRoad(ring, n, minT) : null;
+      if (cross && cross[1] > 0) noCol = true;              // la carreggiata entra nell'edificio ai bordi: niente ostacolo
+      if (cross && cross[0] >= 3 && kind !== 5 && kind !== 8) {
+        passage = true;
+        minH = H > 7 ? 4.2 : Math.max(2.6, H - 0.6);
+        if (H - minH < 0.4) H = minH + 0.6;
+      }
       const base = minH > 0 ? minT + minH : minT - 0.6;
       const eave = (minT + maxT) / 2 + H;
       // piani interi: l'altezza di interpiano si adatta (2,7-3,4 m) e le finestre restano allineate
@@ -370,11 +381,11 @@ export class BuildingFactory {
       if (tower) this.towerTop(roof, ring, n, eave, col, area, rnd);
       if (church && area > 350 && H > 12) this.pinnacles(roof, ring, n, eave, col, area > 1500 || H > 30);
       if ((style === 'res' || style === 'condo' || style === 'modern') && floors >= 3) this.cornice(roof, ring, n, eave, col);
-      if (minH > 2.2) {
+      if (minH > 2.2 || passage) {
         // sotto si passa: soffitto visto dal basso e, nei portici, pilastri (sono loro l'ostacolo)
         this.ceiling(roof, ring, n, base, col);
         if (portico) this.pillars(roof, ring, n, minT, base, col, collision, tileKey, sides);
-      } else if (collision) collision.addPolygon(tileKey, Float32Array.from(ring), eave + (pitched ? 3 : 1));
+      } else if (collision && !noCol && !(cross && cross[0] > 0)) { const co = collision.addPolygon(tileKey, Float32Array.from(ring), eave + (pitched ? 3 : 1), false, minT - 0.6); if (co) co.src = 'edificio ' + type; }
       if (name && (kind === 5 || kind === 8 || type === 7)) labels.push({ name, x: cx, z: cz, y: eave + 4 });
     }
     const group = new THREE.Group();
@@ -384,6 +395,40 @@ export class BuildingFactory {
     yield;
     if (!roof.empty) group.add(roof.mesh(this.mats.roof, true));
     return { group, labels };
+  }
+
+  // quanto una via carrozzabile (non in galleria) entra nella pianta alla quota del suolo:
+  // [campioni dell'asse dentro (ogni metro), campioni del bordo della corsia dentro]
+  crossedByRoad(ring, n, gy) {
+    const R = this.roads;
+    let x0 = 1e9, z0 = 1e9, x1 = -1e9, z1 = -1e9;
+    for (let i = 0; i < n; i++) { x0 = Math.min(x0, ring[i * 2]); x1 = Math.max(x1, ring[i * 2]); z0 = Math.min(z0, ring[i * 2 + 1]); z1 = Math.max(z1, ring[i * 2 + 1]); }
+    const cx = (x0 + x1) / 2, cz = (z0 + z1) / 2, rad = Math.hypot(x1 - x0, z1 - z0) / 2;
+    let inside = 0, edge = 0;
+    const inRing = (x, z) => {
+      let ins = false;
+      for (let i = 0, j = n - 1; i < n; j = i++) {
+        const xi = ring[i * 2], zi = ring[i * 2 + 1], xj = ring[j * 2], zj = ring[j * 2 + 1];
+        if ((zi > z) !== (zj > z) && x < (xj - xi) * (z - zi) / (zj - zi) + xi) ins = !ins;
+      }
+      return ins;
+    };
+    R.segmentsNear(cx, cz, rad + 8, (wi, k) => {
+      const w = R.ways[wi];
+      if (!w.drivable || w.cls > 8) return;      // gallerie comprese: quelle profonde le scarta il controllo di quota
+      const a = w.nodes[k], b = w.nodes[k + 1], ax = R.nx[a], az = R.nz[a], bx = R.nx[b], bz = R.nz[b];
+      const L = Math.hypot(bx - ax, bz - az) || 1, m = Math.max(1, Math.ceil(L));
+      const ox = (bz - az) / L * (w.width / 2 - 1.0), oz = -(bx - ax) / L * (w.width / 2 - 1.0);
+      for (let s = 0; s <= m; s++) {
+        const x = ax + (bx - ax) * s / m, z = az + (bz - az) * s / m;
+        if (x < x0 - 8 || x > x1 + 8 || z < z0 - 8 || z > z1 + 8) continue;
+        const c = inRing(x, z), e = w.width > 3 && (inRing(x + ox, z + oz) || inRing(x - ox, z - oz));
+        if (!(c || e)) continue;
+        const dh = R.heightOn(wi, k, s / m, x, z) - gy;
+        if (Math.abs(dh) < 3) { if (c) inside++; else edge++; } else if (dh > 0 && dh < this.curH + 1) edge++;   // passa in quota dentro l'edificio
+      }
+    });
+    return inside || edge ? [inside, edge] : null;
   }
 
   // soffitto di un volume sospeso, visto dal basso

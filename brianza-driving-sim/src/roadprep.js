@@ -127,6 +127,56 @@ export class RoadPrep extends RoadNetwork {
     return cnt ? sum / cnt : 0;
   }
 
+  // estremi di ponti e gallerie presi dal terreno nel punto del nodo OSM: su un versante ripido
+  // l'imbocco puo' risultare 20 m sopra il ponte che lo precede a 30 m di distanza (rampa del 60%
+  // impossibile). Si rilassano le quote degli estremi: dove un tratto di strada tra due ancoraggi e'
+  // piu' ripido di g, si spostano gli estremi di gallerie (prima) e ponti (poi); gli incroci a terra no.
+  relaxAbsEnds(g = 0.13) {
+    const ends = (nd) => {
+      const out = [];
+      for (let o = this.adjHead[nd]; o >= 0; o = this.adjNext[o]) {
+        const w = this.ways[this.adjWay[o]], pos = this.adjPos[o];
+        if (w.abs && (pos === 0 || pos === w.nodes.length - 1)) out.push([w, pos === 0 ? 'h0' : 'h1']);
+      }
+      return out;
+    };
+    const setH = (list, h) => { for (const [w, k] of list) w[k] = h; };
+    // stesso nodo tra due opere (ponte seguito da galleria): una quota sola
+    for (let nd = 0; nd < this.nodeCount; nd++) {
+      const e = ends(nd);
+      if (e.length > 1) setH(e, e.reduce((s, [w, k]) => s + w[k], 0) / e.length);
+    }
+    let moved = 0;
+    for (let iter = 0; iter < 6; iter++) {
+      let ch = 0;
+      for (const w of this.ways) {
+        if (w.abs || !w.drivable || w.nodes.length < 2) continue;
+        const anc = [];
+        for (let k = 0; k < w.nodes.length; k++) if (k === 0 || k === w.nodes.length - 1 || this.degree[w.nodes[k]] !== 2) anc.push(k);
+        for (let i = 1; i < anc.length; i++) {
+          const a = w.nodes[anc[i - 1]], b = w.nodes[anc[i]], d = w.cum[anc[i]] - w.cum[anc[i - 1]];
+          const ea = ends(a), eb = ends(b);
+          if (!ea.length && !eb.length) continue;
+          const ha = this.nodeHeight(a), hb = this.nodeHeight(b), lim = g * d;
+          if (Math.abs(ha - hb) <= lim + 0.05) continue;
+          const tun = (e) => e.length && e.every(([q]) => q.flags & F.TUNNEL);
+          const sign = Math.sign(hb - ha);
+          // chi si sposta: le gallerie prima dei ponti, le opere prima dei nodi a terra
+          let moveA = ea.length > 0, moveB = eb.length > 0;
+          if (moveA && moveB) { if (tun(ea) && !tun(eb)) moveB = false; else if (tun(eb) && !tun(ea)) moveA = false; }
+          if (moveA && moveB) { const mid = (ha + hb) / 2; setH(ea, mid - sign * lim / 2); setH(eb, mid + sign * lim / 2); }
+          else if (moveB) setH(eb, ha + sign * lim);
+          else setH(ea, hb - sign * lim);
+          ch++;
+        }
+      }
+      moved += ch;
+      if (!ch) break;
+    }
+    this.raws = null;
+    return moved;
+  }
+
   ensureProfile(w) {
     if (w.prof || w.abs) return;
     const raw = this.rawProfile(w), N = raw.length, P = new Float32Array(raw);
@@ -145,6 +195,28 @@ export class RoadPrep extends RoadNetwork {
       const [s0, d0] = anc[j], [s1, d1] = anc[Math.min(j + 1, anc.length - 1)];
       const t = s1 > s0 ? Math.min(1, Math.max(0, (sv - s0) / (s1 - s0))) : 0;
       P[i] += d0 + (d1 - d0) * t;
+    }
+    // pendenza massima: il profilo segue il terreno, ma vicino agli imbocchi delle gallerie e alle
+    // spalle dei cavalcavia il terreno sale o scende di colpo e ne uscivano rampe del 40-60% che
+    // l'auto non riusciva a fare. Le quote degli ancoraggi restano fisse; attorno a ognuna il profilo
+    // sta in un cono di pendenza g, e tra punti vicini il dislivello non supera g.
+    const g = (w.cls >= 8 ? 0.25 : 0.16) * w.pstep;
+    const AH = anc.map(([sa, da]) => {
+      const f = Math.min(N - 1, sa / w.pstep), i = Math.min(N - 2, Math.max(0, Math.floor(f)));
+      return [sa / w.pstep, N < 2 ? P[0] : P[i] + (P[i + 1] - P[i]) * (f - i)];
+    });
+    // ancoraggi piu' ripidi di g tra loro (dati incoerenti): profilo lasciato com'e', altrimenti gli
+    // ancoraggi si sposterebbero e nascerebbero gradini agli incroci
+    let feasible = true;
+    for (let a2 = 1; a2 < AH.length; a2++) if (Math.abs(AH[a2][1] - AH[a2 - 1][1]) > (AH[a2][0] - AH[a2 - 1][0]) * g + 0.05) feasible = false;
+    for (let pass = 0; feasible && pass < 3; pass++) {
+      for (let i = 1; i < N; i++) P[i] = Math.min(P[i - 1] + g, Math.max(P[i - 1] - g, P[i]));
+      for (let i = N - 2; i >= 0; i--) P[i] = Math.min(P[i + 1] + g, Math.max(P[i + 1] - g, P[i]));
+      for (let i = 0; i < N; i++) {
+        let lo = -1e9, hi = 1e9;
+        for (const [fa, ha] of AH) { const d = Math.abs(i - fa) * g; lo = Math.max(lo, ha - d); hi = Math.min(hi, ha + d); }
+        if (lo <= hi) P[i] = Math.min(hi, Math.max(lo, P[i]));
+      }
     }
     w.prof = P;
   }

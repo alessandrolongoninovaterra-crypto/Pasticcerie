@@ -76,7 +76,7 @@ export class Vehicle {
     // --- superficie e pendenza
     const fx = Math.sin(this.h), fz = Math.cos(this.h);
     const lx = Math.cos(this.h), lz = -Math.sin(this.h); // sinistra
-    const surf = W.roads.surfaceAt(this.x, this.z, this.y);
+    const surf = W.roads.surfaceAt(this.x, this.z, this.y, this.surface && this.surface.road ? this.surface.road.wi : -1);
     this.surface = surf;
     const onRoad = !!surf.road;
     const way = onRoad ? W.roads.ways[surf.road.wi] : null;
@@ -200,7 +200,7 @@ export class Vehicle {
     this.collide();
 
     // --- quota
-    const g2 = W.roads.surfaceAt(this.x, this.z, this.y).h;
+    const g2 = W.roads.surfaceAt(this.x, this.z, this.y, this.surface && this.surface.road ? this.surface.road.wi : -1).h;
     if (this.airborne) {
       this.vy -= G * dt; this.y += this.vy * dt;
       if (this.y <= g2) { this.y = g2; this.airborne = false; this.impact = Math.max(this.impact, Math.min(1, -this.vy / 8)); this.vy = 0; }

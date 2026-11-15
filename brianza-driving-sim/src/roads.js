@@ -317,8 +317,10 @@ export class RoadNetwork {
   }
 
   // superficie guidabile sotto un punto: strada (anche su ponti) o terreno
-  surfaceAt(x, z, yRef = 1e9) {
-    let best = null, bestH = -1e9;
+  // prefer: indice della via su cui si sta gia' guidando (si resta sulla propria carreggiata dove una
+  // rampa si separa da una via alla stessa quota)
+  surfaceAt(x, z, yRef = 1e9, prefer = -1) {
+    let best = null, bestH = -1e9, bestS = 1e9;
     const near = yRef < 1e8;
     const cand = this._cand || (this._cand = []);
     cand.length = 0;
@@ -333,9 +335,11 @@ export class RoadNetwork {
       // con una quota di riferimento (chi e' gia' su una carreggiata) vince la carreggiata piu' vicina a
       // quella quota: in una galleria poco profonda la via in superficie sopra la volta non "risucchia"
       // l'auto. Senza riferimento (posizionamento) vince la piu' alta.
-      const better = !best ? true : near ? Math.abs(h - yRef) < Math.abs(bestH - yRef) - 0.01 || (Math.abs(Math.abs(h - yRef) - Math.abs(bestH - yRef)) <= 0.01 && pr.d < best.d)
+      // punteggio: scarto di quota + distanza dall'asse + bonus per la propria via
+      const sc = Math.abs(h - yRef) + 0.12 * pr.d - (wi === prefer ? 0.35 : 0);
+      const better = !best ? true : near ? sc < bestS
         : h > bestH + 0.01 || (Math.abs(h - bestH) <= 0.01 && pr.d < best.d);
-      if (better) { bestH = h; best = { wi, k, t: pr.t, d: pr.d }; }
+      if (better) { bestH = h; bestS = sc; best = { wi, k, t: pr.t, d: pr.d }; }
     });
     // incroci: dove due vie alla stessa quota si sovrappongono si usa la media pesata (vicinanza
     // all'asse di ciascuna), cosi' passando dall'una all'altra non ci sono scalini
@@ -346,6 +350,9 @@ export class RoadNetwork {
     }
     const th = this.terrain.height(x, z);
     if (best && bestH >= th - 0.6) return { h: bestH, road: best };
+    // chi e' gia' sulla carreggiata ci resta anche dove il terreno sporge (spalle dei cavalcavia,
+    // bordi delle trincee): prima l'auto "saliva" sul terreno e restava bloccata
+    if (best && near && Math.abs(bestH - yRef) < 1.0) return { h: bestH, road: best };
     // in galleria (anche dove la copertura e' di pochi decimetri, agli imbocchi) chi e' gia' alla quota della strada ci resta
     if (best && (this.ways[best.wi].flags & F.TUNNEL) && yRef < bestH + 3) return { h: bestH, road: best };
     if (best && th > yRef + 1.3) return { h: bestH, road: best }; // galleria
@@ -1108,6 +1115,42 @@ export class RoadNetwork {
     return g.empty ? null : g.mesh(this.materials().mark);
   }
 
+  // un punto sta dentro la sede di una strada (o di un sentiero) alla quota del terreno?
+  inCarriageway(x, z, T) {
+    let res = false;
+    const th = T.height(x, z);
+    this.segmentsNear(x, z, 9, (wi, k) => {
+      if (res) return;
+      const w = this.ways[wi];
+      const pr = this.projectOnSeg(wi, k, x, z);
+      if (pr.d > w.width / 2 + 0.25) return;
+      if (Math.abs(this.heightOn(wi, k, pr.t, x, z) - th) > 2.5) return;   // ponte sopra o galleria sotto
+      res = true;
+    });
+    return res;
+  }
+
+  // muri e recinzioni: si tolgono i tratti che cadono dentro la carreggiata (larghezze stimate,
+  // varchi non disegnati): restano i pezzi fuori, ognuno con almeno due punti
+  clipBarrier(pts, T) {
+    const runs = [];
+    let cur = [], last = null;
+    for (let i = 0; i < pts.length - 1; i++) {
+      const [ax, az] = pts[i], [bx, bz] = pts[i + 1], L = Math.hypot(bx - ax, bz - az), n = Math.max(1, Math.ceil(L / 1.5));
+      for (let s = i === 0 ? 0 : 1; s <= n; s++) {
+        const x = ax + (bx - ax) * s / n, z = az + (bz - az) * s / n, p = [x, z];
+        if (!this.inCarriageway(x, z, T)) {
+          if (!cur.length || s === n) { cur.push(p); last = null; } else last = p;
+        } else {
+          if (cur.length) { if (last) cur.push(last); if (cur.length >= 2) runs.push(cur); }
+          cur = []; last = null;
+        }
+      }
+    }
+    if (cur.length) { if (last) cur.push(last); if (cur.length >= 2) runs.push(cur); }
+    return runs;
+  }
+
   // muri di cinta, siepi, muri di sostegno e guardrail mappati in OSM
   buildBarriers(tile, collision, tileKey) {
     if (!tile || !tile.ba || !tile.ba.length) return null;
@@ -1115,15 +1158,17 @@ export class RoadNetwork {
     const STY = [{ c: [0.72, 0.68, 0.6], th: 0.3 }, { c: [0.2, 0.36, 0.14], th: 0.9 }, { c: [0.56, 0.54, 0.5], th: 0.5 }, { c: [0.75, 0.77, 0.8], th: 0.08 }];
     for (const rec of tile.ba) {
       const st = STY[rec[0]], H = rec[1] / 10;
-      const pts = []; let x = 0, z = 0;
-      for (let i = 2; i < rec.length; i += 2) { x += rec[i]; z += rec[i + 1]; pts.push([x / 10, z / 10]); }
+      const raw = []; let x = 0, z = 0;
+      for (let i = 2; i < rec.length; i += 2) { x += rec[i]; z += rec[i + 1]; raw.push([x / 10, z / 10]); }
+      for (const pts of rec[0] === 3 ? [raw] : this.clipBarrier(raw, T)) {   // i guardrail stanno sul bordo: restano
       if (rec[0] >= 4) {   // recinzioni: cancellata, rete, staccionata, ringhiera
         buildFence(gs, gg, pts, rec[0], H, T, rec[2] + rec[3] * 31);
         if (collision && rec[0] !== 7) for (let i = 0; i < pts.length - 1; i++) {
           const [ax, az] = pts[i], [bx, bz] = pts[i + 1], L = Math.hypot(bx - ax, bz - az);
           if (L < 1.5) continue;
           const ex = -(bz - az) / L * 0.3, ez = (bx - ax) / L * 0.3;
-          collision.addPolygon(tileKey, Float32Array.from([ax - ex, az - ez, bx - ex, bz - ez, bx + ex, bz + ez, ax + ex, az + ez]), Math.max(T.height(ax, az), T.height(bx, bz)) + H);
+          const co = collision.addPolygon(tileKey, Float32Array.from([ax - ex, az - ez, bx - ex, bz - ez, bx + ex, bz + ez, ax + ex, az + ez]), Math.max(T.height(ax, az), T.height(bx, bz)) + H, false, Math.min(T.height(ax, az), T.height(bx, bz)));
+          if (co) co.src = 'recinzione ' + rec[0];
         }
         continue;
       }
@@ -1150,8 +1195,10 @@ export class RoadNetwork {
         }
         if (collision && rec[0] !== 3 && L > 1.5) {
           const e = Math.max(0.4, st.th / 2), ex = -(bz - az) / L * e, ez = (bx - ax) / L * e;
-          collision.addPolygon(tileKey, Float32Array.from([ax - ex, az - ez, bx - ex, bz - ez, bx + ex, bz + ez, ax + ex, az + ez]), Math.max(T.height(ax, az), T.height(bx, bz)) + H);
+          const co = collision.addPolygon(tileKey, Float32Array.from([ax - ex, az - ez, bx - ex, bz - ez, bx + ex, bz + ez, ax + ex, az + ez]), Math.max(T.height(ax, az), T.height(bx, bz)) + H, false, Math.min(T.height(ax, az), T.height(bx, bz)) - (rec[0] === 2 ? 1.5 : 0.3));
+          if (co) co.src = 'muro ' + rec[0];
         }
+      }
       }
     }
     const grp = new THREE.Group();

@@ -30,6 +30,7 @@ export class World {
     this.groundBusy = 0;
     this.ribbons = new Map();      // nastri dei corsi d'acqua per tessera (dalle tessere di terreno)
     this.buildings = new BuildingFactory(terrain);
+    this.buildings.roads = roads;
     this.vegetation = new Vegetation(terrain, roads);
     this.comuniIdx = meta.comuni.map((c) => {
       let minx = 1e9, minz = 1e9, maxx = -1e9, maxz = -1e9;
@@ -345,6 +346,23 @@ export class World {
   // acqua: tempo per le onde e colore del cielo per il riflesso
   updateWater(time, sky) { if (this.waterU) { this.waterU.uTime.value = time % 10000; this.waterU.uSky.value.copy(sky); } }
 
+  // isola della rotatoria: alla quota dell'anello (non del ponte che magari ci passa sopra) e solo se
+  // nessuna altra via la attraversa (sottopassi, tram, strade che tagliano il piazzale)
+  roundaboutIsland(tk, rb) {
+    const R = this.roads;
+    let yr = null, cross = false;
+    R.segmentsNear(rb.x, rb.z, rb.r + 12, (wi, k) => {
+      const w = R.ways[wi], pr = R.projectOnSeg(wi, k, rb.x, rb.z);
+      const h = R.heightOn(wi, k, pr.t, pr.px, pr.pz);
+      if (w.flags & 2) { if (yr === null || Math.abs(pr.d - rb.r) < 6) yr = h; return; }
+      if (w.drivable && pr.d < rb.r - 1.5) cross = true;
+    });
+    if (yr === null) yr = this.terrain.height(rb.x, rb.z);
+    if (cross) return;
+    const c = this.collision.addCircle(tk, rb.x, rb.z, rb.r, yr + 1.5, yr - 0.8);
+    c.src = 'rotatoria';
+  }
+
   tileKeyAt(x, z) { const p = this.meta.proj; return Math.floor((z - p.zmin) / 1000) * 1000 + Math.floor((x - p.xmin) / 1000); }
 
   // aggiorna l'insieme di tessere necessarie attorno al giocatore
@@ -496,7 +514,7 @@ export class World {
           if (!r.done) return false;
           t.gen = null; add('buildings', r.value.group);
         } else add('buildings', null);
-        if (!t.rbDone) { t.rbDone = true; for (const rb of this.roads.roundabouts) if (this.roads.tileKey(rb.x, rb.z) === t.key) this.collision.addCircle(t.key, rb.x, rb.z, rb.r, this.terrain.height(rb.x, rb.z) + 1.5); }
+        if (!t.rbDone) { t.rbDone = true; for (const rb of this.roads.roundabouts) if (this.roads.tileKey(rb.x, rb.z) === t.key) this.roundaboutIsland(t.key, rb); }
         continue;
       }
       if (!('paths' in t.parts)) {
@@ -604,7 +622,8 @@ export class World {
         if (!Number.isNaN(dir)) rot = Math.PI - dir * Math.PI / 180;
         const onWalk = nr && nr.d < this.roads.ways[nr.wi].width / 2 + 1.9 && this.roads.sidewalkSides(this.roads.ways[nr.wi], x, z);
         set.setAt(i, x, z, rot, this.terrain.height(x, z) + (onWalk ? 0.31 : 0.08));
-        if (+k === 12 || +k === 13) this.collision.addCircle(t.key, x, z, 0.16, this.terrain.height(x, z) + 1.2);
+        // paletti e idranti: ostacolo, ma non in mezzo alla carreggiata (tutto esplorabile)
+        if ((+k === 12 || +k === 13) && !this.roads.inCarriageway(x, z, this.terrain)) { const co = this.collision.addCircle(t.key, x, z, 0.16, this.terrain.height(x, z) + 1.2, this.terrain.height(x, z) - 0.3); co.src = 'paletto'; }
       });
       set.mesh.traverse((o) => { if (o.isInstancedMesh) { o.computeBoundingSphere(); o.castShadow = true; } });
       g.add(set.mesh);

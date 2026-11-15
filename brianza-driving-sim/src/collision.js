@@ -23,19 +23,21 @@ export class Collision {
   // top (facoltativo): quota assoluta della sommita' dell'ostacolo (edifici, alberi, tralicci),
   // usata dall'aereo per capire se ci passa sopra
   // force: registra anche i poligoni piccoli (cancelletti), di solito scartati perche' irrilevanti
-  addPolygon(tile, ring, top, force = false) {
+  // bot (facoltativo): quota della base; chi passa piu' sotto (superstrada sotto una rotatoria
+  // sopraelevata, strada in trincea sotto un muro di cinta sul ciglio) non lo tocca
+  addPolygon(tile, ring, top, force = false, bot) {
     let minx = 1e9, minz = 1e9, maxx = -1e9, maxz = -1e9;
     for (let i = 0; i < ring.length; i += 2) {
       minx = Math.min(minx, ring[i]); maxx = Math.max(maxx, ring[i]);
       minz = Math.min(minz, ring[i + 1]); maxz = Math.max(maxz, ring[i + 1]);
     }
     if (!force && maxx - minx < 1.5 && maxz - minz < 1.5) return null;
-    const o = { ring, tile, minx, minz, maxx, maxz, top };
+    const o = { ring, tile, minx, minz, maxx, maxz, top, bot };
     this._add(tile, o);
     return o;
   }
 
-  addCircle(tile, x, z, r, top) { const o = { x, z, r, tile, top, minx: x - r, minz: z - r, maxx: x + r, maxz: z + r }; this._add(tile, o); return o; }
+  addCircle(tile, x, z, r, top, bot) { const o = { x, z, r, tile, top, bot, minx: x - r, minz: z - r, maxx: x + r, maxz: z + r }; this._add(tile, o); return o; }
 
   remove(obj) {
     this._cells(obj.minx, obj.minz, obj.maxx, obj.maxz, (k) => {
@@ -92,7 +94,7 @@ export class Collision {
       for (const o of a) {
         if (seen.has(o)) continue;
         seen.add(o);
-        if (y !== null && o.top !== undefined && o.top < y - 1.0) continue;
+        if (y !== null && ((o.top !== undefined && o.top < y + 0.25) || (o.bot !== undefined && o.bot > y + 1.8))) continue;
         if (x + r < o.minx || x - r > o.maxx || z + r < o.minz || z - r > o.maxz) continue;
         let res = null;
         if (o.ring) res = circlePoly(x, z, r, o.ring);

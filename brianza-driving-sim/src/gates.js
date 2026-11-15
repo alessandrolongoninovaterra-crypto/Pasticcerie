@@ -175,8 +175,9 @@ export class Gates {
       } else {                          // catena: due paletti
         for (const [px, pz] of [[Ax, Az], [Bx, Bz]]) box(gs, px, y, pz, 0.12, 0.9, 0.12, sx, sz, [0.85, 0.2, 0.15]);
       }
-      if (state === 2) { this.addDynamic(group, tileKey, kind, x, y, z, sx, sz, w, H); continue; }
-      const closed = state === 1;
+      // tutti i cancelli e le sbarre restano aperti: la mappa e' tutta esplorabile
+      void state;
+      const closed = false;
       if (closed) this.col.addPolygon(tileKey, Float32Array.from([Ax - nx * 0.2, Az - nz * 0.2, Bx - nx * 0.2, Bz - nz * 0.2, Bx + nx * 0.2, Bz + nz * 0.2, Ax + nx * 0.2, Az + nz * 0.2]), undefined, true);
       if (kind === 0) {
         const two = w > 2.6, len = two ? w / 2 : w;
@@ -254,8 +255,8 @@ export class Gates {
         d.parts.push({ obj: leaf, apply: (o) => { leaf.rotation.y = a0 + (a1 - a0) * o; } });
       }
     }
-    for (const p of d.parts) p.apply(0);
-    d.colObj = this.col.addPolygon(tileKey, d.ring, undefined, true);
+    d.open = d.target = 1;
+    for (const p of d.parts) p.apply(1);
     this.dyn.push(d);
   }
 

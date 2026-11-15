@@ -89,7 +89,8 @@ export class Vegetation {
         const autumn = hash(k * 41) < 0.06;
         c.setRGB(autumn ? 0.42 * g : 0.17 * g, autumn ? 0.3 * g : (0.29 + hash(k * 31) * 0.07) * g, 0.09 * g); crowns.setColorAt(ki++, c);
       }
-      if (collision) collision.addCircle(tileKey, x, z, 0.35 * sc, y + h);
+      // alberi dentro la carreggiata (larghezze stimate, alberature negli spartitraffico): solo grafica
+      if (collision && !(this.roads && this.roads.inCarriageway(x, z, this.terrain))) { const co = collision.addCircle(tileKey, x, z, 0.35 * sc, y + h, y - 0.5); co.src = 'albero'; }
       k++;
     }
     crowns.castShadow = true; trunks.castShadow = false;

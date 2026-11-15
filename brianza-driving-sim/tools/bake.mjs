@@ -147,6 +147,7 @@ T.landClass = (x, z) => { const i = T.landIdx(x, z); return i >= 0 ? palClass[i]
 const R = new RoadPrep(roads, T, meta);
 log('rete preparata: nodi', R.nodeCount, 'vie', R.ways.length, 'rotatorie', R.roundabouts.length);
 let nCarved = 0;
+console.log('quote di ponti e gallerie corrette (tratti troppo ripidi):', R.relaxAbsEnds());
 for (const w of R.ways) if (!w.abs) { R.ensureProfile(w); R.carveWay(w); nCarved++; }
 log('profili e spianamento:', nCarved, 'vie, angoli abbassati', R.loweredCorners);
 
