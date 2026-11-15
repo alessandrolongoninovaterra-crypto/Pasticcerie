@@ -44,7 +44,11 @@ export class Traffic {
     this._m = new THREE.Matrix4(); this._q = new THREE.Quaternion(); this._up = new THREE.Vector3(0, 1, 0); this._p = new THREE.Vector3(); this._s = new THREE.Vector3(1, 1, 1);
   }
 
-  setNight(f) { this.beamMat.opacity = Math.max(0, f - 0.3) * 0.8; this.beams.visible = f > 0.31; }
+  setNight(f) {
+    this.beamMat.opacity = Math.max(0, f - 0.3) * 0.8; this.beams.visible = f > 0.31;
+    if (this.fleet.setNight) this.fleet.setNight(f);                  // fari e fanali accesi
+    if (this.parkFleet.setNight) this.parkFleet.setNight(f, 0.05);    // le parcheggiate restano spente
+  }
 
   release(c) { this.fleet.setAt(c.slot, FAR, FAR, 0, 0, -100); this.free.push(c.slot); }
   clear() { for (const c of this.cars) this.release(c); this.cars = []; }

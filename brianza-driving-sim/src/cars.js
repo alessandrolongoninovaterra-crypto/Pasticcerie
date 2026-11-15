@@ -122,7 +122,7 @@ export function buildCarModel(spec, opts = {}) {
     root.add(interior);
     root.userData.eye = eye.clone();
   }
-  return { root, ext, wheels, headlight: ext.userData.headlight, tailGlow: ext.userData.tailGlow, interior, steeringWheel, dashCanvas, dashTex, exterior: [ext] };
+  return { root, ext, wheels, headlight: ext.userData.headlight, tailGlow: ext.userData.tailGlow, lamps: ext.userData.lamps, interior, steeringWheel, dashCanvas, dashTex, exterior: [ext] };
 }
 
 export function drawCluster(canvas, tex, kmh, rpm, rpmMax, gear, limit) {

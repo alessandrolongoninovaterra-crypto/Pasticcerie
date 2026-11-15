@@ -12,6 +12,14 @@ un gioco di guida in Three.js sulle strade reali di Lussemburgo.
 | `figure.js` | estratto da `src/game/pedestrians.js` | solo figura, camminata e disegno; aggiunta `createCrowd()` |
 | `terrain-shim.js` | — | scritto per questo progetto |
 
+**Modifiche a `car.js` (novembre 2026, grafica delle auto):** materiali ritarati per la mappa
+d'ambiente del gioco (vernice con trasparente lucido, cromature in metallo, vetri speculari, cerchi);
+fari, fanali e retromarcia comandabili (`userData.lamps`); targhe italiane generiche
+(`plateTexture`), tergicristalli, linee delle portiere, maniglie, ombra di contatto
+(`contactShadowTexture`); i dettagli di muso e coda si appoggiano alla superficie vera della
+scocca (prima restavano qualche centimetro dentro); flotta del traffico con vetri, luci (che di
+notte si accendono, `setNight`) e ombre in mesh istanziate separate, targhe e cerchi a razze.
+
 **Licenza.** Il `package.json` del progetto originale dichiara `"license": "ISC"`. Il repository
 non contiene un file LICENSE ne' un'intestazione di copyright: se il gioco viene distribuito
 pubblicamente conviene chiedere conferma all'autore.

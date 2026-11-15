@@ -378,6 +378,11 @@ export class Police {
     m.root.rotation.set(-(v.pitch + v.dynPitch), v.h, v.roll + v.dynRoll, 'YXZ');
     for (const w of m.wheels) { w.pivot.rotation.x = v.wheelSpinAngle || 0; if (w.front) w.pivot.rotation.y = v.steer; }
     const t = Math.floor(now / 1000 * 6 + (c.id.charCodeAt(4) % 2));
+    if (m.lamps) {
+      const night = this.G.sky.night > 0.5;
+      m.lamps.head.emissiveIntensity = night ? 4 : 0.15;
+      m.lamps.tail.emissiveIntensity = v.brake > 0.05 ? 4 : night ? 1.5 : 0.4;
+    }
     c.lamps.forEach((l, i) => l.color.setHex(on ? ((t + i) % 2 ? 0x2a5cff : 0x050a30) : 0x0a1440));
   }
 

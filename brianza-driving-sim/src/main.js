@@ -26,6 +26,7 @@ import { DriveFX } from './effects.js';
 import { Weather, WEATHER } from './weather.js';
 import { Police } from './police.js';
 import { Career } from './career.js';
+import { EnvMap } from './envmap.js';
 import { Dialogue } from './dialogue.js';
 const WEATHER_ICON = () => (G.weather ? WEATHER[G.weather.state].icon : '');
 import './geo.js';   // aggancio di computeVertexNormals (normali nulle) prima di costruire qualsiasi modello
@@ -201,6 +202,7 @@ function ensureGame() {
   G.world = new World(scene, G.meta, G.terrain, G.roads, G.settings);
   G.fx = new DriveFX(scene);
   G.weather = new Weather(scene);
+  G.envMap = new EnvMap(renderer, G.sky);
   G.traffic = new Traffic(G.world);
   G.world.traffic = G.traffic;
   G.police = new Police(G);
@@ -1023,6 +1025,12 @@ function loop(now) {
   const lights = !f.on && (G.lightsOn || G.sky.night > 0.55 || (G.tunnelK || 0) > 0.5);
   if (m.headlight) m.headlight.intensity = lights ? 70 : 0;
   if (m.tailGlow) m.tailGlow.intensity = v.brake > 0.05 && !f.on ? 2.2 : lights ? 0.6 : 0;
+  // fari, stop e retromarcia veri (con il bagliore notturno)
+  if (m.lamps) {
+    m.lamps.head.emissiveIntensity = lights ? 4 : 0.15;
+    m.lamps.tail.emissiveIntensity = v.brake > 0.05 && !f.on ? 4 : lights ? 1.5 : 0.4;
+    m.lamps.rev.emissiveIntensity = v.gear < 0 && !f.on ? 3 : 0;
+  }
   // cielo e luci
   tmpV2.set(p.x, flying() ? v.y - v.agl : p.y, p.z);   // ombre centrate sul suolo anche in volo
   G.sky.update(dt, tmpV2);
@@ -1032,6 +1040,10 @@ function loop(now) {
   G.tunnelK = (G.tunnelK || 0) + (inT - (G.tunnelK || 0)) * Math.min(1, dt * 2.5);
   // meteo: dopo il giorno/notte, prima della galleria (in galleria non piove)
   G.weather.update(dt, G.sky, G.camera.position, G.tunnelK, G.audio);
+  // riflessi: mappa d'ambiente dal cielo (ora e meteo); in galleria quasi spenta
+  const envT = G.envMap.update(dt, G.sky, G.weather);
+  if (envT) G.scene.environment = envT;
+  G.scene.environmentIntensity = 1 - 0.85 * G.tunnelK;
   const wk = 1 - 0.4 * G.weather.wet, RM = G.roads.materials();
   if (Math.abs((G.wetK || 1) - wk) > 0.005) { G.wetK = wk; for (const k of ['road', 'stone', 'path', 'walk']) RM[k].color.setScalar(wk); }
   v.gripMul = 1 - 0.3 * G.weather.wet;          // asfalto bagnato: meno aderenza

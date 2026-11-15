@@ -151,6 +151,21 @@ liberty3d, di cui non si usa codice), sui luoghi reali della mappa:
   Centrale via radio (inseguimenti, posti di blocco, fughe), gli agenti all'arresto. Suoni
   sintetizzati: sirena, stridio delle gomme, pioggia e tuoni.
 
+## Grafica delle auto (novembre 2026)
+
+- **Riflessi**: mappa d'ambiente ricavata dal cielo del gioco (stesso cielo, con ora, nuvole e
+  meteo) più suolo e orizzonte di case, rigenerata quando il cielo cambia (al massimo una volta al
+  secondo, `src/envmap.js`). Vernice metallizzata con trasparente lucido, vetri scuri che riflettono
+  il cielo, cromature e cerchi in metallo vero. Di notte i riflessi si spengono con il cielo, in
+  galleria quasi del tutto.
+- **Dettagli**: fari con parabola e cornice cromata, frecce, fanali, stop e retromarcia che si
+  accendono davvero (con il bagliore notturno), targhe italiane generiche davanti e dietro,
+  tergicristalli, linee delle portiere e maniglie, ombra morbida sotto ogni auto. Le auto del
+  traffico hanno vetri lucidi, fari e fanali accesi di notte (le parcheggiate restano spente),
+  targhe, cerchi a razze e ombra.
+- Nessuna auto riproduce un modello o un marchio reale: sono auto "di segmento" (city car,
+  compatta, berlina, SUV, sportiva, furgone).
+
 ## Stile open world
 
 - **Pedoni** sui marciapiedi delle strade reali e nelle vie pedonali: svoltano agli incroci,
