@@ -60,6 +60,79 @@ function loft(profile, widths, floorRail) {
   return {pos, idx};
 }
 
+// ---- scocca arrotondata (Brianza Driving Simulator) -------------------------------------------
+// Al posto del loft a sezione rettangolare: sezioni con spalle arrotondate, fianco appena bombato
+// e tetto/cofano curvi in trasversale; il profilo e' lisciato (una stazione intermedia ogni due,
+// interpolata con Catmull-Rom) e muso e coda si chiudono arrotondati anche in pianta. Normali
+// lisce: la carrozzeria riflette il cielo come una lamiera vera.
+const crPt = (p0, p1, p2, p3, t) => 0.5 * ((2 * p1) + (-p0 + p2) * t + (2 * p0 - 5 * p1 + 4 * p2 - p3) * t * t + (-p0 + 3 * p1 - 3 * p2 + p3) * t * t * t);
+function smoothStations(profile, widths) {
+  const n = profile.length, P = [], W = [];
+  for (let i = 0; i < n; i++) {
+    P.push(profile[i].slice()); W.push(widths[i]);
+    if (i === n - 1) break;
+    const a = Math.max(0, i - 1), d = Math.min(n - 1, i + 2);
+    if (Math.abs(profile[i][0] - profile[i + 1][0]) < 0.12) continue;     // stazioni gia' fitte (archi)
+    P.push([(profile[i][0] + profile[i + 1][0]) / 2, crPt(profile[a][1], profile[i][1], profile[i + 1][1], profile[d][1], 0.5)]);
+    W.push(Math.max(0.05, crPt(widths[a], widths[i], widths[i + 1], widths[d], 0.5)));
+  }
+  return {profile: P, widths: W};
+}
+
+// mezza sezione (x >= 0) dal centro del fondo al centro del tetto
+function halfSection(w, f, y) {
+  const h = Math.max(0.05, y - f);
+  const rt = Math.min(0.24, h * 0.42, w * 0.38), rb = Math.min(0.07, h * 0.16), crown = Math.min(0.05, w * 0.035);
+  const bul = Math.min(0.025, w * 0.02);                 // fianco appena bombato a meta' altezza
+  const pts = [[0, f], [w - rb, f]];
+  for (const a of [-60, -30, 0]) { const r = a * Math.PI / 180; pts.push([w - rb + Math.cos(r) * rb, f + rb + Math.sin(r) * rb]); }
+  const ys = y - rt, ym = (f + rb + ys) / 2;
+  if (ys - (f + rb) > 0.06) pts.push([w + bul, ym]);
+  for (const a of [0, 22.5, 45, 67.5, 90]) { const r = a * Math.PI / 180; pts.push([w - rt + Math.cos(r) * rt, Math.max(f + rb, ys) + Math.sin(r) * rt]); }
+  const xd = w - rt, top = pts[pts.length - 1][1];
+  for (const t of [0.66, 0.33]) pts.push([xd * t, top + crown * (1 - t * t)]);
+  pts.push([0, top + crown]);
+  return pts;
+}
+
+function loftRound(spec, profile0, widths0) {
+  const {profile, widths} = smoothStations(profile0, widths0);
+  // muso e coda: stazioni in piu' che si stringono e si abbassano (spigoli arrotondati in pianta)
+  const big = spec.bus ? 1.6 : 1;
+  const ends = [[0.03, 0.985, 0.02, 0.015], [0.06, 0.94, 0.07, 0.05], [0.085, 0.85, 0.15, 0.12], [0.1, 0.7, 0.24, 0.2]];
+  const st = profile.map(([z, y], i) => ({z, y, w: widths[i], drop: 0, rise: 0}));
+  const nose = st[0], tail = st[st.length - 1];
+  const pre = ends.map(([d, wf, dr, ri]) => ({z: nose.z + d * big, y: nose.y, w: nose.w * wf, drop: dr, rise: ri}));
+  const post = ends.map(([d, wf, dr, ri]) => ({z: tail.z - d * big, y: tail.y, w: tail.w * wf, drop: dr, rise: ri}));
+  const S = [...pre.reverse(), ...st, ...post];
+  const floor = floorRailFor(spec, S.map((q) => [q.z, q.y]));
+  const pos = [], idx = [];
+  let M = 0;
+  for (let i = 0; i < S.length; i++) {
+    const q = S[i], f0 = floor[i], h = q.y - f0;
+    const f = f0 + h * q.rise, y = q.y - h * q.drop;
+    const half = halfSection(q.w, f, y);
+    const ring = half.concat(half.slice(1, -1).reverse().map(([x, yy]) => [-x, yy]));
+    if (!M) M = ring.length;
+    for (const [x, yy] of ring) pos.push(x, yy, q.z);
+  }
+  const at = (i, k) => i * M + (k % M);
+  for (let i = 0; i < S.length - 1; i++) for (let k = 0; k < M; k++) idx.push(at(i, k), at(i + 1, k), at(i, k + 1), at(i, k + 1), at(i + 1, k), at(i + 1, k + 1));
+  // tappi: ventaglio dal centro della prima e dell'ultima sezione
+  for (const [i, dz] of [[0, 0.012], [S.length - 1, -0.012]]) {
+    let cx = 0, cy = 0;
+    for (let k = 0; k < M; k++) cy += pos[(i * M + k) * 3 + 1];
+    const c = pos.length / 3; pos.push(cx, cy / M, S[i].z + dz * big);
+    for (let k = 0; k < M; k++) if (i === 0) idx.push(c, at(i, k + 1), at(i, k)); else idx.push(c, at(i, k), at(i, k + 1));
+  }
+  const g = geomFrom({pos, idx});
+  // verso delle facce: le normali devono uscire (controllo sul punto piu' alto)
+  const P = g.attributes.position, Nn = g.attributes.normal;
+  let top = 0; for (let i = 1; i < P.count; i++) if (P.getY(i) > P.getY(top)) top = i;
+  if (Nn.getY(top) < 0) { const ix = g.index.array; for (let i = 0; i < ix.length; i += 3) { const t = ix[i + 1]; ix[i + 1] = ix[i + 2]; ix[i + 2] = t; } g.index.needsUpdate = true; g.computeVertexNormals(); }
+  return g;
+}
+
 function geomFrom({pos, idx}) {
   const g = new THREE.BufferGeometry();
   g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
@@ -123,7 +196,7 @@ function pillarBoxes(spec) {
   for (const i of spec.pillars || []) {
     // The top stops BELOW the roof skin. A post whose cap breaks the roof surface reads as a
     // tooth on the roof silhouette from the chase camera — the one thing worse than no pillar.
-    const [z, y] = spec.cab[i], w = spec.cabw[i], h = (y - base[i]) - 0.04;
+    const [z, y] = spec.cab[i], w = spec.cabw[i], h = (y - cabRound(w, y, base[i]) - base[i]) - 0.02;
     if (h <= 0.10) continue;
     for (const s of [1, -1]) {
       out.push(box(0.04, h, spec.bus ? 0.16 : 0.09, (w + tumble * 0.5 + 0.004) * s, base[i] + h / 2, z));
@@ -143,7 +216,7 @@ function mirrorBoxes(spec) {
 
 function hull(spec) {
   const {profile, widths} = stationsWithArches(spec);
-  return geomFrom(loft(profile, widths, floorRailFor(spec, profile)));
+  return loftRound(spec, profile, widths);
 }
 
 // ---- greenhouse -----------------------------------------------------------------------------
@@ -156,29 +229,41 @@ const cabBaseOf = (spec) => spec.cabBase || spec.cab.map(() => spec.beltY);
 // the fleet's single dark material never paints a roof. Each face ring again gets its own
 // vertices: the crease where the windscreen meets the side glass is a real edge on a car.
 // 10 vertices per station: 0,1 roof · 2,3 left · 4,5 right · 6..9 cap ring.
+// raggio del raccordo tetto-vetri laterali di una stazione dell'abitacolo
+const cabRound = (w, y, b) => Math.min(0.12, Math.max(0.02, (y - b) * 0.3), w * 0.3);
+
 function cabinGeometry(spec, omitRoof = false) {
   const cab = spec.cab, cabw = spec.cabw, base = cabBaseOf(spec), tumble = spec.tumble || 0;
   const [rs0, rs1] = spec.roofSlice;
   const skinned = !(rs0 === 0 && rs1 === 0), rEnd = cab.length + rs1;
-  const pos = [], idx = [];
+  // sezione: base sx, vetro sx in alto, raccordo (2 punti), raccordo dx (2 punti), vetro dx, base dx
+  // vetri laterali e tetto condividono i vertici: il raccordo viene arrotondato dalle normali lisce
+  const K = 8, pos = [], idx = [];
   for (let i = 0; i < cab.length; i++) {
-    const [z, y] = cab[i], w = cabw[i], wb = w + tumble, b = base[i];
-    pos.push(-w, y, z,   w, y, z);
-    pos.push(-wb, b, z,  -w, y, z);
-    pos.push( wb, b, z,   w, y, z);
-    pos.push(-wb, b, z,   wb, b, z,  -w, y, z,  w, y, z);
+    const [z, y] = cab[i], w = cabw[i], wb = w + tumble, b = base[i], r = cabRound(w, y, b);
+    pos.push(-wb, b, z,  -w, y - r, z,  -w + r * 0.3, y - r * 0.3, z,  -w + r, y, z,
+              w - r, y, z,  w - r * 0.3, y - r * 0.3, z,  w, y - r, z,  wb, b, z);
   }
-  const at = (i, k) => i * 10 + k;
+  const at = (i, k) => i * K + k;
   for (let i = 0; i < cab.length - 1; i++) {
     const covered = omitRoof && skinned && i >= rs0 && i < rEnd - 1;
-    if (!covered) idx.push(at(i,0), at(i,1), at(i+1,0), at(i,1), at(i+1,1), at(i+1,0)); // top   (+y)
-    idx.push(at(i,3), at(i+1,3), at(i,2),  at(i+1,3), at(i+1,2), at(i,2));              // left  (-x)
-    idx.push(at(i,5), at(i,4), at(i+1,5),  at(i+1,5), at(i,4), at(i+1,4));              // right (+x)
+    for (let k = 0; k < K - 1; k++) {
+      if (covered && k === 3) continue;                     // tetto coperto dalla lamiera in tinta
+      idx.push(at(i, k), at(i + 1, k), at(i, k + 1), at(i, k + 1), at(i + 1, k), at(i + 1, k + 1));
+    }
   }
-  idx.push(at(0,8), at(0,6), at(0,9), at(0,9), at(0,6), at(0,7));                       // windscreen (+z)
-  const L = cab.length - 1;
-  idx.push(at(L,8), at(L,9), at(L,6), at(L,9), at(L,7), at(L,6));                       // backlight  (-z)
-  return geomFrom({pos, idx});
+  // parabrezza e lunotto: ventaglio dal centro
+  for (const [i, front] of [[0, true], [cab.length - 1, false]]) {
+    const [z] = cab[i]; let cy = 0;
+    for (let k = 0; k < K; k++) cy += pos[at(i, k) * 3 + 1];
+    const c = pos.length / 3; pos.push(0, cy / K, z);
+    for (let k = 0; k < K; k++) { const a = at(i, k), bb = at(i, (k + 1) % K); if (front) idx.push(c, bb, a); else idx.push(c, a, bb); }
+  }
+  const g = geomFrom({pos, idx});
+  const P = g.attributes.position, Nn = g.attributes.normal;
+  let top = 0; for (let i = 1; i < P.count; i++) if (P.getY(i) > P.getY(top)) top = i;
+  if (Nn.getY(top) < 0) { const ix = g.index.array; for (let i = 0; i < ix.length; i += 3) { const t = ix[i + 1]; ix[i + 1] = ix[i + 2]; ix[i + 2] = t; } g.index.needsUpdate = true; g.computeVertexNormals(); }
+  return g;
 }
 
 // The body-colour roof skin: three rails (left edge, raised centreline, right edge) over the
@@ -191,20 +276,15 @@ function roofSkin(spec) {
   const subw = spec.cabw.slice(rs0, spec.cabw.length + rs1);
   if (sub.length < 2) return null;
   const crown = spec.crown || 0, pos = [], idx = [];
+  const base = cabBaseOf(spec).slice(rs0, spec.cab.length + rs1);
+  // la lamiera del tetto avvolge il raccordo arrotondato dell'abitacolo (5 binari)
   for (let i = 0; i < sub.length; i++) {
-    const [z, y] = sub[i];
-    const t = i / (sub.length - 1);
-    // A HAIR wider than the glass roofline it caps, and barely tapered: a roof panel narrower
-    // than the greenhouse leaves a black rind of glass showing down both sides of the roof.
-    const w = subw[i] * (1.0 - 0.04 * t) + 0.03;
-    const cy = y + 0.006;
-    pos.push(-w, cy, z,  0, cy + crown, z,  w, cy, z);
+    const [z, y] = sub[i], w = subw[i], r = cabRound(w, y, base[i]), o = 0.007;
+    pos.push(-w - o, y - r * 0.55, z,  -w + r * 0.3 - o * 0.7, y - r * 0.3 + o * 0.7, z,  0, y + o + crown, z,
+              w - r * 0.3 + o * 0.7, y - r * 0.3 + o * 0.7, z,  w + o, y - r * 0.55, z);
   }
-  const at = (i, k) => i * 3 + k;
-  for (let i = 0; i < sub.length - 1; i++) {
-    idx.push(at(i,0), at(i,1), at(i+1,0),  at(i,1), at(i+1,1), at(i+1,0));  // left half  (+y)
-    idx.push(at(i,1), at(i,2), at(i+1,1),  at(i,2), at(i+1,2), at(i+1,1));  // right half (+y)
-  }
+  const at = (i, k) => i * 5 + k;
+  for (let i = 0; i < sub.length - 1; i++) for (let k = 0; k < 4; k++) idx.push(at(i, k), at(i, k + 1), at(i + 1, k), at(i, k + 1), at(i + 1, k + 1), at(i + 1, k));
   return {pos, idx};
 }
 
@@ -354,7 +434,9 @@ function anchors(spec) {
 // around under a black lid.
 function fleetBodyGeometry(spec) {
   const {profile, widths} = stationsWithArches(spec);
-  const b = loft(profile, widths, floorRailFor(spec, profile));
+  const hg = loftRound(spec, profile, widths), hp = hg.attributes.position;
+  const b = {pos: Array.from(hp.array), idx: Array.from(hg.index.array)};
+  hg.dispose();
   const skin = roofSkin(spec);
   if (skin) {
     const n0 = b.pos.length / 3;
@@ -374,19 +456,45 @@ function fleetBodyGeometry(spec) {
 function fleetGlassGeometry(spec) { return cabinGeometry(spec, true); }
 
 // fari, fanali e frecce del traffico: materiale a parte che di notte si accende
+// superficie vera di muso e coda (scocca arrotondata): z alla quota y e alla x data
+const _surfCache = new Map();
+function surfFor(spec) {
+  let f = _surfCache.get(spec);
+  if (f) return f;
+  const mesh = new THREE.Mesh(hull(spec), new THREE.MeshBasicMaterial({side: THREE.DoubleSide}));
+  const a = anchors(spec), rc = new THREE.Raycaster(), o = new THREE.Vector3(), dir = new THREE.Vector3();
+  f = (x, y, front) => {
+    o.set(x, y, front ? a.noseZ + 3 : a.tailZ - 3); dir.set(0, 0, front ? -1 : 1); rc.set(o, dir);
+    const h = rc.intersectObject(mesh, false)[0];
+    return h ? h.point.z : (front ? a.noseZ : a.tailZ);
+  };
+  _surfCache.set(spec, f);
+  return f;
+}
+// i dettagli del traffico si appoggiano alla superficie (sporgono di 1,5 cm rispetto al disegno)
+function surfShift(spec) {
+  const a = anchors(spec), S = surfFor(spec);
+  return {
+    F: (x, y, z) => z + S(x, y, true) - a.noseZ + 0.015,
+    R: (x, y, z) => z + S(x, y, false) - a.tailZ - 0.015,
+  };
+}
+
+// fari, fanali e frecce del traffico: materiale a parte che di notte si accende
 function fleetLampGeometry(spec) {
-  const d = parts(), a = anchors(spec);
+  const d = parts(), a = anchors(spec), {F, R} = surfShift(spec);
   if (spec.bus) {
     for (const s of [1, -1]) {
-      addGeo(d, box(0.36, a.headH, 0.06, 0.74 * s, a.headY, a.noseZ - 0.014), TRIM.lamp);
-      addGeo(d, box(0.32, a.lampH, 0.06, 0.86 * s, a.lampY, a.tailZ + 0.014), TRIM.tail);
+      addGeo(d, box(0.36, a.headH, 0.06, 0.74 * s, a.headY, F(0.74 * s, a.headY, a.noseZ - 0.014)), TRIM.lamp);
+      addGeo(d, box(0.32, a.lampH, 0.06, 0.86 * s, a.lampY, R(0.86 * s, a.lampY, a.tailZ + 0.014)), TRIM.tail);
     }
   } else {
     const hx = a.noseW * 0.56;
     for (const s of [1, -1]) {
-      addGeo(d, box(0.34, a.headH, 0.07, hx * s, a.headY, a.noseZ - 0.019), TRIM.lamp);
-      addGeo(d, box(0.12, a.headH * 0.8, 0.06, (hx + 0.24) * s, a.headY, a.noseZ - 0.032), TRIM.amber);
-      addGeo(d, box(a.rearW * 0.58, a.lampH, 0.07, a.rearW * 0.58 * s, a.lampY, a.tailZ + 0.019), TRIM.tail);
+      addGeo(d, box(0.34, a.headH, 0.07, hx * s, a.headY, F(hx * s, a.headY, a.noseZ - 0.019)), TRIM.lamp);
+      addGeo(d, box(0.12, a.headH * 0.8, 0.06, (hx + 0.24) * s, a.headY, F((hx + 0.24) * s, a.headY, a.noseZ - 0.032)), TRIM.amber);
+      const tx = a.rearW * 0.58 * s;
+      addGeo(d, box(a.rearW * 0.58, a.lampH, 0.07, tx, a.lampY, R(tx, a.lampY, a.tailZ + 0.019)), TRIM.tail);
     }
   }
   return colouredGeom(d);
@@ -394,11 +502,12 @@ function fleetLampGeometry(spec) {
 
 function fleetTrimGeometry(spec) {
   const d = parts();
-  const a = anchors(spec);
+  const a = anchors(spec), {F, R} = surfShift(spec);
+  const pY = a.lampY - a.rh * 0.22;
   // targhe (bianche: da lontano basta la sagoma) davanti e dietro
   if (!spec.bus) {
-    addGeo(d, box(0.52, 0.11, 0.02, 0, a.bumperY, a.noseZ + 0.012), TRIM.plate);
-    addGeo(d, box(0.52, 0.11, 0.02, 0, a.lampY - a.rh * 0.22, a.tailZ - 0.004), TRIM.plate);
+    addGeo(d, box(0.52, 0.11, 0.02, 0, a.bumperY, F(0, a.bumperY, a.noseZ + 0.012)), TRIM.plate);
+    addGeo(d, box(0.52, 0.11, 0.02, 0, pY, R(0, pY, a.tailZ - 0.004)), TRIM.plate);
   }
 
   // Underbody: a dark slab between the arches. Without it you see daylight straight through the
@@ -408,19 +517,19 @@ function fleetTrimGeometry(spec) {
     (archTopOf(spec) + uy) / 2, (a.noseZ + a.tailZ) / 2), TRIM.under);
 
   // Bumpers, sitting just proud of the nose and tail caps and no wider than those caps are.
-  addGeo(d, box(a.noseW * 1.92, a.bumperH, 0.10, 0, a.bumperY, a.noseZ - 0.04), TRIM.bumper);
-  addGeo(d, box(a.rearW * 1.92, a.bumperH, 0.10, 0, a.bumperY, a.tailZ + 0.04), TRIM.bumper);
+  addGeo(d, box(a.noseW * 1.92, a.bumperH, 0.10, 0, a.bumperY, F(0, a.bumperY, a.noseZ - 0.04)), TRIM.bumper);
+  addGeo(d, box(a.rearW * 1.92, a.bumperH, 0.10, 0, a.bumperY, R(0, a.bumperY, a.tailZ + 0.04)), TRIM.bumper);
 
   if (spec.bus) {
     // Kerb-side doors (right-hand traffic, so the vehicle's right is -x) and a destination board.
     for (const z of [4.30, 0.60, -1.40]) {
       addGeo(d, box(0.04, 1.14, 1.05, -(a.halfW + 0.005), spec.sill + 0.60, z), TRIM.black);
     }
-    addGeo(d, box(a.noseW * 1.30, 0.24, 0.05, 0, 2.54, a.noseZ - 0.01), TRIM.black);
+    addGeo(d, box(a.noseW * 1.30, 0.24, 0.05, 0, 2.54, F(0, 2.54, a.noseZ - 0.01)), TRIM.black);
   } else {
     // Grille (fari e fanali stanno nella geometria delle luci)
-    addGeo(d, box(a.noseW * 1.10, a.grilleH, 0.07, 0, a.grilleY, a.noseZ - 0.023), TRIM.black);
-    addGeo(d, box(a.rearW * 0.56, a.lampH * 0.7, 0.05, 0, a.lampY - a.rh * 0.22, a.tailZ + 0.018), TRIM.black);
+    addGeo(d, box(a.noseW * 1.10, a.grilleH, 0.07, 0, a.grilleY, F(0, a.grilleY, a.noseZ - 0.023)), TRIM.black);
+    addGeo(d, box(a.rearW * 0.56, a.lampH * 0.7, 0.05, 0, pY, R(0, pY, a.tailZ + 0.018)), TRIM.black);
   }
 
   return colouredGeom(d);

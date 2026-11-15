@@ -1184,6 +1184,17 @@ export class RoadNetwork {
           const y0 = T.height(x0, z0), y1 = T.height(x1, z1);
           const base = rec[0] === 3 ? 0.45 : -0.3;
           const c = st.c, d = [c[0] * 0.8, c[1] * 0.8, c[2] * 0.8];
+          if (rec[0] === 1) {
+            // siepe potata: fianchi dritti e dorso arrotondato (sezione con 7 punti)
+            const hw = Math.max(0.3, st.th / 2), r = Math.min(hw * 0.9, H * 0.45), ux = rx / (st.th / 2), uz = rz / (st.th / 2);
+            const sec = [[-hw, base, 0.75], [-hw, H - r, 0.9]];
+            for (const a of [150, 120, 90, 60, 30]) { const t = a * Math.PI / 180; sec.push([Math.cos(t) * hw, H - r + Math.sin(t) * r, 1]); }
+            sec.push([hw, H - r, 0.9], [hw, base, 0.75]);
+            const ringAt = (px, pz, py) => sec.map(([o, yy, k]) => g.v(px + ux * o, py + yy, pz + uz * o, c[0] * k, c[1] * k, c[2] * k));
+            const R0 = ringAt(x0, z0, y0), R1 = ringAt(x1, z1, y1);
+            for (let q = 0; q < sec.length - 1; q++) g.quad(R0[q], R1[q], R1[q + 1], R0[q + 1]);   // materiale a doppia faccia
+            continue;
+          }
           const corners = [[x0 - rx, z0 - rz, y0], [x1 - rx, z1 - rz, y1], [x1 + rx, z1 + rz, y1], [x0 + rx, z0 + rz, y0]];
           const top = corners.map(([px, pz, py]) => g.v(px, py + H, pz, c[0], c[1], c[2]));
           g.quad(top[0], top[1], top[2], top[3]);

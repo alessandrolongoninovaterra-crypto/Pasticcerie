@@ -22,6 +22,17 @@ function boxV(g, cx, y0, cz, sx, sy, sz, dx, dz, c) {
   }
 }
 
+// cilindro verticale (colonna) con normali lisce, raggio r0 alla base e r1 in cima
+function cylV(g, x, y0, z, h, r0, r1, c, seg = 12) {
+  const A = [], B = [];
+  for (let k = 0; k < seg; k++) {
+    const a = k / seg * Math.PI * 2, ca = Math.cos(a), sa = Math.sin(a);
+    A.push(g.v(x + ca * r0, y0, z + sa * r0, c.r * 0.92, c.g * 0.92, c.b * 0.92));
+    B.push(g.v(x + ca * r1, y0 + h, z + sa * r1, c.r, c.g, c.b));
+  }
+  for (let k = 0; k < seg; k++) { const k2 = (k + 1) % seg; g.quad(A[k], B[k], B[k2], A[k2]); }
+}
+
 // Facciate: ogni immagine ha 8 x 8 campate da 3 m. La riga in basso e' il PIANO TERRA (portoni,
 // garage, ingressi), quelle sopra i piani tipo: l'edificio le usa dal basso, con un numero intero
 // di piani, cosi' le finestre sono allineate sia alla gronda sia a terra.
@@ -550,8 +561,11 @@ export class BuildingFactory {
       const key = Math.round(x * 5) * 100003 + Math.round(z * 5);
       if (done.has(key)) return;
       done.add(key);
-      boxV(g, x, y0 - 0.3, z, 0.62, y1 - y0 + 0.3, 0.62, dx, dz, c);
-      boxV(g, x, y1 - 0.45, z, 0.85, 0.45, 0.85, dx, dz, cap);
+      // colonna tonda: plinto, fusto rastremato, echino svasato e abaco
+      boxV(g, x, y0 - 0.3, z, 0.78, 0.5, 0.78, dx, dz, cap);
+      cylV(g, x, y0 + 0.2, z, y1 - y0 - 0.65, 0.31, 0.27, c);
+      cylV(g, x, y1 - 0.45, z, 0.22, 0.27, 0.4, cap);
+      boxV(g, x, y1 - 0.23, z, 0.88, 0.23, 0.88, dx, dz, cap);
       if (collision) collision.addCircle(tileKey, x, z, 0.4, y1);
     };
     const AS = 7;

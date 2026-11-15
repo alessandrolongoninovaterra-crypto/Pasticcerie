@@ -53,29 +53,63 @@ function monument(g, x, y, z, yaw, kind, h, mh, colHex, side) {
   B(0, 0, y + 0.3, S, ped - 0.6, S * (kind === 'e' ? 1.6 : 1), stoneL);
   B(0, 0, y + ped - 0.3, S + 0.3, 0.3, S * (kind === 'e' ? 1.6 : 1) + 0.3, stone);
   let yb = y + ped;
-  if (kind === 'c') { B(0, 0, yb, 0.9, (h || 12) - ped - 2.4, 0.9, stoneL); yb += (h || 12) - ped - 2.4; }
+  if (kind === 'c') { const [cx2, cz2] = at(0, 0); tube(g, cx2, yb, cz2, cx2, yb + (h || 12) - ped - 2.4, cz2, 0.45, 0.4, stoneL, 12); yb += (h || 12) - ped - 2.4; }
   const F = Math.max(1, (h && h > ped ? h - ped : kind === 'e' ? 5 : kind === 'b' ? 1 : 2.8));
-  if (kind === 'b') { B(0, 0, yb, 0.8 * F, 0.45 * F, 0.45 * F, bronze); B(0, 0, yb + 0.45 * F, 0.42 * F, 0.5 * F, 0.45 * F, bronze); return; }
+  if (kind === 'b') { const [bx, bz] = at(0, 0); tube(g, bx, yb, bz, bx, yb + 0.42 * F, bz, 0.38 * F, 0.3 * F, bronze, 10); ball(g, bx, yb + 0.68 * F, bz, 0.22 * F, bronze, 1.2); return; }
   if (kind === 'e') {
-    // cavallo: corpo, quattro zampe, collo e testa in avanti; cavaliere in sella
+    // cavallo arrotondato: corpo, quattro zampe, collo e testa; cavaliere in sella
     const k = F / 5;
-    B(0, 0, yb + 1.6 * k, 0.9 * k, 1.1 * k, 2.6 * k, bronze);
-    for (const [f, r] of [[0.95, 0.3], [0.95, -0.3], [-0.95, 0.3], [-0.95, -0.3]]) B(f * k, r * k, yb, 0.22 * k, 1.7 * k, 0.24 * k, bronze);
-    B(1.45 * k, 0, yb + 2.3 * k, 0.5 * k, 0.9 * k, 0.6 * k, bronze); B(1.85 * k, 0, yb + 2.85 * k, 0.4 * k, 0.45 * k, 0.8 * k, bronze);
-    B(-1.4 * k, 0, yb + 1.5 * k, 0.15 * k, 1.0 * k, 0.2 * k, bronze);                      // coda
-    B(0.1 * k, 0, yb + 2.7 * k, 0.75 * k, 1.2 * k, 0.5 * k, bronze);                        // cavaliere
-    for (const r of [0.45, -0.45]) B(0.1 * k, r * k, yb + 2.0 * k, 0.18 * k, 0.9 * k, 0.3 * k, bronze);
-    B(0.15 * k, 0, yb + 3.9 * k, 0.32 * k, 0.4 * k, 0.32 * k, bronze);
+    const P3 = (f, r, yy) => { const [px, pz] = at(f * k, r * k); return [px, yb + yy * k, pz]; };
+    const T = (a, b, r0, r1) => tube(g, a[0], a[1], a[2], b[0], b[1], b[2], r0 * k, r1 * k, bronze, 8);
+    T(P3(0.95, 0, 2.2), P3(-0.95, 0, 2.12), 0.56, 0.52);                                   // corpo
+    ball(g, ...P3(0.95, 0, 2.2), 0.56 * k, bronze); ball(g, ...P3(-0.95, 0, 2.12), 0.52 * k, bronze);
+    for (const [f, r] of [[0.85, 0.27], [0.85, -0.27], [-0.9, 0.27], [-0.9, -0.27]]) T(P3(f, r, 1.95), P3(f + (f > 0 ? 0.12 : -0.05), r, 0), 0.2, 0.11);
+    T(P3(1.2, 0, 2.45), P3(1.75, 0, 3.15), 0.32, 0.2);                                     // collo
+    T(P3(1.75, 0, 3.15), P3(2.2, 0, 2.85), 0.17, 0.12);                                    // testa
+    T(P3(-1.4, 0, 2.1), P3(-1.6, 0, 1.2), 0.1, 0.05);                                      // coda
+    T(P3(0.1, 0, 2.6), P3(0.15, 0, 3.6), 0.3, 0.22);                                       // cavaliere
+    for (const r of [0.4, -0.4]) T(P3(0.1, r * 0.8, 2.75), P3(0.25, r, 1.95), 0.1, 0.07);
+    ball(g, ...P3(0.18, 0, 3.85), 0.17 * k, bronze, 1.15);
     return;
   }
-  // statua in piedi
-  B(0, 0.12 * F, yb, 0.16 * F, 0.46 * F, 0.15 * F, bronze); B(0, -0.12 * F, yb, 0.16 * F, 0.46 * F, 0.15 * F, bronze);
-  B(0, 0, yb + 0.44 * F, 0.36 * F, 0.36 * F, 0.2 * F, bronze);
-  for (const r of [0.24, -0.24]) B(0.02 * F, r * F, yb + 0.5 * F, 0.1 * F, 0.32 * F, 0.1 * F, bronze);
-  B(0, 0, yb + 0.81 * F, 0.15 * F, 0.17 * F, 0.16 * F, bronze);
+  // statua in piedi: gambe, busto, braccia e testa arrotondati (tubi e sfere)
+  const P3 = (f, r, yy) => { const [px, pz] = at(f, r); return [px, yy, pz]; };
+  const T = (a, b, r0, r1) => tube(g, a[0], a[1], a[2], b[0], b[1], b[2], r0, r1, bronze, 8);
+  for (const r of [0.07, -0.07]) T(P3(0, r * F, yb), P3(0, r * F * 0.8, yb + 0.47 * F), 0.05 * F, 0.07 * F);
+  T(P3(0, 0, yb + 0.44 * F), P3(0, 0, yb + 0.78 * F), 0.12 * F, 0.14 * F);                       // busto
+  ball(g, ...P3(0, 0, yb + 0.44 * F), 0.12 * F, bronze, 0.8);
+  for (const r of [0.16, -0.16]) T(P3(0, r * F, yb + 0.76 * F), P3(0.03 * F, r * F * 1.25, yb + 0.48 * F), 0.04 * F, 0.035 * F);
+  ball(g, ...P3(0, 0, yb + 0.88 * F), 0.075 * F, bronze, 1.15);                                  // testa
+}
+
+// tubo tra due punti (raggi r0 e r1), con le normali lisce; tappi alle estremita'
+function tube(g, ax, ay, az, bx, by, bz, r0, r1, col, seg = 8) {
+  const dx = bx - ax, dy = by - ay, dz = bz - az, L = Math.hypot(dx, dy, dz) || 1;
+  const ux = dx / L, uy = dy / L, uz = dz / L;
+  // due assi perpendicolari
+  let px = -uz, py = 0, pz = ux; if (Math.hypot(px, pz) < 1e-3) { px = 1; py = 0; pz = 0; }
+  const pl = Math.hypot(px, py, pz); px /= pl; py /= pl; pz /= pl;
+  const qx = uy * pz - uz * py, qy = uz * px - ux * pz, qz = ux * py - uy * px;
+  const ring = (cx, cy, cz, r) => { const ids = []; for (let k = 0; k < seg; k++) { const a = k / seg * Math.PI * 2, c = Math.cos(a) * r, s = Math.sin(a) * r; ids.push(g.v(cx + px * c + qx * s, cy + py * c + qy * s, cz + pz * c + qz * s, col[0], col[1], col[2], 0, 0)); } return ids; };
+  const A = ring(ax, ay, az, r0), B = ring(bx, by, bz, r1);
+  for (let k = 0; k < seg; k++) { const k2 = (k + 1) % seg; g.quad(A[k], A[k2], B[k2], B[k]); }
+  const ca = g.v(ax, ay, az, col[0], col[1], col[2], 0, 0), cb = g.v(bx, by, bz, col[0], col[1], col[2], 0, 0);
+  for (let k = 0; k < seg; k++) { const k2 = (k + 1) % seg; g.tri(ca, A[k2], A[k]); g.tri(cb, B[k], B[k2]); }
+}
+// sfera bassa (8 x 6)
+function ball(g, x, y, z, r, col, sy = 1) {
+  const rows = [];
+  for (let i = 0; i <= 6; i++) {
+    const t = i / 6 * Math.PI, row = [];
+    for (let k = 0; k < 8; k++) { const a = k / 8 * Math.PI * 2; row.push(g.v(x + Math.sin(t) * Math.cos(a) * r, y + Math.cos(t) * r * sy, z + Math.sin(t) * Math.sin(a) * r, col[0], col[1], col[2], 0, 0)); }
+    rows.push(row);
+  }
+  for (let i = 0; i < 6; i++) for (let k = 0; k < 8; k++) { const k2 = (k + 1) % 8; g.quad(rows[i][k], rows[i][k2], rows[i + 1][k2], rows[i + 1][k]); }
 }
 
 function boxTo(g, x, y, z, sx, sy, sz, yaw, col) {
+  // pali (sottili e alti): cilindri invece di parallelepipedi
+  if (sx <= 0.13 && sz <= 0.13 && sy > 4 * Math.max(sx, sz)) { tube(g, x, y - sy / 2, z, x, y + sy / 2, z, (sx + sz) / 4, (sx + sz) / 4, col, 8); return; }
   const c = Math.cos(yaw), s = Math.sin(yaw);
   const P = [];
   for (const [dx, dy, dz] of [[-1, -1, -1], [1, -1, -1], [1, 1, -1], [-1, 1, -1], [-1, -1, 1], [1, -1, 1], [1, 1, 1], [-1, 1, 1]]) {
@@ -239,7 +273,7 @@ export class Signage {
     this.greenMat = new THREE.MeshBasicMaterial({ color: 0x20ff60 });
     this.lampMat = new THREE.MeshBasicMaterial({ color: 0x555550 });
     this.lampPoleMat = new THREE.MeshLambertMaterial({ color: 0x55585a });
-    this.lampPoleGeo = new THREE.CylinderGeometry(0.07, 0.1, 7, 5); this.lampPoleGeo.translate(0, 3.5, 0);
+    this.lampPoleGeo = new THREE.CylinderGeometry(0.07, 0.1, 7, 10); this.lampPoleGeo.translate(0, 3.5, 0);
     this.lampHeadGeo = new THREE.BoxGeometry(0.9, 0.16, 0.34); this.lampHeadGeo.translate(0.9, 7, 0);
     // alone di luce a terra sotto i lampioni (solo di notte)
     const pc = document.createElement('canvas'); pc.width = pc.height = 64;
@@ -913,7 +947,7 @@ export class Signage {
     }
     if (utilPos.length) {
       if (!this.utilGeo) {
-        this.utilGeo = new THREE.CylinderGeometry(0.1, 0.15, 9, 5); this.utilGeo.translate(0, 4.3, 0);
+        this.utilGeo = new THREE.CylinderGeometry(0.1, 0.15, 9, 8); this.utilGeo.translate(0, 4.3, 0);
         this.utilMat = new THREE.MeshLambertMaterial({ color: 0x6b5a48 });
       }
       const inst = new THREE.InstancedMesh(this.utilGeo, this.utilMat, utilPos.length), m = new THREE.Matrix4();

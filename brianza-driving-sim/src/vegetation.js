@@ -15,7 +15,18 @@ export class Vegetation {
       const f = 0.85 + 0.3 * Math.abs(Math.sin(x * 5.1 + y * 3.7 + z * 4.3));
       pos.setXYZ(i, x * f, y * f * 0.9 + 0.1, z * f);
     }
-    crown.computeVertexNormals();
+    // normali "sferiche" (dal centro della chioma, con un po' di rumore): la chioma appare tonda e
+    // morbida senza aggiungere triangoli (prima ogni faccia era piatta e si vedevano gli spigoli)
+    const roundNormals = (geo) => {
+      const p = geo.attributes.position, n = new Float32Array(p.count * 3);
+      for (let i = 0; i < p.count; i++) {
+        const x = p.getX(i), y = p.getY(i) - 0.1, z = p.getZ(i), l = Math.hypot(x, y * 1.1, z) || 1, j = 0.12 * Math.sin(i * 12.9898);
+        n[i * 3] = x / l + j; n[i * 3 + 1] = y * 1.1 / l + 0.15; n[i * 3 + 2] = z / l - j;
+        const m = Math.hypot(n[i * 3], n[i * 3 + 1], n[i * 3 + 2]); n[i * 3] /= m; n[i * 3 + 1] /= m; n[i * 3 + 2] /= m;
+      }
+      geo.setAttribute('normal', new THREE.BufferAttribute(n, 3));
+    };
+    crown.computeVertexNormals(); roundNormals(crown);
     this.crownGeo = crown;
     // chioma semplificata (20 triangoli invece di 80) per gli alberi lontani
     const lo = new THREE.IcosahedronGeometry(1, 0), lp = lo.attributes.position;
@@ -23,10 +34,10 @@ export class Vegetation {
       const x = lp.getX(i), y = lp.getY(i), z = lp.getZ(i);
       lp.setXYZ(i, x * 1.02, y * 0.92 + 0.1, z * 1.02);
     }
-    lo.computeVertexNormals();
+    lo.computeVertexNormals(); roundNormals(lo);
     this.crownLoGeo = lo;
-    this.coneGeo = new THREE.ConeGeometry(1, 1, 7); this.coneGeo.translate(0, 0.15, 0);
-    this.trunkGeo = new THREE.CylinderGeometry(0.12, 0.18, 1, 5);
+    this.coneGeo = new THREE.ConeGeometry(1, 1, 10); this.coneGeo.translate(0, 0.15, 0);
+    this.trunkGeo = new THREE.CylinderGeometry(0.12, 0.18, 1, 7);
     this.crownMat = new THREE.MeshLambertMaterial({ color: 0xffffff });
     this.trunkMat = new THREE.MeshLambertMaterial({ color: 0x5b4632 });
   }

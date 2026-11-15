@@ -163,6 +163,12 @@ liberty3d, di cui non si usa codice), sui luoghi reali della mappa:
   tergicristalli, linee delle portiere e maniglie, ombra morbida sotto ogni auto. Le auto del
   traffico hanno vetri lucidi, fari e fanali accesi di notte (le parcheggiate restano spente),
   targhe, cerchi a razze e ombra.
+- **Forme arrotondate**: scocche con spalle e fianchi curvi, cofano e tetto bombati, muso e coda
+  arrotondati anche in pianta, raccordo morbido tra tetto e vetri (auto del giocatore, volanti e
+  traffico); fari, calandra, fanali e targhe appoggiati alla superficie vera. Nella mappa: pali di
+  cartelli, paline e pensiline cilindrici, lampioni e pali più tondi, colonne dei portici rotonde
+  con plinto, echino e abaco, statue e cavalli fatti di forme tonde, chiome degli alberi
+  ombreggiate come sfere (stessi triangoli di prima), siepi con il dorso arrotondato.
 - Nessuna auto riproduce un modello o un marchio reale: sono auto "di segmento" (city car,
   compatta, berlina, SUV, sportiva, furgone).
 
