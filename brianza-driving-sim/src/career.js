@@ -220,7 +220,8 @@ class Delivery {
   constructor(C, shop, drop) {
     this.C = C; this.shop = shop; this.drop = drop; this.icon = '📦'; this.stat = 'deliveries';
     const [name, kind] = shop[3].split('|');
-    this.what = { pastry: 'una vassoiata di pasticcini', bakery: 'il pane fresco', confectionery: 'i dolci', florist: 'un mazzo di fiori', wine: 'sei bottiglie di vino', cheese: 'le forme di formaggio', butcher: 'la carne', deli: 'la gastronomia', greengrocer: 'la cassetta di frutta', ice_cream: 'le vaschette di gelato', chocolate: 'le praline', coffee: 'il caffè' }[kind] || 'le pizze e i piatti pronti';
+    this.what = { pastry: 'una vassoiata di pasticcini', bakery: 'il pane fresco', confectionery: 'i dolci', florist: 'un mazzo di fiori', wine: 'sei bottiglie di vino', cheese: 'le forme di formaggio', butcher: 'la carne', deli: 'la gastronomia', greengrocer: 'la cassetta di frutta', ice_cream: 'le vaschette di gelato', chocolate: 'le praline', coffee: 'il caffè', cafe: 'i cornetti e le brioche', fast_food: 'i panini', restaurant: 'i piatti pronti', beverages: 'le casse di bibite', seafood: 'il pesce fresco' }[kind] || 'la merce';
+    this.giver = ['pastry', 'bakery', 'confectionery', 'chocolate'].includes(kind) ? 'rosa' : 'titolare';
     this.shopName = name;
     const dist = Math.hypot(drop.x - shop[1], drop.z - shop[2]);
     this.reward = Math.round(70 + dist / 1000 * 55);
@@ -231,7 +232,7 @@ class Delivery {
     const C = this.C, G = C.G;
     this.stage = 'pickup'; this.cargo = 1; this.t = 0;
     G.setDest([this.shop[1], this.shop[2]]);
-    G.dialog('rosa', `Ciao! Passa da ${this.shopName} a prendere ${this.what}: vanno in ${this.drop.name}. Piano sulle buche, mi raccomando!`);
+    G.dialog(this.giver, `Ciao! Passa da ${this.shopName} a prendere ${this.what}: vanno in ${this.drop.name}. Piano sulle buche, mi raccomando!`);
   }
   update(dt) {
     const C = this.C, G = C.G, v = G.foot.on ? G.foot : G.vehicle, kmh = Math.abs(G.vehicle.u) * 3.6;
@@ -246,13 +247,13 @@ class Delivery {
           const r = G.router.route(v.x, v.z, G.vehicle.h, this.drop.x, this.drop.z);
           this.t = (r ? r.time * 1.45 : 240) + 45;
           G.setDest([this.drop.x, this.drop.z]);
-          G.dialog('rosa', 'Ecco qui. Il cliente aspetta, vai!');
+          G.dialog(this.giver, 'Ecco qui. Il cliente aspetta, vai!');
         }
       } else this.load = 0;
       return;
     }
     this.t -= dt;
-    if (!G.foot.on && G.vehicle.impact > 0.2) { this.cargo = Math.max(0, this.cargo - G.vehicle.impact * 0.35); if (this.cargo < 0.55 && !this.warned) { this.warned = true; G.dialog('rosa', 'Attento! Se arrivano schiacciati non li paga nessuno!'); } }
+    if (!G.foot.on && G.vehicle.impact > 0.2) { this.cargo = Math.max(0, this.cargo - G.vehicle.impact * 0.35); if (this.cargo < 0.55 && !this.warned) { this.warned = true; G.dialog(this.giver, 'Attento! Se arrivano schiacciati non li paga nessuno!'); } }
     const d = Math.hypot(this.drop.x - v.x, this.drop.z - v.z);
     C.panelText(this.title, `Consegna in <b>${this.drop.name}</b> (${Math.round(d)} m) · carico integro ${Math.round(this.cargo * 100)}%`, this.t);
     if (d < 30 && kmh < 6) {

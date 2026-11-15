@@ -3,6 +3,7 @@
 // coda e non si sovrappongono. Il navigatore resta sopra (ha la sua voce e interrompe).
 export const CAST = {
   rosa: { name: 'Rosa', role: 'pasticceria', pitch: 1.25, rate: 1.05, color: '#ff9fc2' },
+  titolare: { name: 'Marco', role: 'negoziante', pitch: 1.05, rate: 1.08, color: '#ffd38a' },
   ugo: { name: 'Ugo', role: 'officina', pitch: 0.8, rate: 0.95, color: '#ffb347' },
   bassi: { name: 'Ag. Bassi', role: 'polizia locale', pitch: 1.0, rate: 1.1, color: '#8fc7ff' },
   biondo: { name: 'Il Biondo', role: '', pitch: 0.7, rate: 0.92, color: '#d6c27a' },

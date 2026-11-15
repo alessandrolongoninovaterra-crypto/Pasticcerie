@@ -625,6 +625,7 @@ function updateHUD(dt) {
   if (nowT - fpsT > 1000) { $('fps').textContent = Math.round(fpsN * 1000 / (nowT - fpsT)) + ' fps'; fpsN = 0; fpsT = nowT; }
   if (toastT && performance.now() > toastT) { $('toast').classList.remove('show'); toastT = 0; }
   if (hudT < 0.1) return;
+  if (G.career) $('money').innerHTML = G.career.status();
   hudT = 0;
   const kmh = Math.abs(v.u * 3.6);
   $('spd').textContent = Math.round(kmh);

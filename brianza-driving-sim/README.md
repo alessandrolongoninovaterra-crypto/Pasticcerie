@@ -103,11 +103,53 @@ l'aereo e il navigatore indica la destinazione in linea d'aria.
 | R | rimetti l'auto sulla strada più vicina |
 | T, + / - | velocità del tempo, cambia ora |
 | K | nomi dei punti di riferimento |
+| J | lavori: consegne, inseguimenti, evasioni (e abbandono del lavoro in corso) |
+| G | da fermo: distributore (pieno), officina (riparazioni, elaborazioni), concessionario (auto) |
+| 1-9 | scelta nei pannelli di lavori e negozi |
 | Esc | pausa: traffico, tempo, voce, audio, **configurazione volante** |
 
 Gamepad: grilletti RT/LT, stick sinistro, A freno a mano, Y visuale.
 Volanti e pedaliere (Logitech, Thrustmaster, Fanatec…) via Gamepad API: in pausa
 scegli gli assi di sterzo/acceleratore/freno (vengono mostrati in tempo reale).
+
+## Carriera, polizia, meteo (novembre 2026)
+
+Meccaniche da open world di guida, scritte da zero per questo gioco (idee ispirate al progetto
+liberty3d, di cui non si usa codice), sui luoghi reali della mappa:
+
+- **Derapate**: segni degli pneumatici sull'asfalto (buffer di 2.400 tratti, una sola chiamata di
+  disegno), fumo dalle gomme e stridio quando l'auto slitta: derapata, freno a mano, sgommata in
+  partenza, frenata al limite. Sull'erba niente segni neri; sul bagnato meno fumo.
+- **Meteo dinamico** (menu *Meteo*: variabile o fisso): sereno, nuvoloso, pioggia, temporale con
+  lampi e tuoni, nebbia della pianura. Si somma al ciclo giorno/notte: cielo coperto, luci più
+  basse, foschia vicina (con la nebbia ~170 m), pioggia attorno alla telecamera (non in galleria).
+  L'asfalto si bagna in fretta e si asciuga piano: più scuro e con il 30% di aderenza in meno.
+- **Polizia** (menu *Polizia*: attiva o no), senza armi. Le pattuglie girano per le strade; i reati
+  visti da una volante (rosso, velocità oltre 35 km/h sul limite, incidenti) o gravi (pedone
+  investito, speronare una volante) alzano il livello di ricerca (★ 1-5). Le volanti hanno la
+  stessa fisica dell'auto del giocatore: lontane seguono il percorso stradale calcolato dal
+  navigatore verso l'ultima posizione nota, vicine puntano dove stai andando e cercano di
+  speronarti; da 3★ fanno posti di blocco davanti. **Arresto**: fermo vicino a una volante per
+  3 secondi (multa di 400 € per stella e punti patente). **Fuga**: nessuna volante ti vede (linea di
+  vista tra gli edifici) per 10 s + 5 s per stella, dopo che ti sei allontanato dall'ultimo
+  avvistamento. Sirena bitonale, lampeggianti (luce vera di notte), volanti sulla minimappa.
+- **Economia** (salvata nel browser): soldi, carburante (circa 650 km con un pieno), danni (gli urti
+  consumano l'auto: oltre il 60% perde potenza, al 100% è in panne). Da fermo, con **G**: ai
+  **distributori** reali il pieno (1,85 €/l), nelle **officine** reali (OSM `shop=car_repair`)
+  riparazione ed elaborazioni (motore, gomme, freni), dai **concessionari** reali (`shop=car`) le
+  auto del gioco. Le multe si pagano dal conto. R con il serbatoio vuoto o in panne: carro attrezzi.
+- **Missioni** (tasto **J**, tre offerte vicino a te):
+  - *consegna*: ritiro in un negozio vero (pasticcerie, panetterie, fiorai, gastronomie, pizzerie
+    e ristoranti di OSM) e consegna a tempo in una via vera a 1-3,5 km; il carico teme gli urti e
+    il compenso cala se arriva rovinato o in ritardo;
+  - *inseguimento*: un pirata della strada scappa (stessa IA delle volanti, ma in fuga): speronalo
+    finché la sua resistenza arriva a zero;
+  - *evasione*: un pacco che scotta e la polizia già a 2-3★: seminala entro il tempo.
+  Il navigatore guida verso l'obiettivo (anche verso l'auto in fuga, ricalcolando).
+- **Dialoghi e audio**: personaggi con voce italiana (sintesi vocale del browser, gratuita) e
+  sottotitoli colorati: Rosa della pasticceria, Ugo dell'officina, l'agente Bassi, il Biondo, la
+  Centrale via radio (inseguimenti, posti di blocco, fughe), gli agenti all'arresto. Suoni
+  sintetizzati: sirena, stridio delle gomme, pioggia e tuoni.
 
 ## Stile open world
 
