@@ -28,7 +28,7 @@ import { Police } from './police.js';
 import { Career } from './career.js';
 import { EnvMap } from './envmap.js';
 import { Dialogue } from './dialogue.js';
-const WEATHER_ICON = () => (G.weather ? WEATHER[G.weather.state].icon : '');
+const WEATHER_ICON = () => (G.weather ? (G.weather.state === 'clear' && G.sky && G.sky.night > 0.5 ? '🌙' : WEATHER[G.weather.state].icon) : '');
 import './geo.js';   // aggancio di computeVertexNormals (normali nulle) prima di costruire qualsiasi modello
 
 // Pulizia del buffer HDR prima del bloom: un solo pixel NaN o infinito, sfocato dal bloom su piu'

@@ -226,7 +226,8 @@ export class Police {
     // chi ha urtato chi: se il giocatore andava verso la volante, e' speronamento
     const pTowards = -(pvx * hit.nx + pvz * hit.nz), cTowards = cvx * hit.nx + cvz * hit.nz;
     if (any) return -vn;
-    return pTowards > cTowards + 1 && -vn > 3 ? -vn : 0;
+    // speronamento del giocatore: solo se e' lui a muoversi verso la volante (non se e' fermo e lo urtano)
+    return Math.abs(pv.u) > 6 && pTowards > cTowards + 1 && pTowards > 4 && -vn > 3 ? -vn : 0;
   }
 
   update(dt, p, now) {
@@ -330,7 +331,12 @@ export class Police {
         else if (this.lastSeen) [tx, tz] = this.follow(c, this.lastSeen[0], this.lastSeen[1], dt);
         else [tx, tz] = [px, pz];
         const fast = 70 + this.stars * 22 + Math.min(40, d * 0.15);
-        this.drive(c, tx, tz, fast, dt);
+        // giocatore fermo (o quasi) vicino: la volante accosta e frena, non lo sperona
+        // e si avvicina piano: velocita' proporzionale alla distanza (arriva senza tamponarlo)
+        const still = G.foot.on || Math.abs(pv.u) < 5;
+        // a ridosso di un'auto lenta (sotto i 36 km/h) non la spinge: frena; sperona solo chi va forte
+        if ((still && d < (G.foot.on ? 9 : 12)) || (d < 10 && Math.abs(pv.u) < 10)) v.update(dt, { throttle: 0, brake: 1, steer: 0, handbrake: Math.abs(v.u) < 1 ? 1 : 0, pitch: 0 });
+        else this.drive(c, tx, tz, still ? Math.max(12, Math.min(fast, d * 1.6)) : fast, dt);
       } else {
         // pattuglia: giro verso un punto a caso
         if (!c.goal || Math.hypot(c.goal[0] - v.x, c.goal[1] - v.z) < 25 || (c.goalT = (c.goalT || 0) - dt) < 0) {
@@ -352,7 +358,7 @@ export class Police {
     // arresto: fermo vicino a una volante
     if (pursuit) {
       const slow = G.foot.on || Math.abs(pv.u) < 2.2;
-      if (slow && nearest < 9) this.bust += dt; else this.bust = Math.max(0, this.bust - dt * 1.5);
+      if (slow && nearest < 14) this.bust += dt; else this.bust = Math.max(0, this.bust - dt * 1.5);
       if (this.bust > 3) {
         this.events.push({ type: 'arrest', stars: this.stars });
         this.heat = 0; this.bust = 0; this.maxStars = 0;

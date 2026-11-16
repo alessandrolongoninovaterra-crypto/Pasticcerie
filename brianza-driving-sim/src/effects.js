@@ -73,7 +73,7 @@ export class DriveFX {
       const prev = this.last.get(key);
       if (prev) this.segment(prev[0], prev[1], prev[2], x, y, z);
       this.last.set(key, [x, y, z]);
-      if (Math.random() < intensity * 0.55) {
+      if (Math.random() < intensity * 0.32) {
         const vx = fx * v.u + lx * (v.v || 0), vz = fz * v.u + lz * (v.v || 0);
         this.puff(x, y, z, vx, vz, intensity);
       }
@@ -103,9 +103,9 @@ export class DriveFX {
       const t = p.life / p.max;
       p.s.position.x += p.vx * dt; p.s.position.y += p.vy * dt; p.s.position.z += p.vz * dt;
       p.vx *= 1 - dt * 0.8; p.vz *= 1 - dt * 0.8;
-      const sz = p.size * (1 + t * 3.2);
+      const sz = p.size * (1 + t * 2.4);
       p.s.scale.set(sz, sz, 1);
-      p.s.material.opacity = 0.55 * (1 - t) * Math.min(1, p.life * 6);
+      p.s.material.opacity = 0.38 * (1 - t) * Math.min(1, p.life * 6);
     }
   }
 
