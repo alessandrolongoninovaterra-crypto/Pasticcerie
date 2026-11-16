@@ -4,7 +4,7 @@ import { CARS } from './cars.js';
 // missioni (consegna, inseguimento, evasione) sui luoghi veri della mappa. I progressi restano nel
 // browser (localStorage). Tasti: J lavori, G interagisci (al distributore / in officina / dal
 // concessionario, fermi), 1-6 per scegliere nei pannelli.
-const PRICES = { city: 0, compact: 14000, sedan: 26000, suv: 31000, sport: 62000, van: 19000, plane: 85000, jet: 250000 };
+const PRICES = { city: 0, compact: 14000, sedan: 26000, suv: 31000, sport: 62000, van: 19000, bike: 21000, bike600: 12500, plane: 85000, jet: 250000 };
 const FUEL_EUR = 1.85, TANK = 50;          // euro al litro, litri del serbatoio
 const fmt = (n) => Math.round(n).toLocaleString('it');
 

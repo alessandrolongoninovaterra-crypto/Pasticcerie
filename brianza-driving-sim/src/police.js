@@ -4,13 +4,16 @@ import { CARS, buildCarModel } from './cars.js';
 import { CLS } from './roads.js';
 
 // Polizia con livello di ricerca (stelle 1-5), senza armi.
-//  - Pattuglie che girano per le strade attorno al giocatore.
+//  - Pattuglie che in calma circolano come il resto del traffico (corsia, limiti, semafori,
+//    precedenze, distanza di sicurezza; lampeggianti e sirena spenti). Solo con le stelle
+//    lasciano la corsia e passano alla guida fisica dell'inseguimento.
 //  - Reati: passaggio col rosso o velocita' folle sotto gli occhi di una volante, investire un
 //    pedone, speronare una volante, incidenti con il traffico davanti alla polizia.
 //  - Inseguimento: le volanti usano la stessa fisica dell'auto del giocatore; da lontano seguono
 //    il percorso del navigatore verso l'ultima posizione nota, da vicino puntano dove il giocatore
 //    sta andando e cercano di speronarlo. Da 3 stelle: posti di blocco sulla strada davanti.
-//  - Arresto: fermo vicino a una volante per qualche secondo. Fuga: nessuna volante ti vede per
+//  - Arresto: fermo (o chiuso tra due volanti) vicino alla polizia per qualche secondo; poi i
+//    comandi restano bloccati un attimo e le volanti tornano in servizio normale. Fuga: nessuna volante ti vede per
 //    abbastanza tempo (piu' stelle, piu' tempo).
 const SPEC = { ...CARS.find((c) => c.id === 'sedan'), name: 'Volante', kw: 200, nm: 430, grip: 1.12, brake: 15500, color: '#1d3d7a' };
 // auto in fuga (missione di inseguimento): una compatta veloce
@@ -30,6 +33,7 @@ export class Police {
     this.light = new THREE.PointLight(0x3060ff, 0, 30, 1.6);   // lampeggiante (sempre in scena: niente ricompilazioni)
     G.scene.add(this.light);
     this.maxStars = 0;
+    this.freeze = 0; this.bustHold = 0;   // fermo dopo l'arresto; tolleranza dell'arresto in corso
   }
 
   get stars() { return Math.min(5, Math.floor(this.heat)); }
@@ -93,6 +97,7 @@ export class Police {
   }
 
   remove(c) {
+    if (c.ta) { this.G.traffic.removeAgent(c.ta); c.ta = null; }
     this.G.scene.remove(c.model.root);
     c.model.root.traverse((o) => { if (o.geometry) o.geometry.dispose(); });
     this.cars.splice(this.cars.indexOf(c), 1);
@@ -114,6 +119,45 @@ export class Police {
       return { x: nr.px, z: nr.pz, h, w, nr };
     }
     return null;
+  }
+
+  // la volante entra nel traffico: corsia giusta, stesse regole delle altre auto. Vicino al
+  // giocatore solo se la corsia e' a pochi metri e nella stessa direzione (niente salti visibili)
+  toLane(c, d) {
+    const T = this.G.traffic, v = c.v;
+    if (!T || !T.addAgent || c.mode === 'runner') return false;
+    const a = T.addAgent(v.x, v.z, v.h, { halfL: SPEC.L / 2, halfW: SPEC.W / 2 }, { speed: Math.max(0, v.u), radius: d > 160 ? 40 : 6, mood: 0.97 });
+    if (!a) return false;
+    let dh = a.h - v.h; while (dh > Math.PI) dh -= 2 * Math.PI; while (dh < -Math.PI) dh += 2 * Math.PI;
+    if (d < 160 && (Math.hypot(a.x - v.x, a.z - v.z) > 3.5 || Math.abs(dh) > 0.7)) { T.removeAgent(a); return false; }
+    c.ta = a; c.route = null; c.bumpSeen = false;
+    return true;
+  }
+
+  // esce dal traffico: da qui in poi guida fisica (inseguimento)
+  detach(c) {
+    const v = c.v, a = c.ta;
+    this.G.traffic.removeAgent(a); c.ta = null;
+    v.x = a.x; v.z = a.z; v.h = a.h; v.u = a.speed; v.v = 0; v.w = 0; v.gear = 1;
+    v.surface = this.G.roads.surfaceAt(v.x, v.z, v.y + 1); v.y = v.surface.h;
+    c.route = null; c.stuck = 0; c.rev = 0;
+  }
+
+  // la volante nel traffico: posizione e assetto dall'agente, i dettagli (sterzo, ruote, stop) dal moto
+  ride(c, dt) {
+    const v = c.v, a = c.ta;
+    let dh = a.h - v.h; while (dh > Math.PI) dh -= 2 * Math.PI; while (dh < -Math.PI) dh += 2 * Math.PI;
+    const w = dt > 0 ? dh / dt : 0, acc = dt > 0 ? (a.speed - v.u) / dt : 0;
+    v.x = a.x; v.z = a.z; v.y = a.y; v.h = a.h; v.v = 0; v.w = w; v.airborne = false;
+    v.u = a.speed;
+    const st = a.speed > 0.8 ? Math.atan(v.L * w / a.speed) : v.steer;
+    v.steer += (Math.max(-0.6, Math.min(0.6, st)) - v.steer) * Math.min(1, dt * 6);
+    v.pitch += (Math.atan(a.slope || 0) - v.pitch) * Math.min(1, dt * 6);
+    v.roll *= 1 - Math.min(1, dt * 4);
+    v.dynPitch += (Math.max(-0.04, Math.min(0.04, -acc * 0.006)) - v.dynPitch) * Math.min(1, dt * 5);
+    v.dynRoll += (Math.max(-0.05, Math.min(0.05, a.speed * w * 0.008)) - v.dynRoll) * Math.min(1, dt * 5);
+    v.brake = acc < -0.8 || (a.speed < 0.3 && a.stuck > 0) ? 1 : 0; v.throttle = acc > 0.2 ? 0.5 : 0;
+    v.wheelSpinAngle = (v.wheelSpinAngle || 0) + a.speed * dt / 0.33;
   }
 
   // percorso stradale verso un punto (navigatore), ricalcolato ogni tanto
@@ -243,7 +287,7 @@ export class Police {
     this.spawnT -= dt;
     if (this.enabled && active.length < want && this.spawnT <= 0) {
       const sp = this.spawnPoint(p, pursuit ? 170 + Math.random() * 110 : 300 + Math.random() * 200, true);
-      if (sp) { const c = this.makeCar(sp.x, sp.z, sp.h); c.mode = pursuit ? 'pursuit' : 'patrol'; }
+      if (sp) { const c = this.makeCar(sp.x, sp.z, sp.h); c.mode = pursuit ? 'pursuit' : 'patrol'; if (!pursuit && !this.toLane(c, 1e9)) this.remove(c); }
       this.spawnT = pursuit ? 3 : 6;
     }
     // posto di blocco davanti al giocatore (da 3 stelle)
@@ -294,7 +338,7 @@ export class Police {
     for (const c of [...this.cars]) {
       const v = c.v, d = Math.hypot(v.x - px, v.z - pz);
       if (d < nearest) { nearest = d; nearC = c; }
-      if ((d > 750 && !pursuit) || d > 1100 || !G.world.ready(v.x, v.z) || ((c.stuckN || 0) > 2 && d > 90)) { this.remove(c); continue; }
+      if ((d > 750 && !pursuit) || d > 1100 || !G.world.ready(v.x, v.z) || ((c.stuckN || 0) > 2 && d > 90) || (c.ta && c.ta.stuck > 40 && d > 90)) { this.remove(c); continue; }
       if (c.mode === 'runner' || c.mode === 'caught') {
         if (d > 1500) { this.events.push({ type: 'runnerLost' }); this.remove(c); continue; }
         if (c.mode === 'caught') v.update(dt, { throttle: 0, brake: 1, steer: 0, handbrake: 1, pitch: 0 });
@@ -322,6 +366,7 @@ export class Police {
         if (pursuit && d < 25) c.mode = 'pursuit';      // il posto di blocco si mette all'inseguimento
         v.update(dt, { throttle: 0, brake: 1, steer: 0, handbrake: 1, pitch: 0 });
       } else if (pursuit) {
+        if (c.ta) this.detach(c);           // stelle: lascia la corsia e parte all'inseguimento
         c.mode = 'pursuit';
         let tx, tz;
         if (this.seen && d < 75 && this.los(v, px, pz)) {
@@ -339,7 +384,17 @@ export class Police {
         if ((still && d < (G.foot.on ? 9 : 12)) || (d < 10 && Math.abs(pv.u) < 10)) v.update(dt, { throttle: 0, brake: 1, steer: 0, handbrake: Math.abs(v.u) < 1 ? 1 : 0, pitch: 0 });
         else this.drive(c, tx, tz, still ? Math.max(12, Math.min(fast, d * 1.6)) : fast, dt);
       } else {
-        // pattuglia: giro verso un punto a caso
+        // calma: la volante circola come il traffico (corsia, limiti, semafori, precedenze)
+        if (!c.ta && (c.laneT = (c.laneT || 0) - dt) <= 0) { c.laneT = 0.5; this.toLane(c, d); }
+        if (c.ta) {
+          this.ride(c, dt);
+          // urtata dal giocatore che le va addosso: speronamento
+          if (c.ta.bumped > 2.5 && !c.bumpSeen) { c.bumpSeen = true; if (!G.foot.on && Math.abs(pv.u) > 6) this.crime('ram', px, pz); }
+          if (c.ta.bumped <= 0) c.bumpSeen = false;
+          this.place(c, now);
+          continue;
+        }
+        // appena finito un inseguimento: rientra con calma verso una strada e poi nel traffico
         if (!c.goal || Math.hypot(c.goal[0] - v.x, c.goal[1] - v.z) < 25 || (c.goalT = (c.goalT || 0) - dt) < 0) {
           const sp = this.spawnPoint({ x: v.x, z: v.z, h: v.h }, 250 + Math.random() * 250, false);
           c.goal = sp ? [sp.x, sp.z] : [px, pz]; c.goalT = 40; c.route = null;
@@ -347,7 +402,7 @@ export class Police {
         if (d > 110) { this.rail(c, c.goal[0], c.goal[1], 50, dt); this.place(c, now); continue; }
         const [tx, tz] = this.follow(c, c.goal[0], c.goal[1], dt);
         const w = v.surface && v.surface.road ? G.roads.ways[v.surface.road.wi] : null;
-        this.drive(c, tx, tz, w ? Math.min(70, w.limit) : 40, dt);
+        this.drive(c, tx, tz, (c.calmT = (c.calmT || 0) - dt) > 0 ? 0 : w ? Math.min(50, w.limit) : 30, dt);
       }
       if (!G.foot.on) {
         const ram = this.bump(c, pv);
@@ -366,16 +421,32 @@ export class Police {
         if (rel < 0) { A.u *= 0.85; B.u *= 0.85; }
       }
     }
-    // arresto: fermo vicino a una volante
+    // arresto: fermo vicino a una volante (alla stessa quota: non da un cavalcavia), oppure
+    // chiuso tra due volanti che gli impediscono di ripartire anche se sgassa sul posto
     if (pursuit) {
-      const slow = G.foot.on || Math.abs(pv.u) < 2.2;
-      if (slow && nearest < 14) this.bust += dt; else this.bust = Math.max(0, this.bust - dt * 1.5);
+      const py = G.foot.on ? G.foot.y : pv.y;
+      let close = 0, closest = 1e9;
+      for (const c of this.cars) {
+        if (c.mode !== 'pursuit' && c.mode !== 'block') continue;
+        const d = Math.hypot(c.v.x - px, c.v.z - pz);
+        if (Math.abs(c.v.y - py) > 3.5) continue;
+        if (d < 10) close++;
+        closest = Math.min(closest, d);
+      }
+      const sp = G.foot.on ? 0 : Math.abs(pv.u);
+      const slow = sp < 2.2, boxed = close >= 2 && sp < 5;
+      if ((slow && closest < 14) || boxed) {
+        this.bust += dt * (boxed ? 1.5 : 1) * (G.foot.on ? 1.3 : 1);
+        this.bustHold = 1.2;                                   // un attimo di tolleranza se si muove
+      } else if ((this.bustHold -= dt) <= 0) this.bust = Math.max(0, this.bust - dt * 0.8);
       if (this.bust > 3) {
         this.events.push({ type: 'arrest', stars: this.stars });
-        this.heat = 0; this.bust = 0; this.maxStars = 0;
-        for (const c of this.cars) if (c.mode === 'pursuit') { c.mode = 'patrol'; c.route = null; }
+        this.heat = 0; this.bust = 0; this.maxStars = 0; this.lastSeen = null;
+        this.freeze = 3.5;                                     // comandi bloccati durante il fermo
+        for (const c of this.cars) if (c.mode === 'pursuit' || c.mode === 'block') { c.mode = 'patrol'; c.route = null; c.goal = null; c.calmT = 6; }
       }
     } else this.bust = 0;
+    if (this.freeze > 0) this.freeze -= dt;
     // lampeggiante sulla volante piu' vicina (luce vera di notte) e sirena
     const flash = Math.floor(now / 1000 * 6) % 2;
     this.light.intensity = 0;

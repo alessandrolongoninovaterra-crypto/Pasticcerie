@@ -50,8 +50,28 @@ export class Traffic {
     if (this.parkFleet.setNight) this.parkFleet.setNight(f, 0.05);    // le parcheggiate restano spente
   }
 
-  release(c) { this.fleet.setAt(c.slot, FAR, FAR, 0, 0, -100); this.free.push(c.slot); }
-  clear() { for (const c of this.cars) this.release(c); this.cars = []; }
+  release(c) { if (c.ext) return; this.fleet.setAt(c.slot, FAR, FAR, 0, 0, -100); this.free.push(c.slot); }
+  clear() { for (const c of this.cars) this.release(c); this.cars = this.cars.filter((c) => c.ext); }
+
+  // Veicoli "esterni" che circolano con le stesse regole del traffico (corsia, limiti, semafori,
+  // precedenze, distanza di sicurezza) ma con un modello proprio: le volanti di pattuglia.
+  // Chi li aggiunge li disegna e li toglie; il traffico li muove e li vede come ostacoli.
+  addAgent(x, z, h, box, opt = {}) {
+    const R = this.R;
+    const nr = R.nearest(x, z, opt.radius || 30, (w) => w.drivable && w.cls <= CLS.LIVING && !(w.flags & F.PRIVATE));
+    if (!nr) return null;
+    const w = R.ways[nr.wi], A = w.nodes[nr.k], B = w.nodes[nr.k + 1];
+    const segH = Math.atan2(R.nx[B] - R.nx[A], R.nz[B] - R.nz[A]);
+    const dir = w.oneway || Math.cos(segH - h) >= 0 ? 1 : -1;
+    const segLen = w.cum[nr.k + 1] - w.cum[nr.k];
+    const c = { ext: true, slot: -1, type: 'car', box, colour: 0, wi: nr.wi, k: nr.k, dir, s: (dir > 0 ? nr.t : 1 - nr.t) * segLen,
+      speed: opt.speed || 0, x: nr.px, z: nr.pz, y: 0, h, slope: 0, mood: opt.mood || 1, next: null, yield: false, bumped: 0, stuck: 0 };
+    this.chooseNext(c);
+    this.cars.push(c);
+    this.place(c, opt.speed ? 0.016 : 0);
+    return c;
+  }
+  removeAgent(c) { const i = this.cars.indexOf(c); if (i >= 0) this.cars.splice(i, 1); }
 
   segEnds(c) {
     const w = this.R.ways[c.wi];
@@ -164,10 +184,11 @@ export class Traffic {
     const px = player.x, pz = player.z;
     for (let i = this.cars.length - 1; i >= 0; i--) {
       const c = this.cars[i];
+      if (c.ext) continue;
       if (Math.hypot(c.x - px, c.z - pz) > 800 || c.stuck > 40) { this.release(c); this.cars.splice(i, 1); }
     }
     this.spawnTimer -= dt;
-    if (this.cars.length < this.target && this.spawnTimer <= 0) { this.spawn(px, pz); this.spawnTimer = 0.15; }
+    if (this.cars.length - this.cars.filter((c) => c.ext).length < this.target && this.spawnTimer <= 0) { this.spawn(px, pz); this.spawnTimer = 0.15; }
     this.parkTimer -= dt;
     if (this.parkTimer <= 0) { this.parkTimer = 1.5; this.refreshParked(px, pz); }
 
@@ -247,7 +268,7 @@ export class Traffic {
         this.chooseNext(c);
       }
       this.place(c, dt);
-      this.draw(c);
+      if (!c.ext) this.draw(c);
     }
     if (this.beams.visible) this.beams.instanceMatrix.needsUpdate = true;
   }
@@ -267,7 +288,7 @@ export class Traffic {
 
   nearestCar(x, z, r, maxSpeed = 2.5) {
     let best = null, bd = r;
-    for (const c of this.cars) { const d = Math.hypot(c.x - x, c.z - z) - c.box.halfW; if (d < bd && c.speed <= maxSpeed) { bd = d; best = c; } }
+    for (const c of this.cars) { if (c.ext) continue; const d = Math.hypot(c.x - x, c.z - z) - c.box.halfW; if (d < bd && c.speed <= maxSpeed) { bd = d; best = c; } }
     return best;
   }
 

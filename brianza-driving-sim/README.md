@@ -47,6 +47,16 @@ si salta. Vanno bene assi, grilletti analogici e tasti. La configurazione si sal
 quel modello di gamepad; *Ripristina predefiniti* la cancella. Nella stessa finestra si vedono in
 tempo reale i valori di assi e tasti.
 
+### Moto da corsa
+
+Nel menu ci sono due **moto da corsa** (modelli originali, senza marchi): la *Supersportiva 1000*
+(150 kW, 280 kg con il pilota: 0-100 in ~3,7 s, ~285 km/h) e la *Sportiva 600* (90 kW, più facile,
+~245 km/h). Usano la stessa fisica a bicicletta delle auto con i dati di una moto (carreggiata
+stretta, massa leggera, trazione posteriore, frenata ~30 m da 100 km/h). In curva **si piegano**
+verso l'interno con l'angolo reale, tan(piega) = velocità × imbardata / g (fino a ~55°); dal casco
+(visuale abitacolo) si vedono cupolino, semimanubri e strumentazione e l'orizzonte si inclina con
+la piega. Una sola traccia di gomma per ruota nelle derapate. Si comprano anche dal concessionario.
+
 ### Caccia a reazione
 
 Nel menu c'è anche un **caccia a reazione** biposto (modello originale, senza insegne) per gli
@@ -124,13 +134,19 @@ liberty3d, di cui non si usa codice), sui luoghi reali della mappa:
   lampi e tuoni, nebbia della pianura. Si somma al ciclo giorno/notte: cielo coperto, luci più
   basse, foschia vicina (con la nebbia ~170 m), pioggia attorno alla telecamera (non in galleria).
   L'asfalto si bagna in fretta e si asciuga piano: più scuro e con il 30% di aderenza in meno.
-- **Polizia** (menu *Polizia*: attiva o no), senza armi. Le pattuglie girano per le strade; i reati
+- **Polizia** (menu *Polizia*: attiva o no), senza armi. In calma le pattuglie **circolano come il
+  resto del traffico**: corsia di destra, limiti di velocità, semafori, precedenze e distanza di
+  sicurezza, lampeggianti e sirena spenti (il traffico si ferma dietro di loro e viceversa). Solo
+  quando ci sono stelle lasciano la corsia e inseguono. I reati
   visti da una volante (rosso, velocità oltre 35 km/h sul limite, incidenti) o gravi (pedone
   investito, speronare una volante) alzano il livello di ricerca (★ 1-5). Le volanti hanno la
   stessa fisica dell'auto del giocatore: lontane seguono il percorso stradale calcolato dal
   navigatore verso l'ultima posizione nota, vicine puntano dove stai andando e cercano di
-  speronarti; da 3★ fanno posti di blocco davanti. **Arresto**: fermo vicino a una volante per
-  3 secondi (multa di 400 € per stella e punti patente). **Fuga**: nessuna volante ti vede (linea di
+  speronarti; da 3★ fanno posti di blocco davanti. **Arresto**: fermo vicino a una volante (alla stessa
+  quota: non dal cavalcavia sopra) per 3 secondi, oppure chiuso tra due volanti anche se provi a
+  ripartire piano; un attimo di movimento non azzera il conteggio (scende piano). Poi il veicolo
+  resta bloccato per qualche secondo, multa di 400 € per stella e punti patente, e le volanti
+  tornano in servizio normale nel traffico. **Fuga**: nessuna volante ti vede (linea di
   vista tra gli edifici) per 10 s + 5 s per stella, dopo che ti sei allontanato dall'ultimo
   avvistamento. Sirena bitonale, lampeggianti (luce vera di notte), volanti sulla minimappa.
 - **Economia** (salvata nel browser): soldi, carburante (circa 650 km con un pieno), danni (gli urti

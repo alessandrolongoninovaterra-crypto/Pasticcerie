@@ -5,6 +5,7 @@ import { RoadNetwork, CLS } from './roads.js';
 import { World } from './world.js';
 import { Sky } from './sky.js';
 import { CARS, buildCarModel, drawCluster } from './cars.js';
+import { buildBikeModel } from './bike.js';
 import { Vehicle } from './vehicle.js';
 import { Plane, buildPlaneModel, drawPlaneCluster } from './plane.js';
 import { buildJetModel } from './jet.js';
@@ -168,7 +169,7 @@ function setupMenu() {
       : c.kind === 'plane'
       ? `<span>${Math.round(c.kw * 1.36)} CV</span><span>${c.mass} kg</span><span>apertura ${c.W} m</span><span>decollo ~${Math.round(c.vRot * 3.6)} km/h</span>`
       : `<span>${Math.round(c.kw * 1.36)} CV</span><span>${c.mass} kg</span><span>${c.gears.length} marce aut.</span><span>${{ F: 'Anteriore', R: 'Posteriore', A: '4x4' }[c.drive]}</span>`;
-    d.innerHTML = `<div class="sw" style="background:${c.kind === 'plane' ? c.stripe : c.color}"></div><b>${c.kind === 'plane' ? '✈ ' : ''}${c.name}</b><small>${c.desc}</small>
+    d.innerHTML = `<div class="sw" style="background:${c.kind === 'plane' ? c.stripe : c.color}"></div><b>${c.kind === 'plane' ? '✈ ' : c.kind === 'bike' ? '🏍 ' : ''}${c.name}</b><small>${c.desc}</small>
       <div class="spec">${spec}</div>`;
     d.onclick = () => { G.carIdx = i; [...carsEl.children].forEach((e) => e.classList.toggle('sel', e === d)); };
     carsEl.appendChild(d);
@@ -313,6 +314,10 @@ function makePlayer(spec = CARS[G.carIdx], color = null) {
   if (spec.kind === 'plane') {
     G.vehicle = new Plane(spec, G.world);
     G.carModel = spec.jet ? buildJetModel(spec, { color }) : buildPlaneModel(spec, { color });
+  } else if (spec.kind === 'bike') {
+    G.vehicle = new Vehicle(spec, G.world);
+    G.vehicle.isBike = true; G.vehicle.lean = 0;
+    G.carModel = buildBikeModel(spec, { color });
   } else {
     G.vehicle = new Vehicle(spec, G.world);
     G.carModel = buildCarModel(spec, { interior: true, color });
@@ -865,7 +870,7 @@ function updateCamera(dt, lookBack) {
   if (o.idle > 2.2 && (f.on ? Math.abs(f.u) > 0.5 : Math.abs(v.u) > 2)) { o.yaw *= Math.exp(-dt * 2.5); o.pitch *= Math.exp(-dt * 2.5); }
   if (mode === 0 || mode === 3) {
     const p = f.on ? f : v;
-    const dist = f.on ? 5.6 : (mode === 0 ? 4.2 : 8) + v.spec.L * (v.isPlane ? 1.1 : 0.75);
+    const dist = f.on ? 5.6 : (mode === 0 ? (v.isBike ? 3.4 : 4.2) : 8) + v.spec.L * (v.isPlane ? 1.1 : 0.75);
     const hgt = f.on ? 2.5 : mode === 0 ? 2.1 + v.spec.H * 0.4 : 4.2, lookY = f.on ? 1.3 : 1.2;
     const yaw = p.h + o.yaw + (lookBack ? Math.PI : 0);
     const cp = Math.cos(o.pitch), sp = Math.sin(o.pitch);
@@ -888,8 +893,9 @@ function updateCamera(dt, lookBack) {
     cam.position.copy(eye.applyMatrix4(m.root.matrixWorld));
     // con il mouse ci si guarda attorno dall'abitacolo
     const ly = (lookBack ? Math.PI : 0) + o.yaw, d = 30;
-    const ahead = new THREE.Vector3(Math.sin(ly) * d, (mode === 1 ? (v.isPlane ? -3.5 : -3.2) : -0.9) - o.pitch * d * 0.5, Math.cos(ly) * d).add(mode === 1 ? m.root.userData.eye : new THREE.Vector3(0, v.spec.H * 0.82, 0)).applyMatrix4(m.root.matrixWorld);
+    const ahead = new THREE.Vector3(Math.sin(ly) * d, (mode === 1 ? (v.isPlane ? -3.5 : v.isBike ? -8 : -3.2) : -0.9) - o.pitch * d * 0.5, Math.cos(ly) * d).add(mode === 1 ? m.root.userData.eye : new THREE.Vector3(0, v.spec.H * 0.82, 0)).applyMatrix4(m.root.matrixWorld);
     cam.lookAt(ahead);
+    if (v.isBike && !f.on) cam.rotateZ(-v.lean * 0.45);   // dal casco l'orizzonte si inclina con la piega
     cam.near = 0.08;
     camPos.copy(cam.position);
   }
@@ -950,6 +956,8 @@ function loop(now) {
     return;
   }
   const ctl = inp.read(dt);
+  // fermati dalla polizia: per qualche secondo il veicolo resta fermo
+  if (G.police && G.police.freeze > 0 && !G.foot.on) { ctl.throttle = 0; ctl.brake = 0; ctl.steer = 0; ctl.handbrake = 1; }
   if (ctl.actions.has('pause')) { togglePause(true); return; }
   if (inp.consume('KeyC') || ctl.actions.has('camera')) { G.camMode = (G.camMode + 1) % 4; showToast(CAM_NAMES[G.camMode], 1000); }
   if (inp.consume('KeyM') || ctl.actions.has('map')) { openMap('dest'); return; }
@@ -1012,7 +1020,14 @@ function loop(now) {
   // modello del giocatore
   const m = G.carModel;
   m.root.position.set(v.x, v.y, v.z);
-  m.root.rotation.set(-(v.pitch + v.dynPitch), v.h, v.roll + v.dynRoll, 'YXZ');
+  if (v.isBike) {
+    // la moto si piega verso l'interno della curva: tan(piega) = accelerazione laterale / g
+    // (con la velocita' reale di imbardata, cosi' anche in derapata la piega e' coerente)
+    const target = f.on || v.airborne ? 0 : Math.max(-0.95, Math.min(0.95, -Math.atan(v.u * v.w / 9.81)));
+    v.lean += (target - v.lean) * Math.min(1, dt * 7);
+    m.root.rotation.set(-(v.pitch + v.dynPitch * 0.5), v.h, v.roll * 0.2 + v.lean, 'YXZ');
+    if (m.bars) m.bars.rotation.y = v.steer;
+  } else m.root.rotation.set(-(v.pitch + v.dynPitch), v.h, v.roll + v.dynRoll, 'YXZ');
   for (const w of m.wheels) { w.pivot.rotation.x = v.wheelSpinAngle || 0; if (w.front) w.pivot.rotation.y = v.steer; }
   if (m.prop) m.prop.rotation.z = v.propAngle || 0;
   if (m.gear) { const down = v.onGround || v.agl < 40; for (const o of m.gear) o.visible = down; }   // carrello retrattile

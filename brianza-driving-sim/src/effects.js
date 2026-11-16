@@ -63,8 +63,9 @@ export class DriveFX {
   wheels(id, v, intensity, front, ground) {
     const fx = Math.sin(v.h), fz = Math.cos(v.h), lx = Math.cos(v.h), lz = -Math.sin(v.h);
     const half = (v.spec.W || 1.8) * 0.42, back = v.b || 1.3, fwd = v.a || 1.2;
-    const pts = [[-back, half], [-back, -half]];
-    if (front) pts.push([fwd, half], [fwd, -half]);
+    // la moto lascia un solo segno per ruota
+    const pts = v.isBike ? [[-back, 0]] : [[-back, half], [-back, -half]];
+    if (front) { if (v.isBike) pts.push([fwd, 0]); else pts.push([fwd, half], [fwd, -half]); }
     for (let i = 0; i < 4; i++) {
       const key = id + ':' + i;
       if (i >= pts.length || intensity <= 0) { this.last.delete(key); continue; }
