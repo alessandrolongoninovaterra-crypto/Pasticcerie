@@ -198,7 +198,8 @@ export class Police {
     const tr = c.turn || 0;
     if (tr > 0.35) want = Math.min(want, tr > 1.2 ? 24 : tr > 0.7 ? 38 : 58);
     c.dbg = [Math.round(v.x), Math.round(v.z), Math.round(tx), Math.round(tz), +err.toFixed(2), Math.round(kmh), c.route ? c.route.pts.length : -1, v.surface && v.surface.road ? 'r' : 't', c.rev > 0 ? 'R' : ''];
-    const throttle = kmh < want ? 1 : 0, brake = kmh > want + 12 ? 0.7 : 0;
+    // frenata proporzionale all'eccesso di velocita' (prima frenavano tardi e piano)
+    const throttle = kmh < want ? Math.min(1, (want - kmh) / 10 + 0.3) : 0, brake = kmh > want + 4 ? Math.min(1, 0.3 + (kmh - want) / 25) : 0;
     v.update(dt, { throttle, brake, steer: Math.max(-1, Math.min(1, err * 2.4)), handbrake: Math.abs(err) > 1.3 && kmh > 35 ? 1 : 0, pitch: 0 });
   }
 
@@ -354,6 +355,16 @@ export class Police {
       }
       G.fx.fromVehicle(c.id, v, G.weather ? G.weather.wet : 0);
       this.place(c, now);
+    }
+    // le volanti non si compenetrano tra loro (separazione semplice a cerchi)
+    for (let i = 0; i < this.cars.length; i++) for (let j = i + 1; j < this.cars.length; j++) {
+      const A = this.cars[i].v, B = this.cars[j].v, dx = B.x - A.x, dz = B.z - A.z, d = Math.hypot(dx, dz), min = 4.4;
+      if (d < min && d > 1e-3 && Math.abs(A.y - B.y) < 2.5) {
+        const push = (min - d) / 2 * Math.min(1, 0.6 + Math.abs(Math.sin(A.h - Math.atan2(dx, dz))) * 0.4), nx = dx / d, nz = dz / d;
+        A.x -= nx * push; A.z -= nz * push; B.x += nx * push; B.z += nz * push;
+        const rel = (B.u * Math.sin(B.h) - A.u * Math.sin(A.h)) * nx + (B.u * Math.cos(B.h) - A.u * Math.cos(A.h)) * nz;
+        if (rel < 0) { A.u *= 0.85; B.u *= 0.85; }
+      }
     }
     // arresto: fermo vicino a una volante
     if (pursuit) {
