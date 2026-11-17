@@ -632,6 +632,11 @@ tutta l'area in memoria; il gioco invece non cambia.
   contro l'ostacolo rimbalza poco, quella lungo l'ostacolo resta (attrito proporzionale all'urto) e il
   muso si allinea: a 130 km/h con 10° si striscia e si esce a circa 95 km/h, frontalmente ci si ferma.
   Vale anche per muri ed edifici: strisciando non ci si inchioda più.
+  I guardrail non diventano muri invisibili: niente collisione dove il guardrail passerebbe dentro
+  una carreggiata (anche su rilevato, in trincea o in un casello largo 60 m) o a meno di 90 cm da
+  un'altra carreggiata affiancata (immissioni, rampe parallele: lì quello vero finisce); i tratti OSM
+  lunghi si controllano a pezzi di 6 m. Verifica sulle corsie di superstrade, ponti e gallerie (984
+  tessere): da 14 punti bloccati a 1 (un raccordo tra due tratti dell'A8).
 
 ## Fluidità: niente blocchi al tramonto e durante il caricamento
 

@@ -525,9 +525,17 @@ export class World {
         if (!r.done) return false;
         t.gen = null; add('roads', r.value);
         // guardrail delle superstrade: solidi (striscia di 35 cm sul lato esterno del nastro)
-        for (const [x0, z0, x1, z1, y0, y1, ox, oz] of r.value.userData.guards || []) {
-          // non dove cadrebbe dentro un'altra carreggiata affiancata (rampe, carreggiata opposta)
-          if (this.roads.inCarriageway((x0 + x1) / 2 + ox * 0.15, (z0 + z1) / 2 + oz * 0.15, this.terrain)) continue;
+        const R = this.roads, T = this.terrain;
+        for (const [x0, z0, x1, z1, y0, y1, ox, oz, wi] of r.value.userData.guards || []) {
+          // non dove passa a meno di 90 cm da un'altra carreggiata (immissioni, rampe affiancate,
+          // caselli): li' il guardrail vero finisce, qui sarebbe un muro dentro la corsia
+          let clash = false;
+          for (const f of [0, 0.5, 1]) {
+            const px = x0 + (x1 - x0) * f + ox * 0.15, pz = z0 + (z1 - z0) * f + oz * 0.15;
+            // ...e nemmeno dentro la propria carreggiata (all'interno delle curve il tratto dopo la taglia)
+            if (!clash && (R.inCarriageway(px, pz, T, true, 0.9, wi) || R.inCarriageway(px, pz, T, true, 0.3))) clash = true;
+          }
+          if (clash) continue;
           const co = this.collision.addPolygon(t.key, Float32Array.from([x0, z0, x1, z1, x1 + ox * 0.35, z1 + oz * 0.35, x0 + ox * 0.35, z0 + oz * 0.35]), Math.max(y0, y1) + 0.95, true, Math.min(y0, y1) - 0.5);
           if (co) co.src = 'guardrail';
         }

@@ -716,7 +716,7 @@ export class RoadNetwork {
             const x1 = e1[side * 3] + rx * off, z1 = e1[side * 3 + 2] + rz * off, y1 = e1[side * 3 + 1];
             const i0 = guard.v(x0, y0 + 0.85, z0), i1 = guard.v(x1, y1 + 0.85, z1), i2 = guard.v(x1, y1 + 0.5, z1), i3 = guard.v(x0, y0 + 0.5, z0);
             guard.quad(i0, i1, i2, i3);
-            guardCol.push([x0, z0, x1, z1, y0, y1, rx * sg, rz * sg]);
+            guardCol.push([x0, z0, x1, z1, y0, y1, rx * sg, rz * sg, wi]);
             if (s % 2 === 0) {
               const j0 = guard.v(x0, y0 + 0.85, z0), j1 = guard.v(x0 + sx * 0.12, y0 + 0.85, z0 + sz * 0.12), j2 = guard.v(x0 + sx * 0.12, y0 - 0.2, z0 + sz * 0.12), j3 = guard.v(x0, y0 - 0.2, z0);
               guard.quad(j0, j1, j2, j3);
@@ -1120,15 +1120,19 @@ export class RoadNetwork {
   }
 
   // un punto sta dentro la sede di una strada (o di un sentiero) alla quota del terreno?
-  inCarriageway(x, z, T) {
+  // anyHeight: per i guardrail conta qualunque carreggiata, anche su rilevato o in trincea; il raggio
+  // di ricerca copre le carreggiate larghe (caselli, autostrade a piu' corsie fino a ~60 m)
+  // margin: distanza minima dal bordo; skipWi: la strada a cui appartiene il guardrail (si ignora)
+  inCarriageway(x, z, T, anyHeight = false, margin = 0.25, skipWi = -1) {
     let res = false;
     const th = T.height(x, z);
-    this.segmentsNear(x, z, 9, (wi, k) => {
+    this.segmentsNear(x, z, anyHeight ? 34 : 9, (wi, k) => {
       if (res) return;
       const w = this.ways[wi];
+      if (wi === skipWi || (anyHeight && !w.drivable)) return;
       const pr = this.projectOnSeg(wi, k, x, z);
-      if (pr.d > w.width / 2 + 0.25) return;
-      if (Math.abs(this.heightOn(wi, k, pr.t, x, z) - th) > 2.5) return;   // ponte sopra o galleria sotto
+      if (pr.d > w.width / 2 + margin) return;
+      if (!anyHeight && Math.abs(this.heightOn(wi, k, pr.t, x, z) - th) > 2.5) return;   // ponte sopra o galleria sotto
       res = true;
     });
     return res;
@@ -1222,10 +1226,13 @@ export class RoadNetwork {
         if (collision && rec[0] === 3 && L > 1) {
           // guardrail mappato: solido (prima si attraversava). Niente tratti dentro la carreggiata
           // stimata, dove sarebbe un muro invisibile in mezzo alla corsia
-          if (!this.inCarriageway((ax + bx) / 2, (az + bz) / 2, T)) {
-            const ex = -(bz - az) / L * 0.25, ez = (bx - ax) / L * 0.25;
-            const ha = T.height(ax, az), hb = T.height(bx, bz);
-            const co = collision.addPolygon(tileKey, Float32Array.from([ax - ex, az - ez, bx - ex, bz - ez, bx + ex, bz + ez, ax + ex, az + ez]), Math.max(ha, hb) + 0.95, true, Math.min(ha, hb) - 0.5);
+          // a pezzi di al massimo 6 m, ognuno controllato (i tratti OSM lunghi tagliavano le corsie)
+          const np = Math.max(1, Math.ceil(L / 6)), ex = -(bz - az) / L * 0.25, ez = (bx - ax) / L * 0.25;
+          for (let q = 0; q < np; q++) {
+            const px0 = ax + (bx - ax) * q / np, pz0 = az + (bz - az) * q / np, px1 = ax + (bx - ax) * (q + 1) / np, pz1 = az + (bz - az) * (q + 1) / np;
+            if (this.inCarriageway((px0 + px1) / 2, (pz0 + pz1) / 2, T, true) || this.inCarriageway(px0, pz0, T, true) || this.inCarriageway(px1, pz1, T, true)) continue;
+            const ha = T.height(px0, pz0), hb = T.height(px1, pz1);
+            const co = collision.addPolygon(tileKey, Float32Array.from([px0 - ex, pz0 - ez, px1 - ex, pz1 - ez, px1 + ex, pz1 + ez, px0 + ex, pz0 + ez]), Math.max(ha, hb) + 0.95, true, Math.min(ha, hb) - 0.5);
             if (co) co.src = 'guardrail';
           }
         }
