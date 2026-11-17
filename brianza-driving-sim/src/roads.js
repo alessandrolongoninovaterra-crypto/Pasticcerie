@@ -757,8 +757,9 @@ export class RoadNetwork {
     if (!stone.empty) group.add(yield* stone.meshGen(M.stone));
     if (!walk.empty) group.add(yield* walk.meshGen(M.walk));
     yield;
-    if (!mark.empty) group.add(yield* mark.meshGen(M.mark));
-    if (!decal.empty) group.add(yield* decal.meshGen(M.decal));
+    // segnaletica orizzontale: da lontano non si legge, World.tileLod la nasconde (userData.detail)
+    if (!mark.empty) { const m = yield* mark.meshGen(M.mark); m.userData.detail = true; group.add(m); }
+    if (!decal.empty) { const m = yield* decal.meshGen(M.decal); m.userData.detail = true; group.add(m); }
     if (!wall.empty) group.add(yield* wall.meshGen(M.wall, true));
     if (!tube.empty) group.add(yield* tube.meshGen(M.tube));
     if (!tlamp.empty) group.add(yield* tlamp.meshGen(M.tlamp));

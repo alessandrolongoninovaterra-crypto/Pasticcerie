@@ -5,6 +5,19 @@ import { hash } from './geo.js';
 // ricavati dalla copertura del suolo reale.
 const DENSITY = { bank: 0.07, shore: 0.03, island: 0.02, flowerbed: 0.02, forest: 0.85, wood: 0.85, scrub: 0.35, park: 0.18, garden: 0.12, cemetery: 0.08, residential: 0.035, grass: 0.03, meadow: 0.012, farmland: 0.004, default: 0.02, recreation_ground: 0.04, village_green: 0.05, orchard: 0.3, wetland: 0.2 };
 
+// mescola l'ordine delle istanze (matrici e colori) con un generatore ripetibile
+function shuffleInstances(m, seed) {
+  const M = m.instanceMatrix.array, C = m.instanceColor ? m.instanceColor.array : null;
+  let r = seed >>> 0;
+  const rnd = () => { r = (Math.imul(r ^ (r >>> 15), 2246822519) + 0x9e3779b9) >>> 0; return r / 4294967296; };
+  for (let i = m.count - 1; i > 0; i--) {
+    const j = Math.floor(rnd() * (i + 1));
+    for (let k = 0; k < 16; k++) { const t = M[i * 16 + k]; M[i * 16 + k] = M[j * 16 + k]; M[j * 16 + k] = t; }
+    if (C) for (let k = 0; k < 3; k++) { const t = C[i * 3 + k]; C[i * 3 + k] = C[j * 3 + k]; C[j * 3 + k] = t; }
+  }
+  m.instanceMatrix.needsUpdate = true; if (C) m.instanceColor.needsUpdate = true;
+}
+
 export class Vegetation {
   constructor(terrain, roads) {
     this.terrain = terrain; this.roads = roads;
@@ -111,6 +124,11 @@ export class Vegetation {
     crownsLo.instanceMatrix.array.set(crowns.instanceMatrix.array);
     if (crowns.instanceColor) { crownsLo.instanceColor = new THREE.InstancedBufferAttribute(crowns.instanceColor.array, 3); }
     crownsLo.castShadow = true; crownsLo.computeBoundingSphere(); crownsLo.visible = false;
+    // ordine casuale delle istanze lontane: mostrandone solo una parte (World.update, tessere
+    // lontane) il bosco si dirada in modo uniforme invece di perdere interi gruppi di alberi
+    shuffleInstances(crownsLo, 0x51f1);
+    if (cones) shuffleInstances(cones, 0x2b9);
+    crownsLo.userData.full = crownsLo.count; if (cones) cones.userData.full = cones.count;
     const g = new THREE.Group();
     g.add(crowns, trunks, crownsLo);
     g.userData.lod = { near: [crowns, trunks], far: [crownsLo], isNear: true };

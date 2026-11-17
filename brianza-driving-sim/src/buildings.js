@@ -346,6 +346,9 @@ export class BuildingFactory {
     // vicini nella tessera: per ogni lato si capisce se e' muro in comune, sotto un portico o su strada
     const nb = this.neighbours(tile.b);
     const roof = new GeoBuilder(true, false);
+    // dettagli a livello strada (tende, cornicioni, soffitti e pilastri dei portici): mesh a parte,
+    // nascosta sulle tessere lontane (World.tileLod) dove non si distinguono
+    const trim = new GeoBuilder(true, false);
     const names = tile.s;
     const labels = [];
     let nDone = 0;
@@ -469,7 +472,7 @@ export class BuildingFactory {
           const s0 = sg.v(ax, base, az, tr, tg, tb, u0, sv0 - 0.012), s1 = sg.v(ax, gTop, az, tr, tg, tb, u0, sv1);
           const s2 = sg.v(bx, gTop, bz, tr, tg, tb, ue, sv1), s3 = sg.v(bx, base, bz, tr, tg, tb, ue, sv0 - 0.012);
           sg.quad(s0, s1, s2, s3);
-          if (sides[i] === 0 && rnd2 < 0.75) this.awnings(roof, ax, az, bx, bz, len, bays, gTop, ccw, rnd + i);
+          if (sides[i] === 0 && rnd2 < 0.75) this.awnings(trim, ax, az, bx, bz, len, bays, gTop, ccw, rnd + i);
         }
         const y0 = shopHere ? gTop : base, v0 = shopHere ? 1 / 8 : vBot;
         // base dei muri piu' scura (ombra di contatto col suolo)
@@ -490,11 +493,11 @@ export class BuildingFactory {
       this.roof(roof, ring, n, eave, pitched, rc, area, kind, col, rnd2);
       if (tower) this.towerTop(roof, ring, n, eave, col, area, rnd);
       if (church && area > 350 && H > 12) this.pinnacles(roof, ring, n, eave, col, area > 1500 || H > 30);
-      if ((style === 'res' || style === 'condo' || style === 'modern' || style === 'pal') && floors >= 3) this.cornice(roof, ring, n, eave, col);
+      if ((style === 'res' || style === 'condo' || style === 'modern' || style === 'pal') && floors >= 3) this.cornice(trim, ring, n, eave, col);
       if (minH > 2.2 || passage) {
         // sotto si passa: soffitto visto dal basso e, nei portici, pilastri (sono loro l'ostacolo)
-        this.ceiling(roof, ring, n, base, col);
-        if (portico) this.pillars(roof, ring, n, minT, base, col, collision, tileKey, sides);
+        this.ceiling(trim, ring, n, base, col);
+        if (portico) this.pillars(trim, ring, n, minT, base, col, collision, tileKey, sides);
       } else if (collision && !noCol && !(cross && cross[0] > 0)) { const co = collision.addPolygon(tileKey, Float32Array.from(ring), eave + (pitched ? 3 : 1), false, minT - 0.6); if (co) co.src = 'edificio ' + type; }
       if (name && (kind === 5 || kind === 8 || type === 7)) labels.push({ name, x: cx, z: cz, y: eave + 4 });
     }
@@ -504,6 +507,7 @@ export class BuildingFactory {
     for (const k of ['res', 'condo', 'modern', 'ind', 'plain', 'church', 'glass', 'shop', 'villa', 'pal']) if (!gb[k].empty) { yield; group.add(yield* gb[k].meshGen(this.mats[k], true)); }
     yield;
     if (!roof.empty) group.add(yield* roof.meshGen(this.mats.roof, true));
+    if (!trim.empty) { yield; const m = yield* trim.meshGen(this.mats.roof, true); m.userData.detail = true; group.add(m); }
     return { group, labels };
   }
 

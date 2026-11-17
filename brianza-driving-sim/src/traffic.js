@@ -182,6 +182,7 @@ export class Traffic {
     this.time = time;
     const R = this.R;
     const px = player.x, pz = player.z;
+    if (this.fleet.setViewer) this.fleet.setViewer(px, pz);    // dettaglio delle auto in base alla distanza
     for (let i = this.cars.length - 1; i >= 0; i--) {
       const c = this.cars[i];
       if (c.ext) continue;
@@ -319,6 +320,7 @@ export class Traffic {
   removeTile(tileKey) { this.parkSpots.delete(tileKey); this.parkTimer = 0; }
 
   refreshParked(px, pz) {
+    if (this.parkFleet.setViewer) this.parkFleet.setViewer(px, pz);
     const byType = { car: [], wagon: [], van: [] };
     for (const spots of this.parkSpots.values()) for (const s of spots) {
       if (s.taken) continue;

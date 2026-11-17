@@ -628,6 +628,30 @@ tutta l'area in memoria; il gioco invece non cambia.
   esaurito il suo tempo. Prova su quattro zone caricate da zero: fotogrammi oltre 40 ms da 72 a 3,
   il 99% sotto 22 ms (prima 66 ms), il più lento 43 ms (prima 132).
 
+### Frame rate (meno lavoro per la scheda video)
+
+Misure a Monza centro, mezzogiorno, traffico 60%: triangoli e chiamate di disegno per fotogramma.
+
+| Qualità | prima | dopo |
+|---|---|---|
+| Media | 4,9 milioni di triangoli, 706 chiamate | 2,6 milioni, 553 chiamate |
+| Alta | 6,3 milioni, 914 chiamate | 4,0 milioni, 798 chiamate |
+
+- **Auto del traffico e parcheggiate**: si disegnano solo le istanze in uso (prima ogni posto,
+  anche vuoto, passava per la scheda video) e oltre 60-75 m una scocca leggera (circa un quarto dei
+  triangoli, ruote a 8 lati) che non proietta ombra.
+- **Ombre**: le proiettano solo le tessere a ridosso dell'area delle ombre (180 m attorno al
+  giocatore): i triangoli nella mappa delle ombre sono scesi da 2,7 milioni a meno di 0,5.
+- **Dettagli per distanza**: segnaletica, arredo, percorsi, cancelli, segnaletica orizzontale e i
+  dettagli a livello strada degli edifici (tende, cornicioni, portici) si nascondono oltre 350/500/750 m
+  (bassa/media/alta); oltre 700 m i boschi si diradano (istanze in ordine casuale), gli alberi vicini
+  usano la chioma piena solo entro ~300 m.
+- **Di giorno si disegna direttamente sullo schermo**; l'immagine intermedia del bagliore serve
+  solo di notte (gli shader di entrambe le strade si preparano al caricamento, niente blocchi al tramonto).
+- Risoluzione di disegno predefinita 1× in media e 1,5× in alta (prima 1,25× e 2× sugli schermi ad alta
+  densità); la qualità automatica ora punta ai 30 fps (sotto spegne le ombre, poi scende fino al 70%).
+- Mappa d'ambiente dei riflessi rigenerata al massimo ogni 4 s (prima ogni secondo).
+
 ## Sviluppo
 
 ```bash

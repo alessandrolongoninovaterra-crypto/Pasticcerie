@@ -2,8 +2,8 @@ import * as THREE from 'three';
 
 // Mappa d'ambiente per i riflessi (vernice, vetri, cromature delle auto): si ricava dal cielo vero
 // del gioco (stesso materiale della cupola, quindi con l'ora, le nuvole e il meteo) piu' un suolo
-// scuro, con il PMREMGenerator di three.js. Si rigenera quando il cielo cambia, al massimo una
-// volta al secondo; di notte il cielo e' scuro e i riflessi si spengono da soli.
+// scuro, con il PMREMGenerator di three.js. Si rigenera quando il cielo cambia, al massimo ogni
+// quattro secondi; di notte il cielo e' scuro e i riflessi si spengono da soli.
 export class EnvMap {
   constructor(renderer, sky) {
     this.pmrem = new THREE.PMREMGenerator(renderer);
@@ -24,9 +24,11 @@ export class EnvMap {
   // restituisce una nuova texture quando l'ha rigenerata, altrimenti null
   update(dt, sky, weather) {
     this.t -= dt;
-    const key = sky.hours.toFixed(2) + '/' + sky.cover.toFixed(2) + '/' + (weather ? weather.cur.over.toFixed(2) + weather.cur.fog.toFixed(2) : '');
+    // ogni 3 minuti di ora del gioco, al massimo ogni 4 secondi (ogni rigenerazione rende sei facce
+    // e crea una nuova texture: era una piccola punta di lavoro della scheda video ogni secondo)
+    const key = (Math.round(sky.hours * 20) / 20).toFixed(2) + '/' + sky.cover.toFixed(1) + '/' + (weather ? weather.cur.over.toFixed(1) + weather.cur.fog.toFixed(1) : '');
     if (this.t > 0 || key === this.key) return null;
-    this.t = 1; this.key = key;
+    this.t = 4; this.key = key;
     const day = 1 - sky.night, wet = weather ? weather.wet : 0;
     this.groundMat.color.setRGB(0.2, 0.21, 0.19).multiplyScalar((0.06 + 0.94 * day) * (1 - 0.35 * wet));
     // gli edifici lontani prendono il colore della foschia (si fondono con l'orizzonte)

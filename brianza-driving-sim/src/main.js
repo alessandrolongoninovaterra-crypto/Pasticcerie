@@ -49,9 +49,9 @@ const SanitizeShader = {
 const $ = (id) => document.getElementById(id);
 const QUALITY = {
   // farKm: raggio degli edifici semplificati in lontananza (in volo; a terra bastano 3 km per la foschia)
-  low: { viewTiles: 1, shadows: false, pixelRatio: 1, trees: 0.5, bloom: false, peds: 20, parked: 132, farKm: 0 },
-  mid: { viewTiles: 2, shadows: true, softShadows: false, pixelRatio: 1.25, trees: 0.8, bloom: true, peds: 45, parked: 288, farKm: 5, detailKm: 1.5 },
-  high: { viewTiles: 3, shadows: true, softShadows: true, pixelRatio: 2, trees: 1, bloom: true, peds: 70, parked: 432, farKm: 7, detailKm: 2.2 },
+  low: { viewTiles: 1, shadows: false, pixelRatio: 1, trees: 0.5, bloom: false, peds: 20, parked: 132, farKm: 0, detailDist: 350 },
+  mid: { viewTiles: 2, shadows: true, softShadows: false, pixelRatio: 1, trees: 0.8, bloom: true, peds: 45, parked: 288, farKm: 5, detailKm: 1.5, detailDist: 500 },
+  high: { viewTiles: 3, shadows: true, softShadows: true, pixelRatio: 1.5, trees: 1, bloom: true, peds: 70, parked: 432, farKm: 7, detailKm: 2.2, detailDist: 750 },
 };
 
 const G = { started: false, paused: false, mapOpen: false, camMode: 0, route: null, dest: null, voice: true, carIdx: 0,
@@ -510,7 +510,8 @@ function startGame() {
   ensureGame();
   G.settings.viewTiles = (QUALITY[$('quality').value] || QUALITY.mid).viewTiles;
   G.settings.farKm = (QUALITY[$('quality').value] || QUALITY.mid).farKm;
-  G.settings.detailKm = (QUALITY[$('quality').value] || QUALITY.mid).detailKm;
+  G.settings.detailKm = (QUALITY[$("quality").value] || QUALITY.mid).detailKm;
+  G.settings.detailDist = (QUALITY[$("quality").value] || QUALITY.mid).detailDist;
   if (G.settings.farKm > 0) G.world.initFar();   // edifici in lontananza: blocchi caricati in sottofondo
   G.traffic.target = +$('traffic').value;
   $('ptraffic').value = $('traffic').value;
@@ -909,8 +910,8 @@ function updateCamera(dt, lookBack) {
 }
 
 // ------------------------------------------------------------------ qualita' automatica
-// Se il computer non tiene ~24 fotogrammi al secondo si spengono le ombre e poi si abbassa la
-// risoluzione di disegno (fino al 75%); quando c'e' margine (oltre ~50 fps) si risale.
+// Se il computer non tiene ~30 fotogrammi al secondo si spengono le ombre e poi si abbassa la
+// risoluzione di disegno (fino al 70%); quando c'e' margine (oltre ~55 fps) si risale.
 // Disattivabile con window.BDS.autoOff = true oppure index.html?auto=0.
 const AQ = { t: 0, n: 0, scale: 1, good: 0, shadowsOff: false };
 function autoQuality(frame) {
@@ -922,11 +923,11 @@ function autoQuality(frame) {
   const apply = () => { const pr = Math.max(0.5, base * AQ.scale); G.renderer.setPixelRatio(pr); if (G.composer) G.composer.setPixelRatio(pr); };
   // prima si spengono le ombre (in volo quasi non si vedono), poi si abbassa la risoluzione ma non
   // sotto il 75%: piu' in basso l'immagine diventava sfocata
-  if (avg > 0.042) {
+  if (avg > 0.034) {
     AQ.good = 0;
     if (!AQ.shadowsOff && G.settings.shadows) { AQ.shadowsOff = true; G.sky.sun.castShadow = false; }
-    else if (AQ.scale > 0.76) { AQ.scale = Math.max(0.75, AQ.scale - 0.1); apply(); }
-  } else if (avg < 0.02) {
+    else if (AQ.scale > 0.71) { AQ.scale = Math.max(0.7, AQ.scale - 0.1); apply(); }
+  } else if (avg < 0.018) {
     if (++AQ.good >= 3) {
       AQ.good = 0;
       if (AQ.scale < 1) { AQ.scale = Math.min(1, AQ.scale + 0.1); apply(); }
@@ -1092,11 +1093,11 @@ function loop(now) {
   if (f.on) G.audio.update(800, 0, 0, 0, 0); else G.audio.update(v.rpm, v.throttle, Math.abs(v.u) * 3.6, v.slip, skid);
   if (v.impact > 0.25 && !f.on && !v.isPlane) { showToast('💥 Urto!', 700); }
   v.impact = 0;
-  // con il bagliore attivo nelle impostazioni si disegna SEMPRE attraverso il composer (di giorno
-  // con il bagliore spento): disegnare un'immagine intermedia o direttamente sullo schermo cambia
-  // tono e spazio colore di ogni shader, e il passaggio giorno/notte ricompilava tutta la scena
-  // (blocco di qualche secondo al tramonto e ogni volta che si tornava sopra/sotto la soglia)
-  if (G.composer) { G.bloom.enabled = G.sky.night > 0.2; G.bloom.strength = G.sky.night * 0.55; G.composer.render(); }
+  // di notte il bagliore passa da un'immagine intermedia (composer), di giorno si disegna
+  // direttamente sullo schermo (molto piu' leggero: niente immagine intermedia multicampionata e
+  // due passaggi a schermo intero in meno). Le due strade hanno shader diversi (tono e spazio
+  // colore): warmShaders() li prepara entrambi al caricamento, cosi' al tramonto non si ricompila.
+  if (G.composer && G.sky.night > 0.2) { G.bloom.enabled = true; G.bloom.strength = G.sky.night * 0.55; G.composer.render(); }
   else G.renderer.render(G.scene, G.camera);
 }
 const tmpV2 = new THREE.Vector3();
@@ -1118,14 +1119,20 @@ function warmShaders(sync) {
   const old = r.getRenderTarget();
   const restore = () => { for (const o of hidden) o.visible = false; };
   try {
-    r.setRenderTarget(G.composer ? G.composer.renderTarget1 : null);    // stessa uscita del disegno vero
-    if (sync || !r.compileAsync) r.compile(G.scene, G.camera);
-    else { warmBusy = true; r.compileAsync(G.scene, G.camera).catch(() => {}).finally(() => { warmBusy = false; }); }
+    // due uscite: lo schermo (giorno) e l'immagine intermedia del bagliore (notte)
+    const targets = G.composer ? [null, G.composer.renderTarget1] : [null];
+    for (const tg of targets) {
+      r.setRenderTarget(tg);
+      if (sync || !r.compileAsync) r.compile(G.scene, G.camera);
+      else { warmBusy = true; r.compileAsync(G.scene, G.camera).catch(() => {}).finally(() => { warmBusy = false; }); }
+    }
     // anche la variante senza ombre: la qualita' automatica le spegne e riaccende (e in volo),
     // e ogni cambio senza shader pronti era un altro blocco
     if (sync && G.settings.shadows && r.compileAsync) {
       const sun = G.sky.sun, cs = sun.castShadow;
-      sun.castShadow = !cs; r.compileAsync(G.scene, G.camera).catch(() => {}); sun.castShadow = cs;
+      sun.castShadow = !cs;
+      for (const tg of G.composer ? [null, G.composer.renderTarget1] : [null]) { r.setRenderTarget(tg); r.compileAsync(G.scene, G.camera).catch(() => {}); }
+      sun.castShadow = cs;
     }
     if (G.composer && sync) {
       // un fotogramma con il bagliore acceso (intensita' zero) prepara i suoi passaggi

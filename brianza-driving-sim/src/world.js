@@ -14,6 +14,9 @@ import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js
 // (edifici), costruzione progressiva delle mesh e rilascio delle tessere lontane.
 const LM_LABEL = { 1: '#7a3d1a', 2: '#1d4f91', 3: '#4b2f73', 4: '#b3261e', 6: '#6b4f1d', 7: '#1f6b3a', 8: '#2f6b2a', 9: '#555', 10: '#6b1d5a', 12: '#1d6b8a', 13: '#555' };
 
+const TILE_CASTERS = new Set(['buildings', 'veg', 'props', 'paths', 'signs', 'gates']);
+const TILE_SMALL = new Set(['signs', 'props', 'paths', 'gates']);
+
 export class World {
   constructor(scene, meta, terrain, roads, settings) {
     this.scene = scene; this.meta = meta; this.terrain = terrain; this.roads = roads; this.settings = settings;
@@ -365,6 +368,25 @@ export class World {
 
   tileKeyAt(x, z) { const p = this.meta.proj; return Math.floor((z - p.zmin) / 1000) * 1000 + Math.floor((x - p.xmin) / 1000); }
 
+  // Alleggerimento per distanza, tessera per tessera:
+  //  - ombre proiettate solo dalle tessere a ridosso dell'area delle ombre (180 m attorno al
+  //    giocatore): le altre finivano lo stesso nella mappa delle ombre, intere, a ogni fotogramma;
+  //  - segnaletica, arredo, percorsi e cancelli solo entro ~700 m dal bordo della tessera (oltre,
+  //    nella foschia, non si distinguono ma costavano centinaia di migliaia di triangoli).
+  tileLod(t) {
+    const cast = t.de < 160, det = t.de < (this.settings.detailDist || 700);
+    for (const name in t.parts) {
+      const o = t.parts[name];
+      if (!o) continue;
+      if (TILE_SMALL.has(name)) o.visible = det;
+      else if (name === 'buildings' || name === 'roads') for (const m of o.children) if (m.userData.detail) m.visible = det;
+      if (TILE_CASTERS.has(name) && o.userData.cast !== cast) {
+        o.userData.cast = cast;
+        o.traverse((m) => { if (m.isMesh) { if (m.userData.cs0 === undefined) m.userData.cs0 = m.castShadow; m.castShadow = cast && m.userData.cs0; } });
+      }
+    }
+  }
+
   // aggiorna l'insieme di tessere necessarie attorno al giocatore
   update(x, z) {
     const p = this.meta.proj;
@@ -383,6 +405,8 @@ export class World {
       }
       const t = this.tiles.get(j * 1000 + i);
       t.d = d;
+      t.de = Math.hypot(Math.max(0, Math.abs(tcx - x) - 500), Math.max(0, Math.abs(tcz - z) - 500));   // distanza dal bordo
+      this.tileLod(t);
       t.vegWanted = d < 1700;
       // edifici dettagliati solo vicino: piu' in la' bastano quelli semplificati (se ci sono)
       const detail = this.farIdx ? (this.settings.detailKm || 1.5) * 1000 : 1e9;
@@ -396,8 +420,11 @@ export class World {
       if (t.fence) t.fence.visible = d < 1100;
       const veg = t.parts.veg;
       if (veg && veg.userData.lod) {         // alberi: chioma piena vicino, semplificata lontano
-        const L = veg.userData.lod, near = d < (L.isNear ? 750 : 650);
+        const L = veg.userData.lod, near = t.de < (L.isNear ? 320 : 240);   // dal bordo della tessera
         if (near !== L.isNear) { L.isNear = near; for (const m of L.near) m.visible = near; for (const m of L.far) m.visible = !near; }
+        // lontano il bosco si dirada (le istanze sono in ordine casuale): nella foschia non si nota
+        const keep = t.de < 700 ? 1 : t.de < 1300 ? 0.55 : 0.32;
+        if (L.keep !== keep) { L.keep = keep; for (const m of veg.children) if (m.userData.full) m.count = Math.max(1, Math.round(m.userData.full * (m === L.near[0] ? 1 : keep))); }
       }
     }
     for (const [k, t] of this.tiles) {
@@ -484,7 +511,7 @@ export class World {
         continue;
       }
       if (t.state !== 'ready' || t.dead) continue;
-      const add = (name, obj) => { t.parts[name] = obj; if (obj) this.root.add(obj); };
+      const add = (name, obj) => { t.parts[name] = obj; if (obj) { this.root.add(obj); if (t.de !== undefined) this.tileLod(t); } };
       if (!('terrain' in t.parts)) {
         if (!this.groundReady(t)) continue;
         add('terrain', this.terrain.hasTile(t.key) ? this.terrain.buildTile(t.key, Math.max(5, this.terrain.step), this.terrain.tileMaterial(t.key, this.detail)) : null);

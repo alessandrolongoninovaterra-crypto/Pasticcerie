@@ -80,8 +80,13 @@ function smoothStations(profile, widths) {
 }
 
 // mezza sezione (x >= 0) dal centro del fondo al centro del tetto
-function halfSection(w, f, y) {
+function halfSection(w, f, y, lo = false) {
   const h = Math.max(0.05, y - f);
+  if (lo) {
+    // versione leggera (auto lontane): spigoli smussati con pochi punti
+    const rt = Math.min(0.24, h * 0.42, w * 0.38), rb = Math.min(0.07, h * 0.16);
+    return [[0, f], [w - rb, f], [w, f + rb], [w, y - rt], [w - rt * 0.3, y - rt * 0.3], [w - rt, y], [0, y + Math.min(0.05, w * 0.035)]];
+  }
   const rt = Math.min(0.24, h * 0.42, w * 0.38), rb = Math.min(0.07, h * 0.16), crown = Math.min(0.05, w * 0.035);
   const bul = Math.min(0.025, w * 0.02);                 // fianco appena bombato a meta' altezza
   const pts = [[0, f], [w - rb, f]];
@@ -95,11 +100,11 @@ function halfSection(w, f, y) {
   return pts;
 }
 
-function loftRound(spec, profile0, widths0) {
-  const {profile, widths} = smoothStations(profile0, widths0);
+function loftRound(spec, profile0, widths0, lo = false) {
+  const {profile, widths} = lo ? {profile: profile0, widths: widths0} : smoothStations(profile0, widths0);
   // muso e coda: stazioni in piu' che si stringono e si abbassano (spigoli arrotondati in pianta)
   const big = spec.bus ? 1.6 : 1;
-  const ends = [[0.03, 0.985, 0.02, 0.015], [0.06, 0.94, 0.07, 0.05], [0.085, 0.85, 0.15, 0.12], [0.1, 0.7, 0.24, 0.2]];
+  const ends = lo ? [[0.06, 0.92, 0.08, 0.06], [0.1, 0.7, 0.24, 0.2]] : [[0.03, 0.985, 0.02, 0.015], [0.06, 0.94, 0.07, 0.05], [0.085, 0.85, 0.15, 0.12], [0.1, 0.7, 0.24, 0.2]];
   const st = profile.map(([z, y], i) => ({z, y, w: widths[i], drop: 0, rise: 0}));
   const nose = st[0], tail = st[st.length - 1];
   const pre = ends.map(([d, wf, dr, ri]) => ({z: nose.z + d * big, y: nose.y, w: nose.w * wf, drop: dr, rise: ri}));
@@ -111,7 +116,7 @@ function loftRound(spec, profile0, widths0) {
   for (let i = 0; i < S.length; i++) {
     const q = S[i], f0 = floor[i], h = q.y - f0;
     const f = f0 + h * q.rise, y = q.y - h * q.drop;
-    const half = halfSection(q.w, f, y);
+    const half = halfSection(q.w, f, y, lo);
     const ring = half.concat(half.slice(1, -1).reverse().map(([x, yy]) => [-x, yy]));
     if (!M) M = ring.length;
     for (const [x, yy] of ring) pos.push(x, yy, q.z);
@@ -432,9 +437,9 @@ function anchors(spec) {
 // Lower body + the body-colour roof skin merged into ONE buffer, so the instance colour paints
 // the roof too. Before this the roof triangles belonged to the greenhouse and every NPC drove
 // around under a black lid.
-function fleetBodyGeometry(spec) {
+function fleetBodyGeometry(spec, lo = false) {
   const {profile, widths} = stationsWithArches(spec);
-  const hg = loftRound(spec, profile, widths), hp = hg.attributes.position;
+  const hg = loftRound(spec, profile, widths, lo), hp = hg.attributes.position;
   const b = {pos: Array.from(hp.array), idx: Array.from(hg.index.array)};
   hg.dispose();
   const skin = roofSkin(spec);
@@ -443,7 +448,7 @@ function fleetBodyGeometry(spec) {
     b.pos.push(...skin.pos);
     for (const v of skin.idx) b.idx.push(n0 + v);
   }
-  for (const post of [...pillarBoxes(spec), ...mirrorBoxes(spec)]) {
+  for (const post of lo ? [] : [...pillarBoxes(spec), ...mirrorBoxes(spec)]) {
     const n0 = b.pos.length / 3, p = post.attributes.position, ix = post.index;
     for (let i = 0; i < p.count; i++) b.pos.push(p.getX(i), p.getY(i), p.getZ(i));
     for (let i = 0; i < ix.count; i++) b.idx.push(n0 + ix.getX(i));
@@ -537,6 +542,15 @@ function fleetTrimGeometry(spec) {
 
 // One wheel, scaled to this body's tyre. A 14-sided cylinder on the X axis with a pale rim disc
 // on each face: 76 triangles, and at ten metres that is a wheel.
+// ruota delle auto lontane: pneumatico a 8 lati e cerchio piatto
+function wheelGeometryLo(spec) {
+  const d = parts();
+  const r = spec.wheelR, w = spec.wheelW;
+  addGeo(d, new THREE.CylinderGeometry(r, r, w, 8).rotateZ(Math.PI / 2), TRIM.tyre);
+  for (const s of [1, -1]) addGeo(d, new THREE.CircleGeometry(r * 0.6, 8).rotateY(s * Math.PI / 2).translate(s * (w / 2 + 0.004), 0, 0), TRIM.rim);
+  return colouredGeom(d);
+}
+
 function wheelGeometry(spec) {
   const d = parts();
   const r = spec.wheelR, w = spec.wheelW;
@@ -620,27 +634,60 @@ export function makeCarFleet(count) {
   const slotsOf = {}; for (const t of types) slotsOf[t] = [];
   for (let i = 0; i < count; i++) slotsOf[fleetTypeFor(i)].push(i);
 
-  const meshes = {};              // type -> {body, trim, wheels, spec}
-  const route = new Array(count); // slot i -> {type, local}
+  // Brianza Driving Simulator: livelli di dettaglio e istanze compatte.
+  // Per ogni tipo due insiemi di istanze: "vicino" (scocca piena, finiture, ombra proiettata) e
+  // "lontano" (scocca leggera, ruote a 8 lati, niente ombra proiettata). Ogni insieme disegna solo
+  // le istanze in uso (count = auto presenti): prima ogni posto, anche vuoto e spostato a 1e6,
+  // passava comunque per la scheda video (360 auto x ~3.000 triangoli, ombre comprese).
+  const LOD_IN = 60, LOD_OUT = 75;     // metri dal punto di vista (isteresi)
+  const meshes = {};              // type -> {sets: [vicino, lontano], spec}
+  const route = new Array(count); // slot i -> {type, set (0 nessuno, 1 vicino, 2 lontano), local}
+  const viewer = {x: 0, z: 0};
+  const mkSet = (spec, n, lo) => {
+    const s = {
+      body: new THREE.InstancedMesh(fleetBodyGeometry(spec, lo), paint, n),
+      trim: lo ? null : new THREE.InstancedMesh(fleetTrimGeometry(spec), trimM, n),
+      glass: new THREE.InstancedMesh(fleetGlassGeometry(spec), glassM, n),
+      lamps: new THREE.InstancedMesh(fleetLampGeometry(spec), lampM, n),
+      wheels: new THREE.InstancedMesh(lo ? wheelGeometryLo(spec) : wheelGeometry(spec), wheelM, n * 4),
+      shadow: new THREE.InstancedMesh(shadowGeo, shadowM, n),
+      n: 0, slotAt: new Int32Array(n),
+    };
+    s.body.castShadow = !lo;
+    s.list = [s.body, s.trim, s.glass, s.lamps, s.shadow].filter(Boolean);
+    for (const m of [...s.list, s.wheels]) { m.frustumCulled = false; m.count = 0; group.add(m); }
+    s.shadow.renderOrder = 1;
+    return s;
+  };
   for (const t of types) {
     const n = slotsOf[t].length;
     if (n === 0) continue;
     const spec = BODIES[t];
-    const body = new THREE.InstancedMesh(fleetBodyGeometry(spec), paint, n);
-    const trim = new THREE.InstancedMesh(fleetTrimGeometry(spec), trimM, n);
-    const glass = new THREE.InstancedMesh(fleetGlassGeometry(spec), glassM, n);
-    const lamps = new THREE.InstancedMesh(fleetLampGeometry(spec), lampM, n);
-    const wheels = new THREE.InstancedMesh(wheelGeometry(spec), wheelM, n * 4);
-    const shadow = new THREE.InstancedMesh(shadowGeo, shadowM, n);
-    body.castShadow = true;
-    for (const m of [body, trim, glass, lamps, wheels, shadow]) m.frustumCulled = false;
-    shadow.renderOrder = 1;
-    group.add(body, trim, glass, lamps, wheels, shadow);
     const an = anchors(spec);
-    meshes[t] = {body, trim, glass, lamps, wheels, shadow, spec,
+    meshes[t] = {sets: [null, mkSet(spec, n, false), mkSet(spec, n, true)], spec,
       shadowM: new THREE.Matrix4().compose(new THREE.Vector3(0, 0.035, (an.noseZ + an.tailZ) / 2), new THREE.Quaternion(), new THREE.Vector3(an.halfW * 2 + 0.6, 1, an.noseZ - an.tailZ + 0.7))};
-    slotsOf[t].forEach((slot, local) => { route[slot] = {type: t, local}; });
+    slotsOf[t].forEach((slot) => { route[slot] = {type: t, set: 0, local: -1}; });
   }
+  const tmpM = new THREE.Matrix4(), tmpC = new THREE.Color();
+  const touch = (S) => {
+    for (const m of S.list) { m.count = S.n; m.instanceMatrix.needsUpdate = true; }
+    S.wheels.count = S.n * 4; S.wheels.instanceMatrix.needsUpdate = true;
+    if (S.body.instanceColor) S.body.instanceColor.needsUpdate = true;
+  };
+  // toglie un'auto dal suo insieme: l'ultima istanza in uso prende il suo posto
+  const detach = (r) => {
+    if (!r.set) return;
+    const S = meshes[r.type].sets[r.set], last = S.n - 1, loc = r.local;
+    if (loc !== last) {
+      for (const m of S.list) { m.getMatrixAt(last, tmpM); m.setMatrixAt(loc, tmpM); }
+      for (let k = 0; k < 4; k++) { S.wheels.getMatrixAt(last * 4 + k, tmpM); S.wheels.setMatrixAt(loc * 4 + k, tmpM); }
+      if (S.body.instanceColor) { S.body.getColorAt(last, tmpC); S.body.setColorAt(loc, tmpC); }
+      const moved = S.slotAt[last];
+      S.slotAt[loc] = moved; route[moved].local = loc;
+    }
+    S.n--; r.set = 0; r.local = -1;
+    touch(S);
+  };
 
   // Wheels must ROLL, or instanced traffic slides through town on skids — the one failure mode
   // that is invisible in a portrait and glaring in motion. The simulation only tells us where a
@@ -657,16 +704,26 @@ export function makeCarFleet(count) {
 
   const setAt = (i, x, z, rotY, colourIndex = 0, elevation = groundHeight(x, z)) => {
     const r = route[i]; if (!r) return;
-    const {body, trim, glass, lamps, wheels, shadow, spec, shadowM: sm} = meshes[r.type];
+    const M = meshes[r.type];
+    // posto vuoto (spostato lontanissimo): esce dal disegno
+    if (Math.abs(x) > 5e5 || elevation < -50) { detach(r); prevX[i] = NaN; return; }
+    const d = Math.hypot(x - viewer.x, z - viewer.z);
+    const want = r.set === 1 ? (d > LOD_OUT ? 2 : 1) : r.set === 2 ? (d < LOD_IN ? 1 : 2) : (d > LOD_IN ? 2 : 1);
+    if (want !== r.set) {
+      detach(r);
+      const S = M.sets[want];
+      r.set = want; r.local = S.n; S.slotAt[S.n] = i; S.n++;
+    }
+    const S = M.sets[r.set], loc = r.local, {spec, shadowM: sm} = M;
     const n = surfaceNormal(x, z, elevation);
     normal.set(n.x, n.y, n.z);
     tilt.setFromUnitVectors(up, normal);
     slope.makeRotationFromQuaternion(tilt);
     mW.makeRotationY(rotY).premultiply(slope).setPosition(x, elevation, z);
-    body.setMatrixAt(r.local, mW); trim.setMatrixAt(r.local, mW); glass.setMatrixAt(r.local, mW); lamps.setMatrixAt(r.local, mW);
-    mOut.multiplyMatrices(mW, sm); shadow.setMatrixAt(r.local, mOut);
+    S.body.setMatrixAt(loc, mW); if (S.trim) S.trim.setMatrixAt(loc, mW); S.glass.setMatrixAt(loc, mW); S.lamps.setMatrixAt(loc, mW);
+    mOut.multiplyMatrices(mW, sm); S.shadow.setMatrixAt(loc, mOut);
     c.set(FLEET_PALETTE[colourIndex % FLEET_PALETTE.length]);
-    body.setColorAt(r.local, c);
+    S.body.setColorAt(loc, c);
 
     const fwdX = Math.sin(rotY), fwdZ = Math.cos(rotY);
     let ds = 0;
@@ -677,10 +734,10 @@ export function makeCarFleet(count) {
       while (dh > Math.PI) dh -= Math.PI * 2;
       while (dh < -Math.PI) dh += Math.PI * 2;
       const wheelbase = spec.wheelZ[0] - spec.wheelZ[1];
-      const want = Math.abs(ds) > 0.004
+      const want2 = Math.abs(ds) > 0.004
         ? Math.max(-0.6, Math.min(0.6, (dh * wheelbase) / ds))
         : 0;
-      steerA[i] += (want - steerA[i]) * 0.3;
+      steerA[i] += (want2 - steerA[i]) * 0.3;
     }
     prevX[i] = x; prevZ[i] = z; prevR[i] = rotY;
     spinA[i] = (spinA[i] + ds / spec.wheelR) % (Math.PI * 2);
@@ -692,18 +749,14 @@ export function makeCarFleet(count) {
       if (front && steerA[i]) { mS.makeRotationY(steerA[i]); mL.premultiply(mS); }
       mL.setPosition(sx, wy, front ? zf : zr);
       mOut.multiplyMatrices(mW, mL);
-      wheels.setMatrixAt(r.local * 4 + k, mOut);
+      S.wheels.setMatrixAt(loc * 4 + k, mOut);
     }
-
-    body.instanceMatrix.needsUpdate = true;
-    trim.instanceMatrix.needsUpdate = true;
-    glass.instanceMatrix.needsUpdate = true; lamps.instanceMatrix.needsUpdate = true; shadow.instanceMatrix.needsUpdate = true;
-    wheels.instanceMatrix.needsUpdate = true;
-    if (body.instanceColor) body.instanceColor.needsUpdate = true;
+    touch(S);
   };
+  const setViewer = (x, z) => { viewer.x = x; viewer.z = z; };
   // di notte fari e fanali accesi (le auto parcheggiate restano spente: dim < 1)
   const setNight = (f, dim = 1) => { lampM.color.setScalar(0.85 + f * 2.6 * dim); };
-  return {group, setAt, count, palette: FLEET_PALETTE.length, setNight};
+  return {group, setAt, setViewer, count, palette: FLEET_PALETTE.length, setNight};
 }
 // ---------------------------------------------------------------------------------------------
 // Wheel — real tyre, dished rim with a chrome lip, five twin-spokes and a hub (hero only)
