@@ -523,7 +523,15 @@ export class World {
         let r;
         do { r = t.gen.next(); } while (!r.done && performance.now() - t0 < budget);
         if (!r.done) return false;
-        t.gen = null; add('roads', r.value); continue;
+        t.gen = null; add('roads', r.value);
+        // guardrail delle superstrade: solidi (striscia di 35 cm sul lato esterno del nastro)
+        for (const [x0, z0, x1, z1, y0, y1, ox, oz] of r.value.userData.guards || []) {
+          // non dove cadrebbe dentro un'altra carreggiata affiancata (rampe, carreggiata opposta)
+          if (this.roads.inCarriageway((x0 + x1) / 2 + ox * 0.15, (z0 + z1) / 2 + oz * 0.15, this.terrain)) continue;
+          const co = this.collision.addPolygon(t.key, Float32Array.from([x0, z0, x1, z1, x1 + ox * 0.35, z1 + oz * 0.35, x0 + ox * 0.35, z0 + oz * 0.35]), Math.max(y0, y1) + 0.95, true, Math.min(y0, y1) - 0.5);
+          if (co) co.src = 'guardrail';
+        }
+        continue;
       }
       if (!('signs' in t.parts)) {
         if (!t.gen) t.gen = this.signage.buildGen(t.key, t.data);

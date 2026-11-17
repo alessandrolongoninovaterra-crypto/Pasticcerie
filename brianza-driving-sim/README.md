@@ -613,6 +613,26 @@ lo stesso codice che prima girava nel browser all'avvio) e scrive i file sopra. 
 più grandi (tutta la Lombardia) il collo di bottiglia diventa la pipeline Python, che tiene ancora
 tutta l'area in memoria; il gioco invece non cambia.
 
+## Guidabilità e guardrail
+
+- **Controllo di stabilità (ESC)** come quello vero: confronta la rotazione dell'auto con quella
+  chiesta dallo sterzo (entro il limite d'aderenza) e, se la coda parte, la riporta in traiettoria e
+  smorza la deriva; il controsterzo funziona. Si spegne tenendo il freno a mano (derapate).
+- **Controllo di trazione**: la spinta si ferma al limite dell'aderenza, le ruote motrici non
+  pattinano e non perdono tenuta in curva (la moto da 150 kW su 280 kg pattinava sempre e partiva
+  di coda). Col freno a mano tirato si spegne anche questo.
+- **Più tenuta**: +10% di aderenza sull'asfalto, pneumatici che oltre il limite perdono poca
+  aderenza (scivolata progressiva), nessun asse che si scarica del tutto in frenata o in accelerazione.
+  Moto con baricentro più basso (pilota in carena).
+- Prova su un percorso tortuoso con un "pilota" da tastiera: le auto passano da 1-7 uscite di strada
+  per giro (scarto fino a 72 m) a nessuna (scarto massimo 2,6 m); le moto da 3-4 testacoda e 15
+  uscite a nessun testacoda e 0-3 allargate, e girano più veloci.
+- **Guardrail solidi**: quelli delle superstrade e quelli mappati in OSM (`barrier=guard_rail`, tranne
+  i tratti che cadrebbero dentro la carreggiata stimata) ora fermano i veicoli. Nell'urto la componente
+  contro l'ostacolo rimbalza poco, quella lungo l'ostacolo resta (attrito proporzionale all'urto) e il
+  muso si allinea: a 130 km/h con 10° si striscia e si esce a circa 95 km/h, frontalmente ci si ferma.
+  Vale anche per muri ed edifici: strisciando non ci si inchioda più.
+
 ## Fluidità: niente blocchi al tramonto e durante il caricamento
 
 - **Shader**: con il bagliore attivo (qualità media e alta) ogni fotogramma passa dal composer,

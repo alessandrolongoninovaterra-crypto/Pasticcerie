@@ -11,7 +11,8 @@ export class Vehicle {
     this.a = spec.wb * (spec.drive === 'R' ? 0.48 : spec.drive === 'A' ? 0.45 : 0.42); // CG -> asse anteriore
     this.b = spec.wb - this.a;
     this.I = this.m * (this.a * this.a + this.b * this.b) * 0.55;
-    this.hcg = spec.H * 0.36;
+    // baricentro: la moto con il pilota in carena sta bassa (meno trasferimento di carico in frenata)
+    this.hcg = spec.H * (spec.kind === 'bike' ? 0.27 : 0.36);
     this.x = 0; this.z = 0; this.y = 0; this.h = 0; // h: rotta (rad), avanti = (sin h, cos h)
     this.u = 0; this.v = 0; this.w = 0; // velocita' longitudinale, laterale (sinistra +), imbardata
     this.vy = 0; this.airborne = false;
@@ -83,7 +84,9 @@ export class Vehicle {
     // fuori dalla carreggiata: piazzali e parcheggi asfaltati tengono come la strada, l'erba no
     let paved = false;
     if (!onRoad) { const lc = W.terrain.landClass(this.x, this.z); paved = lc === 'parking' || lc === 'parking_space' || lc === 'pedestrian' || lc === 'asphalt' || lc === 'yard' || lc === 'cycleway' || lc === 'running_track'; }
-    let mu = s.grip * (onRoad ? ((way.flags & 64) ? 0.78 : 1.0) : paved ? 0.95 : 0.68);
+    // aderenza: un po' piu' di tenuta sull'asfalto rispetto ai valori nominali (guida piu' sicura
+    // con la tastiera); sterrato e prato restano scivolosi
+    let mu = s.grip * (onRoad ? ((way.flags & 64) ? 0.82 : 1.1) : paved ? 1.02 : 0.7);
     let crr = onRoad ? ((way.flags & 64) ? 0.03 : 0.013) : paved ? 0.016 : 0.06;
     if (s.drive === 'A' && !onRoad) { mu *= 1.12; crr *= 0.7; }
     mu *= (this.gripMul || 1) * (this.gripBonus || 1);   // meteo (asfalto bagnato) e gomme sportive
@@ -100,7 +103,7 @@ export class Vehicle {
     const Wt = this.m * G * Math.cos(slope);
     let Nf = Wt * this.b / this.L - this.m * this.ax * this.hcg / this.L;
     let Nr = Wt * this.a / this.L + this.m * this.ax * this.hcg / this.L;
-    Nf = Math.max(Nf, Wt * 0.15); Nr = Math.max(Nr, Wt * 0.15);
+    Nf = Math.max(Nf, Wt * 0.25); Nr = Math.max(Nr, Wt * 0.25);    // nessun asse si scarica del tutto
     if (this.airborne) { Nf = Nr = 0; }
 
     // --- motore e cambio automatico
@@ -130,8 +133,14 @@ export class Vehicle {
     // limite di aderenza in trazione
     const Ndrive = s.drive === 'F' ? Nf : s.drive === 'R' ? Nr : Nf + Nr;
     const tracMax = mu * Ndrive;
-    this.wheelSpin = Math.abs(Fdrive) > tracMax ? Math.min(1, (Math.abs(Fdrive) - tracMax) / tracMax) : 0;
-    Fdrive = Math.max(-tracMax, Math.min(tracMax, Fdrive));
+    const excess = Math.abs(Fdrive) > tracMax ? Math.min(1, (Math.abs(Fdrive) - tracMax) / tracMax) : 0;
+    // controllo di trazione: la spinta si ferma al limite dell'aderenza, la ruota non pattina e non
+    // perde tenuta laterale (prima la moto, 150 kW su 280 kg, pattinava sempre e partiva di coda).
+    // Col freno a mano tirato si spegne: derapate e sgommate restano possibili.
+    const tc = !this.handbrake && this.tc !== false;
+    const cap = tc ? tracMax * (s.kind === 'bike' ? 0.85 : 0.95) * Math.min(1, 0.6 + Math.abs(this.u) / 25 + (1 - Math.min(1, Math.abs(this.steer) / Math.max(0.05, s.steer * 0.5))) * 0.4) : tracMax;
+    this.wheelSpin = tc ? Math.min(0.3, excess * 0.3) * (Math.abs(this.u) < 12 ? 1 : 0) : excess;   // solo un filo di fumo in partenza
+    Fdrive = Math.max(-cap, Math.min(cap, Fdrive));
 
     // --- freni
     let Fbrake = 0;
@@ -149,7 +158,7 @@ export class Vehicle {
       const C = 12 * N; // rigidezza di deriva proporzionale al carico (picco a ~5 gradi)
       let F = -C * alpha;
       const lim = muL * N;
-      if (Math.abs(F) > lim) F = Math.sign(F) * lim * Math.max(0.75, 1 - 0.25 * (Math.abs(F) / lim - 1));
+      if (Math.abs(F) > lim) F = Math.sign(F) * lim * Math.max(0.88, 1 - 0.12 * (Math.abs(F) / lim - 1));   // oltre il limite cala poco: perdita di aderenza progressiva
       return F;
     };
     let rearMu = mu * (this.handbrake > 0 ? 0.45 : 1);
@@ -173,11 +182,18 @@ export class Vehicle {
     const dv = Fy / this.m - this.u * this.w;
     const dw = this.airborne ? 0 : (this.a * Fyf * cosd - this.b * Fyr) / this.I;
     const prevU = this.u;
-    // controllo di stabilita' (ESC): limita l'imbardata oltre il limite fisico
-    if (!this.airborne && this.handbrake === 0 && Math.abs(this.u) > 6) {
-      const wMax = 1.1 * mu * G / Math.abs(this.u);
-      if (Math.abs(this.w) > wMax) this.w += (Math.sign(this.w) * wMax - this.w) * Math.min(1, dt * 6);
-      this.v *= 1 - Math.min(0.5, dt * 1.2);
+    // controllo di stabilita' (ESC), come quello vero: confronta l'imbardata con quella chiesta dallo
+    // sterzo (limitata dall'aderenza) e, se la coda parte (sovrasterzo) o la rotazione va oltre il
+    // limite, riporta l'auto sulla traiettoria e smorza la deriva. Il controsterzo funziona.
+    if (!this.airborne && this.handbrake === 0 && Math.abs(this.u) > 4) {
+      const au = Math.abs(this.u), wLim = 0.95 * mu * G / au;
+      const wDes = Math.max(-wLim, Math.min(wLim, this.u * Math.tan(this.steer) / this.L));
+      const over = Math.abs(this.w) > Math.abs(wDes) + 0.04 || Math.sign(this.w) !== Math.sign(wDes) && Math.abs(this.w) > 0.06;
+      const k = s.kind === 'bike' ? 7 : 4.5;
+      if (over) this.w += (wDes - this.w) * Math.min(1, dt * k);
+      if (Math.abs(this.w) > wLim * 1.05) this.w = Math.sign(this.w) * wLim * 1.05;
+      const beta = Math.atan2(this.v, au);
+      this.v *= 1 - Math.min(0.5, dt * (Math.abs(beta) > 0.06 ? (s.kind === 'bike' ? 6 : 3.5) : 1.2));
     }
     this.u += du * dt;
     this.v += dv * dt;
@@ -238,10 +254,23 @@ export class Vehicle {
       let vx = fx * this.u + lx * this.v, vz = fz * this.u + lz * this.v;
       const vn = vx * hit.nx + vz * hit.nz;
       if (vn < 0) {
-        vx -= 1.25 * vn * hit.nx; vz -= 1.25 * vn * hit.nz;
-        vx *= 0.8; vz *= 0.8;
+        // urto: la componente contro l'ostacolo rimbalza poco, quella lungo l'ostacolo resta (meno
+        // l'attrito, che cresce con la violenza dell'urto). Strisciando su un guardrail o un muro si
+        // continua a scorrere invece di inchiodarsi (prima ogni contatto toglieva il 20% di tutto).
+        const tx0 = vx - vn * hit.nx, tz0 = vz - vn * hit.nz, vt = Math.hypot(tx0, tz0);
+        // attrito di Coulomb: toglie alla velocita' lungo l'ostacolo una parte dell'impulso d'urto
+        // (non una percentuale a ogni passo di calcolo, che fermava chi strisciava in un secondo)
+        const fr = vt > 1e-3 ? Math.max(0, 1 - 0.3 * 1.25 * (-vn) / vt) : 0;
+        const tx = tx0 * fr, tz = tz0 * fr;
+        vx = tx - 0.25 * vn * hit.nx; vz = tz - 0.25 * vn * hit.nz;
         this.impact = Math.max(this.impact, Math.min(1, -vn / 12));
         this.u = vx * fx + vz * fz; this.v = vx * lx + vz * lz;
+        // il muso si allinea un po' all'ostacolo (si scorre lungo il guardrail invece di piantarsi)
+        const along = Math.atan2(tx, tz);
+        let dh = along - this.h; while (dh > Math.PI) dh -= 2 * Math.PI; while (dh < -Math.PI) dh += 2 * Math.PI;
+        const al = Math.min(0.3, 0.08 + (-vn) * 0.03);
+        if (Math.abs(dh) < 1.2 && Math.hypot(tx, tz) > 3) this.h += dh * al;
+        else if (Math.abs(dh) > Math.PI - 1.2 && Math.hypot(tx, tz) > 3) { const d2 = dh > 0 ? dh - Math.PI : dh + Math.PI; this.h += d2 * al; }
         this.w *= 0.5;
         if (hitCar && hitCar.car) hitCar.car.bumped = 3;
       }

@@ -549,6 +549,7 @@ export class RoadNetwork {
     const walk = new GeoBuilder(true, true), decal = new GeoBuilder(true, true);
     const T = this.terrain;
     const STEP = 5;
+    const guardCol = [];          // guardrail delle superstrade: collisioni registrate da World
     const discDone = new Set();
     let nDone = 0;
     for (const packed of segs) {
@@ -715,6 +716,7 @@ export class RoadNetwork {
             const x1 = e1[side * 3] + rx * off, z1 = e1[side * 3 + 2] + rz * off, y1 = e1[side * 3 + 1];
             const i0 = guard.v(x0, y0 + 0.85, z0), i1 = guard.v(x1, y1 + 0.85, z1), i2 = guard.v(x1, y1 + 0.5, z1), i3 = guard.v(x0, y0 + 0.5, z0);
             guard.quad(i0, i1, i2, i3);
+            guardCol.push([x0, z0, x1, z1, y0, y1, rx * sg, rz * sg]);
             if (s % 2 === 0) {
               const j0 = guard.v(x0, y0 + 0.85, z0), j1 = guard.v(x0 + sx * 0.12, y0 + 0.85, z0 + sz * 0.12), j2 = guard.v(x0 + sx * 0.12, y0 - 0.2, z0 + sz * 0.12), j3 = guard.v(x0, y0 - 0.2, z0);
               guard.quad(j0, j1, j2, j3);
@@ -765,6 +767,7 @@ export class RoadNetwork {
     if (!tlamp.empty) group.add(yield* tlamp.meshGen(M.tlamp));
     if (!guard.empty) group.add(yield* guard.meshGen(M.guard));
     if (!isl.empty) group.add(yield* isl.meshGen(M.island));
+    group.userData.guards = guardCol;
     return group;
   }
 
@@ -1214,6 +1217,16 @@ export class RoadNetwork {
             const A = corners[i0], B = corners[i1];
             const q0 = g.v(A[0], A[2] + H, A[1], d[0], d[1], d[2]), q1 = g.v(B[0], B[2] + H, B[1], d[0], d[1], d[2]), q2 = g.v(B[0], B[2] + base, B[1], d[0], d[1], d[2]), q3 = g.v(A[0], A[2] + base, A[1], d[0], d[1], d[2]);
             g.quad(q0, q1, q2, q3);
+          }
+        }
+        if (collision && rec[0] === 3 && L > 1) {
+          // guardrail mappato: solido (prima si attraversava). Niente tratti dentro la carreggiata
+          // stimata, dove sarebbe un muro invisibile in mezzo alla corsia
+          if (!this.inCarriageway((ax + bx) / 2, (az + bz) / 2, T)) {
+            const ex = -(bz - az) / L * 0.25, ez = (bx - ax) / L * 0.25;
+            const ha = T.height(ax, az), hb = T.height(bx, bz);
+            const co = collision.addPolygon(tileKey, Float32Array.from([ax - ex, az - ez, bx - ex, bz - ez, bx + ex, bz + ez, ax + ex, az + ez]), Math.max(ha, hb) + 0.95, true, Math.min(ha, hb) - 0.5);
+            if (co) co.src = 'guardrail';
           }
         }
         if (collision && rec[0] !== 3 && L > 1.5) {
