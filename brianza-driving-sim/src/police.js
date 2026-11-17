@@ -21,6 +21,8 @@ const RUNNER = { ...CARS.find((c) => c.id === 'compact'), name: 'Fuggitivo', kw:
 
 // distanza a cui una volante si accorge di un'infrazione (rosso, velocita', speronamento): prima 140 m
 const WITNESS_R = 50;
+// da ricercato: fin dove una volante ti vede (prima 230 m), sempre con la linea di vista libera
+const CHASE_VIEW = 100;
 
 // velocita' massima stimata di un veicolo (potenza alle ruote = resistenza aerodinamica + rotolamento)
 const _vmax = new Map();
@@ -76,7 +78,9 @@ export class Police {
     if (this.cool[kind] && now - this.cool[kind] < 4) return;
     const add = { red: 1, speed: 1, ped: 2, ram: 1, crash: 0.6, evade: 1 }[kind] || 0.5;
     const always = kind === 'ped' || kind === 'evade';
-    if (!always && this.heat < 1 && !this.witness(x, z)) return;
+    // serve un testimone: entro 50 m se non sei ricercato, entro la vista d'inseguimento se lo sei
+    // (prima da ricercato contava tutto e rivelava alla polizia dove eri anche senza vederti)
+    if (!always && !this.witness(x, z, this.heat >= 1 ? CHASE_VIEW : WITNESS_R)) return;
     this.cool[kind] = now;
     const before = this.stars;
     this.heat = Math.min(5.99, Math.max(this.heat, 1) + (this.heat >= 1 ? add : add - 1));
@@ -84,18 +88,19 @@ export class Police {
     if (this.stars > before) this.events.push({ type: 'stars', stars: this.stars, kind });
   }
 
-  witness(x, z) {
-    for (const c of this.cars) if (Math.hypot(c.v.x - x, c.v.z - z) < WITNESS_R && this.los(c.v, x, z)) return true;
+  witness(x, z, r = WITNESS_R) {
+    for (const c of this.cars) if (c.mode !== 'runner' && c.mode !== 'caught' && Math.hypot(c.v.x - x, c.v.z - z) < r && this.los(c.v, x, z)) return true;
     return false;
   }
 
-  // linea di vista: niente edifici in mezzo (campioni ogni 8 m)
+  // linea di vista libera: niente edifici, muri, siepi o recinzioni piu' alti di 1,5 m sopra la
+  // volante lungo la linea (campioni ogni 4 m)
   los(v, x, z) {
-    const W = this.G.world, d = Math.hypot(x - v.x, z - v.z), n = Math.floor(d / 8);
+    const W = this.G.world, d = Math.hypot(x - v.x, z - v.z), n = Math.floor(d / 4);
     for (let i = 1; i < n; i++) {
       const t = i / n, px = v.x + (x - v.x) * t, pz = v.z + (z - v.z) * t;
       const top = W.collision.topAt(px, pz, 0.3);
-      if (top > v.y + 4) return false;
+      if (top > v.y + 1.5) return false;
     }
     return true;
   }
@@ -196,7 +201,7 @@ export class Police {
     const v = c.v;
     c.routeT -= dt;
     if (!c.route || c.routeT <= 0 || !c.routeTo || Math.hypot(c.routeTo[0] - tx, c.routeTo[1] - tz) > 40) {
-      c.route = this.G.router.route(v.x, v.z, v.h, tx, tz);
+      c.route = this.G.router.route(v.x, v.z, v.h, tx, tz, c.mode === 'runner' ? null : { free: true });
       c.routeTo = [tx, tz]; c.routeT = 2.5 + Math.random(); c.ri = 0;
     }
     const r = c.route;
@@ -234,7 +239,7 @@ export class Police {
     const v = c.v, G = this.G;
     c.routeT -= dt;
     if (!c.route || c.routeT <= 0 || !c.routeTo || Math.hypot(c.routeTo[0] - tx, c.routeTo[1] - tz) > 40) {
-      c.route = G.router.route(v.x, v.z, v.h, tx, tz); c.routeTo = [tx, tz]; c.routeT = 3 + Math.random(); c.rs = 0;
+      c.route = G.router.route(v.x, v.z, v.h, tx, tz, c.mode === 'runner' ? null : { free: true }); c.routeTo = [tx, tz]; c.routeT = 3 + Math.random(); c.rs = 0;
     }
     const r = c.route;
     if (!r || r.pts.length < 2) { this.drive(c, tx, tz, maxKmh, dt); return; }
@@ -344,7 +349,7 @@ export class Police {
       let seen = false;
       for (const c of this.cars) {
         const d = Math.hypot(c.v.x - px, c.v.z - pz);
-        if (d < (pursuit ? 230 : WITNESS_R) && this.los(c.v, px, pz)) { seen = true; break; }
+        if (c.mode !== 'runner' && c.mode !== 'caught' && d < (pursuit ? CHASE_VIEW : WITNESS_R) && this.los(c.v, px, pz)) { seen = true; break; }
       }
       this.seen = seen;
     }

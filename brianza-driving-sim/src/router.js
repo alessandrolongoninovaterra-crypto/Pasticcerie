@@ -30,7 +30,7 @@ export class Router {
     // grafo orientato in formato CSR, costruito in due passate (conteggio, poi riempimento) senza
     // liste temporanee: con la mappa fino a Milano gli archi sono quasi un milione
     const usable = (w) => w.drivable && w.cls !== CLS.PEDESTRIAN;
-    const pass = (emit) => {
+    const pass = this._pass = (emit, free = false) => {
       R.ways.forEach((w, wi) => {
         if (!usable(w)) return;
         const v = Math.max(10, w.limit) / 3.6;
@@ -44,6 +44,7 @@ export class Router {
           const cost = (w.cum[k + 1] - w.cum[k]) / v * pen;
           emit(a, b, cost, wi);
           if (!w.oneway) emit(b, a, cost, wi);
+          else if (free) emit(b, a, cost * 1.4, wi);     // emergenza: contromano, con una penalita'
         }
       });
     };
@@ -54,12 +55,31 @@ export class Router {
     this.eTo = new Int32Array(m); this.eCost = new Float32Array(m); this.eWay = new Int32Array(m);
     pass((a, b, cost, wi) => { const o = fill[a]++; this.eTo[o] = b; this.eCost[o] = cost; this.eWay[o] = wi; });
     this.eStart = start;
+    this.usable = usable;
     this.dist = new Float32Array(n); this.prev = new Int32Array(n); this.prevWay = new Int32Array(n); this.stamp = new Int32Array(n); this.closed = new Int32Array(n);
     this.run = 0;
   }
 
+  // grafo "di emergenza" per le volanti in inseguimento: sensi unici percorribili anche contromano
+  // (costruito la prima volta che serve). Senza, per raggiungere chi si ferma su una carreggiata a
+  // senso unico le volanti facevano giri di 3-4 km fino allo svincolo giusto e si allontanavano.
+  ensureFree() {
+    if (this.free) return this.free;
+    const n = this.R.nodeCount, start = new Int32Array(n + 1);
+    this._pass((a) => { start[a + 1]++; }, true);
+    for (let i = 0; i < n; i++) start[i + 1] += start[i];
+    const m = start[n], fill = start.slice(0, n);
+    const f = { eTo: new Int32Array(m), eCost: new Float32Array(m), eWay: new Int32Array(m), eStart: start };
+    this._pass((a, b, cost, wi) => { const o = fill[a]++; f.eTo[o] = b; f.eCost[o] = cost; f.eWay[o] = wi; }, true);
+    this.free = f;
+    return f;
+  }
+
   // origine: posizione + direzione del veicolo; destinazione: punto qualsiasi
-  route(x, z, heading, tx, tz) {
+  // opts.free: mezzi di soccorso/polizia (contromano ammesso, inversione a U senza costo)
+  route(x, z, heading, tx, tz, opts = null) {
+    const free = !!(opts && opts.free);
+    const E = free ? this.ensureFree() : this;
     const R = this.R;
     const ok = (w) => w.drivable && w.cls !== CLS.PEDESTRIAN;
     const s = R.nearest(x, z, 60, ok);
@@ -78,9 +98,9 @@ export class Router {
       if (cost < this.dist[node]) { this.dist[node] = cost; this.prev[node] = -1; this.prevWay[node] = s.wi; heap.push(cost + this.h(node, tx, tz), node); }
     };
     // verso b (direzione della via) / verso a
-    const uturn = 25;
+    const uturn = free ? 2 : 25;
     seed(sb, (1 - s.t) * segL / v + (dirDot < 0 ? uturn : 0));
-    if (!sw.oneway) seed(sa, s.t * segL / v + (dirDot > 0 ? uturn : 0));
+    if (!sw.oneway || free) seed(sa, s.t * segL / v + (dirDot > 0 ? uturn : 0));
     const tw = R.ways[t.wi];
     const ta = tw.nodes[t.k], tb = tw.nodes[t.k + 1];
     const goals = new Set([ta, tb]);
@@ -92,11 +112,11 @@ export class Router {
       if (goals.has(u)) { found = u; break; }
       if (++iter > 400000) break;
       const du = this.dist[u];
-      for (let e = this.eStart[u]; e < this.eStart[u + 1]; e++) {
-        const vtx = this.eTo[e];
+      for (let e = E.eStart[u]; e < E.eStart[u + 1]; e++) {
+        const vtx = E.eTo[e];
         if (this.stamp[vtx] !== run) { this.stamp[vtx] = run; this.dist[vtx] = 1e18; this.closed[vtx] = 0; }
-        const nd = du + this.eCost[e];
-        if (nd < this.dist[vtx]) { this.dist[vtx] = nd; this.prev[vtx] = u; this.prevWay[vtx] = this.eWay[e]; heap.push(nd + this.h(vtx, tx, tz), vtx); }
+        const nd = du + E.eCost[e];
+        if (nd < this.dist[vtx]) { this.dist[vtx] = nd; this.prev[vtx] = u; this.prevWay[vtx] = E.eWay[e]; heap.push(nd + this.h(vtx, tx, tz), vtx); }
       }
     }
     if (found < 0) return null;

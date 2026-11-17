@@ -137,12 +137,14 @@ liberty3d, di cui non si usa codice), sui luoghi reali della mappa:
 - **Polizia** (menu *Polizia*: attiva o no), senza armi. In calma le pattuglie **circolano come il
   resto del traffico**: corsia di destra, limiti di velocità, semafori, precedenze e distanza di
   sicurezza, lampeggianti e sirena spenti (il traffico si ferma dietro di loro e viceversa). Solo
-  quando ci sono stelle lasciano la corsia e inseguono. **Le volanti sono commisurate al tuo veicolo**:
+  quando ci sono stelle lasciano la corsia e inseguono; in inseguimento il navigatore delle volanti
+  ammette il contromano e l'inversione a U (prima per raggiungere chi stava su una carreggiata a senso
+  unico facevano giri di 3-4 km fino allo svincolo). **Le volanti sono commisurate al tuo veicolo**:
   potenza proporzionata al tuo rapporto peso/potenza (da un po' meno di te a 1★ a pari a 5★) e velocità
   massima voluta tra l'88% e il 102% della tua: in rettilineo ci si stacca, nel traffico, in curva e
   ai posti di blocco ti riprendono. Prima la volante (200 kW, 234 km/h) batteva ogni auto tranne la
   coupé; con l'utilitaria ora arriva a 145-164 km/h, con coupé e moto si resta a 255 km/h. I reati
-  visti da una volante entro 50 m (rosso, velocità oltre 35 km/h sul limite, incidenti) o gravi (pedone
+  visti da una volante entro 50 m (da ricercato entro 100 m; rosso, velocità oltre 35 km/h sul limite, incidenti) o gravi (pedone
   investito, speronare una volante) alzano il livello di ricerca (★ 1-5). Le volanti hanno la
   stessa fisica dell'auto del giocatore: lontane seguono il percorso stradale calcolato dal
   navigatore verso l'ultima posizione nota, vicine puntano dove stai andando e cercano di
