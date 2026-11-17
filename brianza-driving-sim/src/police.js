@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { Vehicle } from './vehicle.js';
-import { CARS, buildCarModel } from './cars.js';
+import { CARS, buildCarModel, stripLights } from './cars.js';
 import { CLS } from './roads.js';
 
 // Polizia con livello di ricerca (stelle 1-5), senza armi.
@@ -72,7 +72,7 @@ export class Police {
   makeCar(x, z, h, runner = false) {
     const G = this.G, spec = runner ? RUNNER : SPEC, v = new Vehicle(spec, G.world);
     v.place(x, z, h);
-    const model = buildCarModel(spec, { color: spec.color });
+    const model = stripLights(buildCarModel(spec, { color: spec.color }));
     if (runner) {
       G.scene.add(model.root);
       const c = { v, model, lamps: [], mode: 'runner', route: null, routeT: 0, routeTo: null, stuck: 0, rev: 0, id: 'run' + Math.random().toString(36).slice(2, 7), hp: 100, goal: null };

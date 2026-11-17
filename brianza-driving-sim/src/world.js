@@ -518,12 +518,18 @@ export class World {
         continue;
       }
       if (!('paths' in t.parts)) {
+        // sei costruzioni indipendenti: una per giro (prima tutte insieme, uno degli scatti piu' lunghi)
+        const P = t.pathParts || (t.pathParts = []);
+        const steps = [
+          () => this.roads.buildPaths(t.data),
+          () => { const ba = this.roads.buildBarriers(t.data, this.collision, t.key); t.fence = ba; if (ba) ba.visible = t.d < 1100; return ba; },   // muri e recinzioni: sottili, da lontano non si vedono (vedi update)
+          () => this.buildPower(t), () => this.roads.buildStalls(t.data), () => this.buildRibbons(t.key), () => this.buildPiers(t),
+        ];
+        while (P.length < steps.length && (P.length === 0 || performance.now() - t0 < budget)) P.push(steps[P.length]());
+        if (P.length < steps.length) return false;
         const g = new THREE.Group();
-        const pa = this.roads.buildPaths(t.data), ba = this.roads.buildBarriers(t.data, this.collision, t.key), pw = this.buildPower(t), st = this.roads.buildStalls(t.data);
-        const rib = this.buildRibbons(t.key), pr = this.buildPiers(t);
-        t.fence = ba;          // muri e recinzioni: sottili, da lontano non si vedono (vedi update)
-        if (ba) ba.visible = t.d < 1100;
-        for (const o of [pa, ba, pw, st, rib, pr]) if (o) g.add(o);
+        for (const o of P) if (o) g.add(o);
+        t.pathParts = null;
         add('paths', g.children.length ? g : null); continue;
       }
       if (!('gates' in t.parts)) { add('gates', this.gates.build(t.key, t.data)); continue; }

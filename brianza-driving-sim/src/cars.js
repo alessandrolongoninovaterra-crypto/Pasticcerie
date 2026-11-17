@@ -26,6 +26,21 @@ const bodyName = (spec) => (spec.base === 'bus' ? 'bus' : 'bds-' + spec.id);
 
 const darkMat = new THREE.MeshLambertMaterial({ color: 0x222426 });
 
+// Toglie dal modello le luci vere (faro e bagliore del fanale). Servono solo sul veicolo del
+// giocatore: ogni luce in piu' o in meno nella scena cambia il "numero di luci" degli shader e
+// three.js ricompila TUTTI i materiali illuminati (scatto di decine o centinaia di ms). Volanti,
+// fuggitivi e auto lasciate a bordo strada usano solo i fanali emissivi.
+export function stripLights(model) {
+  for (const k of ['headlight', 'tailGlow']) {
+    const l = model[k];
+    if (!l) continue;
+    if (l.parent) l.parent.remove(l);
+    if (l.target && l.target.parent) l.target.parent.remove(l.target);
+    model[k] = null;
+  }
+  return model;
+}
+
 export function buildCarModel(spec, opts = {}) {
   const root = new THREE.Group();
   const name = bodyName(spec), B = bodySpec(name);

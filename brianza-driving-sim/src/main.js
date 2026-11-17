@@ -4,7 +4,7 @@ import { Terrain } from './terrain.js';
 import { RoadNetwork, CLS } from './roads.js';
 import { World } from './world.js';
 import { Sky } from './sky.js';
-import { CARS, buildCarModel, drawCluster } from './cars.js';
+import { CARS, buildCarModel, drawCluster, stripLights } from './cars.js';
 import { buildBikeModel } from './bike.js';
 import { Vehicle } from './vehicle.js';
 import { Plane, buildPlaneModel, drawPlaneCluster } from './plane.js';
@@ -322,6 +322,11 @@ function makePlayer(spec = CARS[G.carIdx], color = null) {
     G.vehicle = new Vehicle(spec, G.world);
     G.carModel = buildCarModel(spec, { interior: true, color });
   }
+  // sempre un faro e un bagliore sul veicolo del giocatore (l'aereo li usa come luce di atterraggio):
+  // il numero di luci in scena resta fisso e cambiando veicolo non si ricompilano gli shader
+  const M = G.carModel, L = spec.L || 4;
+  if (!M.headlight) { M.headlight = new THREE.SpotLight(0xfff1cf, 0, 80, 0.5, 0.5, 1.2); M.headlight.position.set(0, 1.2, L * 0.45); M.headlight.target.position.set(0, 0.2, L * 0.45 + 10); M.root.add(M.headlight, M.headlight.target); }
+  if (!M.tailGlow) { M.tailGlow = new THREE.PointLight(0xff2a12, 0, 1.4, 3.4); M.tailGlow.position.set(0, 1, -L * 0.45); M.root.add(M.tailGlow); }
   G.scene.add(G.carModel.root);
   G.lightsOn = false;
   $('helpbar').textContent = spec.kind === 'plane'
@@ -376,6 +381,7 @@ function enterCar() {
   if (best !== dOwn) {
     // lascia l'auto precedente dov'e' e prende l'altra
     const old = G.carModel; old.interior.visible = false; for (const e of old.exterior) e.visible = true;
+    stripLights(old);           // il nuovo veicolo porta le sue: il numero di luci in scena non cambia
     T.statics.push({ x: v.x, z: v.z, h: v.h, box: ownBox(), model: old });
     G.carModel = null;
     if (T.statics.length > 6) { const s = T.statics.shift(); G.scene.remove(s.model.root); }
@@ -987,6 +993,7 @@ function loop(now) {
   if (G.loadingWorld) {
     if (G.world.ready(v.x, v.z)) {
       G.loadingWorld = false;
+      warmShaders(true);          // shader di tutto cio' che e' gia' in scena, anche se ora nascosto
       if (v.pendingLaunch) { v.pendingLaunch = false; v.launch(); G.camInit = true; showToast((v.spec.jet ? '✈ Caccia in volo a 500 m — W/S manetta (oltre 85% postbruciatore)' : '✈ In volo sopra la Brianza — W/S manetta') + ', ↑/↓ cabra/picchia, A/D vira', 4500); }
       else if (!v.isPlane || v.onGround) { snapToLane(v); const s = G.roads.surfaceAt(v.x, v.z, 1e9); v.y = s.h; }
     } else { ctl.throttle = 0; ctl.brake = 1; }
@@ -1085,9 +1092,50 @@ function loop(now) {
   if (f.on) G.audio.update(800, 0, 0, 0, 0); else G.audio.update(v.rpm, v.throttle, Math.abs(v.u) * 3.6, v.slip, skid);
   if (v.impact > 0.25 && !f.on && !v.isPlane) { showToast('💥 Urto!', 700); }
   v.impact = 0;
-  if (G.composer && G.sky.night > 0.2) { G.bloom.strength = G.sky.night * 0.55; G.composer.render(); }
+  // con il bagliore attivo nelle impostazioni si disegna SEMPRE attraverso il composer (di giorno
+  // con il bagliore spento): disegnare un'immagine intermedia o direttamente sullo schermo cambia
+  // tono e spazio colore di ogni shader, e il passaggio giorno/notte ricompilava tutta la scena
+  // (blocco di qualche secondo al tramonto e ogni volta che si tornava sopra/sotto la soglia)
+  if (G.composer) { G.bloom.enabled = G.sky.night > 0.2; G.bloom.strength = G.sky.night * 0.55; G.composer.render(); }
   else G.renderer.render(G.scene, G.camera);
 }
 const tmpV2 = new THREE.Vector3();
+
+// Compila in anticipo gli shader di tutto cio' che e' in scena, compresi gli oggetti e i materiali
+// ora nascosti che compaiono solo di notte (aloni dei lampioni, fasci dei fari, pioggia...) e i
+// passaggi del bagliore notturno. Senza, la prima volta che compaiono il gioco si ferma a compilare.
+// sync: subito (durante il caricamento); altrimenti in parallelo dove il browser lo consente.
+let warmBusy = false;
+function warmShaders(sync) {
+  const r = G.renderer;
+  if (warmBusy || !r.compile) return;
+  const hidden = [];
+  G.scene.traverse((o) => {
+    if (!o.visible) { hidden.push(o); o.visible = true; }
+    const m = o.material;
+    if (m) for (const mm of Array.isArray(m) ? m : [m]) if (!mm.visible) { hidden.push(mm); mm.visible = true; }
+  });
+  const old = r.getRenderTarget();
+  const restore = () => { for (const o of hidden) o.visible = false; };
+  try {
+    r.setRenderTarget(G.composer ? G.composer.renderTarget1 : null);    // stessa uscita del disegno vero
+    if (sync || !r.compileAsync) r.compile(G.scene, G.camera);
+    else { warmBusy = true; r.compileAsync(G.scene, G.camera).catch(() => {}).finally(() => { warmBusy = false; }); }
+    // anche la variante senza ombre: la qualita' automatica le spegne e riaccende (e in volo),
+    // e ogni cambio senza shader pronti era un altro blocco
+    if (sync && G.settings.shadows && r.compileAsync) {
+      const sun = G.sky.sun, cs = sun.castShadow;
+      sun.castShadow = !cs; r.compileAsync(G.scene, G.camera).catch(() => {}); sun.castShadow = cs;
+    }
+    if (G.composer && sync) {
+      // un fotogramma con il bagliore acceso (intensita' zero) prepara i suoi passaggi
+      const e = G.bloom.enabled, s = G.bloom.strength;
+      G.bloom.enabled = true; G.bloom.strength = 0; r.setRenderTarget(old); G.composer.render(); G.bloom.enabled = e; G.bloom.strength = s;
+    }
+  } catch (err) { console.warn('warmShaders', err); }
+  r.setRenderTarget(old);
+  restore();
+}
+G.warmShaders = warmShaders;
 
 boot().catch(bootFail);
