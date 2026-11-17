@@ -501,9 +501,9 @@ export class BuildingFactory {
     const group = new THREE.Group();
     const glassRoof = this.glassRoofs(tile);
     if (glassRoof) group.add(glassRoof);
-    for (const k of ['res', 'condo', 'modern', 'ind', 'plain', 'church', 'glass', 'shop', 'villa', 'pal']) if (!gb[k].empty) { yield; group.add(gb[k].mesh(this.mats[k], true)); }
+    for (const k of ['res', 'condo', 'modern', 'ind', 'plain', 'church', 'glass', 'shop', 'villa', 'pal']) if (!gb[k].empty) { yield; group.add(yield* gb[k].meshGen(this.mats[k], true)); }
     yield;
-    if (!roof.empty) group.add(roof.mesh(this.mats.roof, true));
+    if (!roof.empty) group.add(yield* roof.meshGen(this.mats.roof, true));
     return { group, labels };
   }
 

@@ -613,6 +613,21 @@ lo stesso codice che prima girava nel browser all'avvio) e scrive i file sopra. 
 più grandi (tutta la Lombardia) il collo di bottiglia diventa la pipeline Python, che tiene ancora
 tutta l'area in memoria; il gioco invece non cambia.
 
+## Fluidità: niente blocchi al tramonto e durante il caricamento
+
+- **Shader**: con il bagliore attivo (qualità media e alta) ogni fotogramma passa dal composer,
+  di giorno con il bagliore spento. Prima al tramonto si passava dal disegno diretto al composer e
+  tutti gli shader della scena si ricompilavano (47 nella prova a Monza: un blocco di secondi).
+  A fine caricamento si precompilano anche gli oggetti che compaiono solo di notte (aloni dei
+  lampioni, fasci dei fari, pioggia), i passaggi del bagliore e la variante senza ombre che la
+  qualità automatica può attivare. Il numero di luci in scena è fisso (volanti, fuggitivi e auto
+  lasciate usano solo fanali emissivi): ogni luce in più o in meno ricompilava tutti i materiali.
+  Prova (Monza, giorno→notte e 1,2 km di guida): shader nuovi da 47 al tramonto a 0, in guida da 31 a 2.
+- **Costruzione delle tessere a passi**: segnaletica, muri e recinzioni e l'unione finale delle
+  geometrie (normali calcolate a blocchi) sono generatori che si fermano quando il fotogramma ha
+  esaurito il suo tempo. Prova su quattro zone caricate da zero: fotogrammi oltre 40 ms da 72 a 3,
+  il 99% sotto 22 ms (prima 66 ms), il più lento 43 ms (prima 132).
+
 ## Sviluppo
 
 ```bash

@@ -431,6 +431,16 @@ export class Signage {
   }
 
   build(tk, tile) {
+    const g = this.buildGen(tk, tile);
+    let r;
+    while (!(r = g.next()).done);
+    return r.value;
+  }
+
+  // costruzione a passi: una pausa ogni 12 tratti/punti, cosi' una tessera con tanta segnaletica
+  // non ferma il gioco per decine di millisecondi (vedi World.pump)
+  *buildGen(tk, tile) {
+    let yc = 0;
     const R = this.roads, T = this.terrain;
     const segs = R.tileSegs.get(tk) || [];
     const poles = new GeoBuilder(true, false), std = new GeoBuilder(true, true), txt = new GeoBuilder(true, true);
@@ -548,6 +558,7 @@ export class Signage {
     let plateCount = 0;
 
     for (const packed of segs) {
+      if ((++yc % 12) === 0) yield;
       const wi = Math.floor(packed / 16384), k = packed % 16384;
       const w = R.ways[wi];
       if (!w.drivable) continue;
@@ -823,6 +834,7 @@ export class Signage {
     // --- indicazioni di direzione alle uscite delle rotatorie (prossimo comune o localita')
     const doneExit = new Set();
     for (const packed of segs) {
+      if ((++yc % 12) === 0) yield;
       const wi = Math.floor(packed / 16384), k = packed % 16384, w = R.ways[wi];
       if (w.flags & F.ROUNDABOUT || !w.drivable || w.cls > CLS.TERTIARY) continue;
       const lastSeg = w.nodes.length - 2;
@@ -844,6 +856,7 @@ export class Signage {
 
     // --- elementi puntuali OSM: fermate, lampioni, cartelli di localita', autovelox, distributori
     for (const [kind, qx, qz, si] of (tile && tile.pt) || []) {
+      if ((++yc % 12) === 0) yield;
       const x = qx / 10, z = qz / 10, text = tile.s[si] || '';
       const nr = R.nearest(x, z, 30, (ww) => ww.drivable && ww.cls <= CLS.SERVICE);
       let dx = 0, dz = 1;

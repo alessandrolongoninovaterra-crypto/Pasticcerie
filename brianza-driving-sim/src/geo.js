@@ -30,6 +30,47 @@ export class GeoBuilder {
     m.castShadow = shadows; m.receiveShadow = true;
     return m;
   }
+
+  // Come build(), ma a passi (per i generatori di costruzione delle tessere: `yield* gb.meshGen(...)`).
+  // Le normali si calcolano a blocchi di triangoli con una pausa tra un blocco e l'altro: su una
+  // tessera fitta la sola unione dei tetti richiedeva decine di millisecondi tutta insieme.
+  // Stesso risultato di computeVertexNormals (normali pesate per area) + fixNormals.
+  *buildGen() {
+    const P = new Float32Array(this.p);
+    yield;
+    const I = this.n > 65535 ? new Uint32Array(this.i) : new Uint16Array(this.i);
+    const N = new Float32Array(P.length);
+    const CH = 30000 * 3;
+    for (let t0 = 0; t0 < I.length; t0 += CH) {
+      const t1 = Math.min(I.length, t0 + CH);
+      for (let t = t0; t < t1; t += 3) {
+        const a = I[t] * 3, b = I[t + 1] * 3, c = I[t + 2] * 3;
+        const abx = P[a] - P[b], aby = P[a + 1] - P[b + 1], abz = P[a + 2] - P[b + 2];
+        const cbx = P[c] - P[b], cby = P[c + 1] - P[b + 1], cbz = P[c + 2] - P[b + 2];
+        const nx = cby * abz - cbz * aby, ny = cbz * abx - cbx * abz, nz = cbx * aby - cby * abx;
+        N[a] += nx; N[a + 1] += ny; N[a + 2] += nz; N[b] += nx; N[b + 1] += ny; N[b + 2] += nz; N[c] += nx; N[c + 1] += ny; N[c + 2] += nz;
+      }
+      yield;
+    }
+    for (let i = 0; i < N.length; i += 3) {
+      const l = N[i] * N[i] + N[i + 1] * N[i + 1] + N[i + 2] * N[i + 2];
+      if (l > 1e-8) { const k = 1 / Math.sqrt(l); N[i] *= k; N[i + 1] *= k; N[i + 2] *= k; } else { N[i] = 0; N[i + 1] = 1; N[i + 2] = 0; }
+    }
+    const g = new THREE.BufferGeometry();
+    g.setAttribute('position', new THREE.BufferAttribute(P, 3));
+    if (this.c) g.setAttribute('color', new THREE.BufferAttribute(new Float32Array(this.c), 3));
+    if (this.u) g.setAttribute('uv', new THREE.BufferAttribute(new Float32Array(this.u), 2));
+    g.setAttribute('normal', new THREE.BufferAttribute(N, 3));
+    g.setIndex(new THREE.BufferAttribute(I, 1));
+    yield;
+    g.computeBoundingSphere();
+    return g;
+  }
+  *meshGen(mat, shadows = false) {
+    const m = new THREE.Mesh(yield* this.buildGen(), mat);
+    m.castShadow = shadows; m.receiveShadow = true;
+    return m;
+  }
 }
 
 // Normali nulle (vertici di soli triangoli degeneri, o condivisi da facce opposte che si annullano):

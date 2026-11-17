@@ -752,18 +752,18 @@ export class RoadNetwork {
     yield;
     this.buildRails(tk, road, wall);
     yield;
-    if (!road.empty) group.add(road.mesh(M.road));
+    if (!road.empty) group.add(yield* road.meshGen(M.road));
     yield;
-    if (!stone.empty) group.add(stone.mesh(M.stone));
-    if (!walk.empty) group.add(walk.mesh(M.walk));
+    if (!stone.empty) group.add(yield* stone.meshGen(M.stone));
+    if (!walk.empty) group.add(yield* walk.meshGen(M.walk));
     yield;
-    if (!mark.empty) group.add(mark.mesh(M.mark));
-    if (!decal.empty) group.add(decal.mesh(M.decal));
-    if (!wall.empty) group.add(wall.mesh(M.wall, true));
-    if (!tube.empty) group.add(tube.mesh(M.tube));
-    if (!tlamp.empty) group.add(tlamp.mesh(M.tlamp));
-    if (!guard.empty) group.add(guard.mesh(M.guard));
-    if (!isl.empty) group.add(isl.mesh(M.island));
+    if (!mark.empty) group.add(yield* mark.meshGen(M.mark));
+    if (!decal.empty) group.add(yield* decal.meshGen(M.decal));
+    if (!wall.empty) group.add(yield* wall.meshGen(M.wall, true));
+    if (!tube.empty) group.add(yield* tube.meshGen(M.tube));
+    if (!tlamp.empty) group.add(yield* tlamp.meshGen(M.tlamp));
+    if (!guard.empty) group.add(yield* guard.meshGen(M.guard));
+    if (!isl.empty) group.add(yield* isl.meshGen(M.island));
     return group;
   }
 
@@ -1153,10 +1153,21 @@ export class RoadNetwork {
 
   // muri di cinta, siepi, muri di sostegno e guardrail mappati in OSM
   buildBarriers(tile, collision, tileKey) {
+    const g = this.buildBarriersGen(tile, collision, tileKey);
+    let r;
+    while (!(r = g.next()).done);
+    return r.value;
+  }
+
+  // muri, siepi, recinzioni e guardrail a passi (una pausa ogni 20 tratti): era la fase piu' lenta
+  // della costruzione di una tessera (anche oltre 100 ms tutta insieme)
+  *buildBarriersGen(tile, collision, tileKey) {
     if (!tile || !tile.ba || !tile.ba.length) return null;
+    let yc = 0;
     const T = this.terrain, g = new GeoBuilder(true, false), gs = new GeoBuilder(true, false), gg = new GeoBuilder(true, true);
     const STY = [{ c: [0.72, 0.68, 0.6], th: 0.3 }, { c: [0.2, 0.36, 0.14], th: 0.9 }, { c: [0.56, 0.54, 0.5], th: 0.5 }, { c: [0.75, 0.77, 0.8], th: 0.08 }];
     for (const rec of tile.ba) {
+      if ((++yc % 20) === 0) yield;
       const st = STY[rec[0]], H = rec[1] / 10;
       const raw = []; let x = 0, z = 0;
       for (let i = 2; i < rec.length; i += 2) { x += rec[i]; z += rec[i + 1]; raw.push([x / 10, z / 10]); }

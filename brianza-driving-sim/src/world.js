@@ -499,7 +499,12 @@ export class World {
         t.gen = null; add('roads', r.value); continue;
       }
       if (!('signs' in t.parts)) {
-        const s = this.signage.build(t.key, t.data);
+        if (!t.gen) t.gen = this.signage.buildGen(t.key, t.data);
+        let r;
+        do { r = t.gen.next(); } while (!r.done && performance.now() - t0 < budget);
+        if (!r.done) return false;
+        t.gen = null;
+        const s = r.value;
         for (const sg of s.signals) this.signals.push({ ...sg, tile: t.key });
         for (const c of s.cameras || []) this.cameras.push({ x: c[0], z: c[1], tile: t.key });
         add('signs', s.group); continue;
@@ -522,10 +527,21 @@ export class World {
         const P = t.pathParts || (t.pathParts = []);
         const steps = [
           () => this.roads.buildPaths(t.data),
-          () => { const ba = this.roads.buildBarriers(t.data, this.collision, t.key); t.fence = ba; if (ba) ba.visible = t.d < 1100; return ba; },   // muri e recinzioni: sottili, da lontano non si vedono (vedi update)
+          () => this.roads.buildBarriersGen(t.data, this.collision, t.key),   // muri e recinzioni: a passi (vedi sotto)
           () => this.buildPower(t), () => this.roads.buildStalls(t.data), () => this.buildRibbons(t.key), () => this.buildPiers(t),
         ];
-        while (P.length < steps.length && (P.length === 0 || performance.now() - t0 < budget)) P.push(steps[P.length]());
+        while (P.length < steps.length && (P.length === 0 || t.pgen || performance.now() - t0 < budget)) {
+          if (!t.pgen) {
+            const o = steps[P.length]();
+            if (o && typeof o.next === 'function') t.pgen = o; else { P.push(o); continue; }
+          }
+          let r;
+          do { r = t.pgen.next(); } while (!r.done && performance.now() - t0 < budget);
+          if (!r.done) return false;
+          t.pgen = null;
+          const ba = r.value; t.fence = ba; if (ba) ba.visible = t.d < 1100;   // muri e recinzioni: sottili, da lontano non si vedono (vedi update)
+          P.push(ba);
+        }
         if (P.length < steps.length) return false;
         const g = new THREE.Group();
         for (const o of P) if (o) g.add(o);
