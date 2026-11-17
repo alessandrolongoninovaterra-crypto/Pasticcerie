@@ -138,7 +138,7 @@ export class Vehicle {
     // perde tenuta laterale (prima la moto, 150 kW su 280 kg, pattinava sempre e partiva di coda).
     // Col freno a mano tirato si spegne: derapate e sgommate restano possibili.
     const tc = !this.handbrake && this.tc !== false;
-    const cap = tc ? tracMax * (s.kind === 'bike' ? 0.85 : 0.95) * Math.min(1, 0.6 + Math.abs(this.u) / 25 + (1 - Math.min(1, Math.abs(this.steer) / Math.max(0.05, s.steer * 0.5))) * 0.4) : tracMax;
+    const cap = tc ? tracMax * 0.95 * Math.min(1, 0.6 + Math.abs(this.u) / 25 + (1 - Math.min(1, Math.abs(this.steer) / Math.max(0.05, s.steer * 0.5))) * 0.4) : tracMax;
     this.wheelSpin = tc ? Math.min(0.3, excess * 0.3) * (Math.abs(this.u) < 12 ? 1 : 0) : excess;   // solo un filo di fumo in partenza
     Fdrive = Math.max(-cap, Math.min(cap, Fdrive));
 

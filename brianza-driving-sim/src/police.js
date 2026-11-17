@@ -19,6 +19,18 @@ const SPEC = { ...CARS.find((c) => c.id === 'sedan'), name: 'Volante', kw: 200, 
 // auto in fuga (missione di inseguimento): una compatta veloce
 const RUNNER = { ...CARS.find((c) => c.id === 'compact'), name: 'Fuggitivo', kw: 150, color: '#c9c9c4' };
 
+// velocita' massima stimata di un veicolo (potenza alle ruote = resistenza aerodinamica + rotolamento)
+const _vmax = new Map();
+function vmaxOf(s) {
+  if (_vmax.has(s.id)) return _vmax.get(s.id);
+  const P = s.kw * 1000 * 0.88, m = s.mass;
+  let lo = 5, hi = 120;
+  for (let k = 0; k < 40; k++) { const v = (lo + hi) / 2; if (0.5 * 1.2 * s.cda * v * v * v + 0.013 * m * 9.81 * v > P) hi = v; else lo = v; }
+  const kmh = Math.min(lo * 3.6, s.rpmMax ? 1e9 : 1e9);
+  _vmax.set(s.id, kmh);
+  return kmh;
+}
+
 export class Police {
   constructor(G) {
     this.G = G;
@@ -33,10 +45,26 @@ export class Police {
     this.light = new THREE.PointLight(0x3060ff, 0, 30, 1.6);   // lampeggiante (sempre in scena: niente ricompilazioni)
     G.scene.add(this.light);
     this.maxStars = 0;
-    this.freeze = 0; this.bustHold = 0;   // fermo dopo l'arresto; tolleranza dell'arresto in corso
+    this.freeze = 0; this.bustHold = 0;
+    this.chasePower = 1; this.chaseKmh = 240;   // fermo dopo l'arresto; tolleranza dell'arresto in corso
   }
 
   get stars() { return Math.min(5, Math.floor(this.heat)); }
+
+  // Volanti commisurate al veicolo del giocatore (come nei giochi d'inseguimento): con 200 kW la
+  // volante batteva ogni auto tranne la coupe' e non c'era modo di seminarla con l'utilitaria.
+  //  - potenza: rapporto peso/potenza del giocatore x (0,8 a 1 stella ... 1,05 a 5 stelle)
+  //  - velocita' massima voluta: quella del veicolo del giocatore x (0,88 ... 1,02): in rettilineo
+  //    si scappa, nel traffico, in curva e ai posti di blocco ti riprendono
+  matchPlayer(pv) {
+    const s = pv && pv.spec;
+    if (!s || !s.kw || pv.isPlane) { this.chasePower = 1; this.chaseKmh = 240; return; }
+    const st = Math.max(1, this.stars);
+    const up = Math.max(1, pv.powerMul || 1);            // elaborazioni del motore (non i danni)
+    const ratio = (s.kw * up / s.mass) / (SPEC.kw / SPEC.mass);
+    this.chasePower = Math.max(0.3, Math.min(1.25, ratio * (0.75 + 0.06 * st)));
+    this.chaseKmh = vmaxOf(s) * Math.cbrt(up) * (0.85 + 0.035 * st);
+  }
 
   // reato: con quanta forza alza il livello. witnessed: serve una volante vicina che veda
   crime(kind, x, z) {
@@ -281,6 +309,7 @@ export class Police {
     if (!hasRunner && (!this.enabled || G.foot.on && !this.heat)) { for (const c of this.cars) this.place(c, now); if (!this.enabled && G.audio && G.audio.siren) G.audio.siren(0); return; }
     const pv = G.vehicle, px = p.x, pz = p.z;
     const pursuit = this.enabled && this.heat >= 1;
+    this.matchPlayer(pv);
     // quante volanti servono
     const want = pursuit ? [0, 2, 3, 4, 5, 6][this.stars] : 2;
     const active = this.cars.filter((c) => c.mode !== 'block' && c.mode !== 'runner' && c.mode !== 'caught');
@@ -368,15 +397,16 @@ export class Police {
       } else if (pursuit) {
         if (c.ta) this.detach(c);           // stelle: lascia la corsia e parte all'inseguimento
         c.mode = 'pursuit';
+        v.powerMul = this.chasePower;
         let tx, tz;
         if (this.seen && d < 75 && this.los(v, px, pz)) {
           // vicino: punta dove il giocatore sara' tra poco (intercetta / speronamento)
           const lead = Math.min(1.2, d / 25);
           tx = px + Math.sin(pv.h) * pv.u * lead; tz = pz + Math.cos(pv.h) * pv.u * lead;
-        } else if (d > 110 && this.lastSeen) { this.rail(c, this.lastSeen[0], this.lastSeen[1], 80 + this.stars * 12, dt); this.place(c, now); continue; }
+        } else if (d > 110 && this.lastSeen) { this.rail(c, this.lastSeen[0], this.lastSeen[1], Math.min(80 + this.stars * 12, this.chaseKmh), dt); this.place(c, now); continue; }
         else if (this.lastSeen) [tx, tz] = this.follow(c, this.lastSeen[0], this.lastSeen[1], dt);
         else [tx, tz] = [px, pz];
-        const fast = 70 + this.stars * 22 + Math.min(40, d * 0.15);
+        const fast = Math.min(70 + this.stars * 22 + Math.min(40, d * 0.15), this.chaseKmh);
         // giocatore fermo (o quasi) vicino: la volante accosta e frena, non lo sperona
         // e si avvicina piano: velocita' proporzionale alla distanza (arriva senza tamponarlo)
         const still = G.foot.on || Math.abs(pv.u) < 5;
