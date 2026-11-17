@@ -9,7 +9,7 @@ import { buildBikeModel } from './bike.js';
 import { Vehicle } from './vehicle.js';
 import { Plane, buildPlaneModel, drawPlaneCluster } from './plane.js';
 import { buildJetModel } from './jet.js';
-import { Input, PadWizard, PAD_ACTIONS } from './input.js';
+import { Input, PadWizard, PAD_ACTIONS, ignorePad } from './input.js';
 import { Traffic } from './traffic.js';
 import { Router, routeProgress } from './router.js';
 import { Maps } from './maps.js';
@@ -789,7 +789,7 @@ function setupMapUI() {
 }
 
 // ------------------------------------------------------------------ gamepad: stato e configurazione guidata
-function padConnected() { return navigator.getGamepads ? [...navigator.getGamepads()].filter((g) => g && g.connected) : []; }
+function padConnected() { return navigator.getGamepads ? [...navigator.getGamepads()].filter((g) => !ignorePad(g)) : []; }
 let padLiveT = 0, wizard = null;
 function renderPadCfg() {
   const inp = G.input, pads = padConnected();
@@ -798,7 +798,7 @@ function renderPadCfg() {
     $('padmap').innerHTML = ''; return;
   }
   const gp = pads[0], { map, kind } = inp.mapFor(gp);
-  $('padstatus').textContent = `Collegato: ${gp.id} — mappatura ${kind}.` + (pads.length > 1 ? ` (${pads.length} gamepad: si configura il primo)` : '');
+  $('padstatus').textContent = `Collegato: ${gp.id} — mappatura ${kind}.` + (pads.length > 1 ? ` (${pads.length} gamepad collegati: la configurazione guidata usa quello su cui premi)` : '');
   $('padmap').innerHTML = PadWizard.describe(map).map((t) => `<div>${t}</div>`).join('');
 }
 function openPadCfg() {
@@ -831,6 +831,7 @@ function setupPadUI() {
       done: () => { wizard = null; $('padwiz').classList.add('hidden'); $('padbtns').classList.remove('hidden'); renderPadCfg(); $('padstatus').textContent += ' Configurazione salvata.'; },
       status: (t) => { $('padstatus').textContent = t; },
     });
+    G.padWizard = wizard;   // (per il debug dalla console)
     if (wizard.start()) { $('padwiz').classList.remove('hidden'); $('padbtns').classList.add('hidden'); } else wizard = null;
   };
   $('padskip').onclick = () => wizard && wizard.skip();

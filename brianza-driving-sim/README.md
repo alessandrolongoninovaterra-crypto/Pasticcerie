@@ -40,8 +40,15 @@ l'aereo: manetta su/giù), A freno a mano, B scendi/sali, Y visuale, X fari, LB 
 Menu pausa, pressione dello stick sinistro clacson. Per i gamepad non standard c'è una mappatura di
 base (riconosce da solo i grilletti montati come assi).
 
+**Controller PlayStation (DualShock 4 / DualSense)**: con la mappatura standard del browser (Chrome,
+Edge) funzionano subito; senza (Firefox, alcuni sistemi) il gioco riconosce il controller Sony e usa
+L2/R2 analogici sugli assi giusti. Accorgimenti: un grilletto mai toccato, che molti browser danno a 0
+invece che a -1, non conta come mezzo premuto (l'auto partiva da sola); i sensori di movimento che su
+Linux compaiono come un secondo gamepad sono ignorati (inclinando il controller sterzava); la croce
+come asse "hat" e gli assi rumorosi non vengono scelti dalla configurazione guidata.
+
 **Per cambiare i comandi**: menu iniziale o pausa (Esc) → **🎮 Gamepad** → *Configura i comandi*.
-Il gioco chiede un comando alla volta (sterzo, acceleratore, freno, cabra, freno a mano, visuale,
+Il gioco chiede un comando alla volta (con più controller collegati, per esempio con DS4Windows, usa quello su cui premi; dopo uno stick aspetta che torni al centro, e per i grilletti registra la posizione di riposo quando li rilasci) (sterzo, acceleratore, freno, cabra, freno a mano, visuale,
 scendi, mappa, clacson, fari, riparti, pausa): si muove lo stick o si preme il tasto voluto, oppure
 si salta. Vanno bene assi, grilletti analogici e tasti. La configurazione si salva nel browser per
 quel modello di gamepad; *Ripristina predefiniti* la cancella. Nella stessa finestra si vedono in
