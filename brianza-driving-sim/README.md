@@ -142,7 +142,7 @@ liberty3d, di cui non si usa codice), sui luoghi reali della mappa:
   massima voluta tra l'88% e il 102% della tua: in rettilineo ci si stacca, nel traffico, in curva e
   ai posti di blocco ti riprendono. Prima la volante (200 kW, 234 km/h) batteva ogni auto tranne la
   coupé; con l'utilitaria ora arriva a 145-164 km/h, con coupé e moto si resta a 255 km/h. I reati
-  visti da una volante (rosso, velocità oltre 35 km/h sul limite, incidenti) o gravi (pedone
+  visti da una volante entro 50 m (rosso, velocità oltre 35 km/h sul limite, incidenti) o gravi (pedone
   investito, speronare una volante) alzano il livello di ricerca (★ 1-5). Le volanti hanno la
   stessa fisica dell'auto del giocatore: lontane seguono il percorso stradale calcolato dal
   navigatore verso l'ultima posizione nota, vicine puntano dove stai andando e cercano di

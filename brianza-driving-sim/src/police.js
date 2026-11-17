@@ -19,6 +19,9 @@ const SPEC = { ...CARS.find((c) => c.id === 'sedan'), name: 'Volante', kw: 200, 
 // auto in fuga (missione di inseguimento): una compatta veloce
 const RUNNER = { ...CARS.find((c) => c.id === 'compact'), name: 'Fuggitivo', kw: 150, color: '#c9c9c4' };
 
+// distanza a cui una volante si accorge di un'infrazione (rosso, velocita', speronamento): prima 140 m
+const WITNESS_R = 50;
+
 // velocita' massima stimata di un veicolo (potenza alle ruote = resistenza aerodinamica + rotolamento)
 const _vmax = new Map();
 function vmaxOf(s) {
@@ -82,7 +85,7 @@ export class Police {
   }
 
   witness(x, z) {
-    for (const c of this.cars) if (Math.hypot(c.v.x - x, c.v.z - z) < 140 && this.los(c.v, x, z)) return true;
+    for (const c of this.cars) if (Math.hypot(c.v.x - x, c.v.z - z) < WITNESS_R && this.los(c.v, x, z)) return true;
     return false;
   }
 
@@ -341,7 +344,7 @@ export class Police {
       let seen = false;
       for (const c of this.cars) {
         const d = Math.hypot(c.v.x - px, c.v.z - pz);
-        if (d < (pursuit ? 230 : 140) && this.los(c.v, px, pz)) { seen = true; break; }
+        if (d < (pursuit ? 230 : WITNESS_R) && this.los(c.v, px, pz)) { seen = true; break; }
       }
       this.seen = seen;
     }
