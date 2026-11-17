@@ -152,8 +152,8 @@ liberty3d, di cui non si usa codice), sui luoghi reali della mappa:
   quota: non dal cavalcavia sopra) per 3 secondi, oppure chiuso tra due volanti anche se provi a
   ripartire piano; un attimo di movimento non azzera il conteggio (scende piano). Poi il veicolo
   resta bloccato per qualche secondo, multa di 400 € per stella e punti patente, e le volanti
-  tornano in servizio normale nel traffico. **Fuga**: nessuna volante ti vede (linea di
-  vista tra gli edifici) per 10 s + 5 s per stella, dopo che ti sei allontanato dall'ultimo
+  tornano in servizio normale nel traffico. **Fuga**: nessuna volante ti vede (entro 100 m e con la linea di
+  vista libera da edifici, muri, siepi e recinzioni oltre 1,5 m) per 10 s + 5 s per stella, dopo che ti sei allontanato dall'ultimo
   avvistamento. Sirena bitonale, lampeggianti (luce vera di notte), volanti sulla minimappa.
 - **Economia** (salvata nel browser): soldi, carburante (circa 650 km con un pieno), danni (gli urti
   consumano l'auto: oltre il 60% perde potenza, al 100% è in panne). Da fermo, con **G**: ai
