@@ -144,7 +144,9 @@ export class Vehicle {
 
     // --- freni
     let Fbrake = 0;
-    const brakeF = s.brake * brk * (this.brakeMul || 1);
+    // freni piu' potenti del 30% rispetto ai dati di base (da 100 km/h ~36 m invece di ~42 per le auto
+    // comuni); oltre il limite delle gomme non si va comunque (vedi sotto)
+    const brakeF = s.brake * 1.3 * brk * (this.brakeMul || 1);
     if (Math.abs(this.u) > 0.05) Fbrake = -Math.sign(this.u) * Math.min(brakeF, mu * (Nf + Nr));
     let handF = 0;
     if (this.handbrake > 0 && Math.abs(this.u) > 0.05) handF = -Math.sign(this.u) * mu * Nr * 0.8 * this.handbrake;

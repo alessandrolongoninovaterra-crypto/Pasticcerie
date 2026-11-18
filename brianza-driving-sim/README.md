@@ -647,6 +647,8 @@ tutta l'area in memoria; il gioco invece non cambia.
 - **Controllo di trazione**: la spinta si ferma al limite dell'aderenza, le ruote motrici non
   pattinano e non perdono tenuta in curva (la moto da 150 kW su 280 kg pattinava sempre e partiva
   di coda). Col freno a mano tirato si spegne anche questo.
+- **Freni più potenti** del 30% (sempre entro il limite delle gomme): da 100 km/h le auto comuni si
+  fermano in ~33 m (prima ~42), il furgone in ~40 (prima 52), la coupé in ~29.
 - **Più tenuta**: +10% di aderenza sull'asfalto, pneumatici che oltre il limite perdono poca
   aderenza (scivolata progressiva), nessun asse che si scarica del tutto in frenata o in accelerazione.
   Moto con baricentro più basso (pilota in carena).
