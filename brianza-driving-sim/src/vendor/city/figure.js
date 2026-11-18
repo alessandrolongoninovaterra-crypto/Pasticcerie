@@ -552,6 +552,46 @@ export function createCrowd(COUNT, seed = 20260919) {
         ped.lean + 0.12 * Math.max(0, ped.gait - 1), 0.022 * Math.cos(ped.phase))
       drawFigure(i, ped, ped.pose)
     },
+    /**
+     * Brianza Driving Simulator: il giocatore a piedi. Stessa camminata/corsa, piu' tre pose che si
+     * mescolano a quella: salto (gambe raccolte, braccia in alto), fiatone dopo lo scatto (busto
+     * piegato in avanti, mani verso le ginocchia, respiro corto) e atterraggio (ginocchia piegate).
+     * st: { air 0..1, vy, tired 0..1, land 0..1, still }
+     */
+    drawPlayer(i, x, ground, z, yaw, clock, st) {
+      const ped = people[i], k = ped.build.scale, pose = ped.pose
+      const mix = (a, b, t) => a + (b - a) * t
+      walkPose(ped, pose, clock)
+      let swing = ped.lean + 0.14 * Math.max(0, ped.gait - 1), roll = 0.022 * Math.cos(ped.phase)
+      const a = st.air || 0
+      if (a > 0) {
+        const tuck = st.vy > 0 ? 0.65 : 0.4
+        pose.hipLs = mix(pose.hipLs, -0.95 * tuck - 0.15, a); pose.hipRs = mix(pose.hipRs, -0.25 * tuck + 0.2, a)
+        pose.kneeL = mix(pose.kneeL, 1.6 * tuck + 0.25, a); pose.kneeR = mix(pose.kneeR, 0.9 * tuck + 0.3, a)
+        pose.ankL = mix(pose.ankL, 0.15, a); pose.ankR = mix(pose.ankR, -0.2, a)
+        pose.shLs = mix(pose.shLs, -1.15, a); pose.shRs = mix(pose.shRs, -0.75, a)
+        pose.shLz = mix(pose.shLz, 0.4, a); pose.shRz = mix(pose.shRz, -0.4, a)
+        pose.elbL = mix(pose.elbL, 0.55, a); pose.elbR = mix(pose.elbR, 0.7, a)
+        swing += 0.12 * a
+      }
+      const t = (st.tired || 0) * (st.still ? 1 : 0.45)
+      if (t > 0) {
+        // piegato in vita: il bacino ruota in avanti, le cosce lo compensano e restano quasi verticali
+        swing += 0.62 * t
+        pose.hipLs -= 0.78 * t; pose.hipRs -= 0.78 * t
+        pose.kneeL += 0.32 * t; pose.kneeR += 0.32 * t
+        pose.ankL -= 0.15 * t; pose.ankR -= 0.15 * t
+        pose.shLs = mix(pose.shLs, -0.62, t); pose.shRs = mix(pose.shRs, -0.62, t)
+        pose.shLz = mix(pose.shLz, 0.22, t); pose.shRz = mix(pose.shRz, -0.22, t)
+        pose.elbL = mix(pose.elbL, 0.2, t); pose.elbR = mix(pose.elbR, 0.2, t)
+        pose.neck -= 0.45 * t
+        pose.spine += 0.05 * Math.sin(clock * 10) * t          // respiro corto
+      }
+      const l = st.land || 0
+      if (l > 0) { pose.kneeL += 0.8 * l; pose.kneeR += 0.8 * l; pose.hipLs -= 0.7 * l; pose.hipRs -= 0.7 * l; swing += 0.3 * l }
+      rootFrame(F.root, x, ground + hipHeight(pose, k), z, yaw + 0.12 * Math.sin(ped.phase) * (ped.idle > 0 || a > 0 ? 0 : 1), swing, roll)
+      drawFigure(i, ped, pose)
+    },
     /** Figura investita: la posa e l'orientamento vengono dal ragdoll. */
     drawRagdoll(i, rag, ground) {
       rootFromColumns(F.root, rag.col, rag.x, ground + rag.y, rag.z)

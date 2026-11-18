@@ -219,14 +219,16 @@ export class Pedestrians {
   }
 
   // la figura del giocatore a piedi
-  drawPlayer(on, x, y, z, h, gait, speed, dt) {
+  // st (facoltativo): stato del giocatore per le pose di salto, fiatone e atterraggio
+  drawPlayer(on, x, y, z, h, gait, speed, dt, st = null) {
     const p = this.peds[this.me];
     if (!on) { this.crowd.hideAt(this.me); this.crowd.commit(); return; }
     p.gait += (Math.min(1.7, gait) - p.gait) * Math.min(1, dt * 8);
     p.idle = Math.abs(speed) < 0.15 ? 1 : 0;
     const stride = 0.20 + 0.26 * Math.min(1.7, p.gait);
-    p.phase += dt * Math.PI * Math.abs(speed) / Math.max(0.25, stride);
-    this.crowd.drawWalking(this.me, x, y, z, h, this.clock);
+    if (!st || !st.air) p.phase += dt * Math.PI * Math.abs(speed) / Math.max(0.25, stride);   // in aria le gambe non camminano
+    if (st && this.crowd.drawPlayer) this.crowd.drawPlayer(this.me, x, y, z, h, this.clock, st);
+    else this.crowd.drawWalking(this.me, x, y, z, h, this.clock);
     this.crowd.commit();
   }
 

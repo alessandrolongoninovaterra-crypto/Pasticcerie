@@ -10,7 +10,7 @@ import { Vehicle } from './vehicle.js';
 import { Plane, buildPlaneModel, drawPlaneCluster } from './plane.js';
 import { buildJetModel } from './jet.js';
 import { Input, PadWizard, PAD_ACTIONS, ignorePad } from './input.js';
-import { Traffic } from './traffic.js';
+import { Traffic, BODY_SPEC } from './traffic.js';
 import { Router, routeProgress } from './router.js';
 import { Maps } from './maps.js';
 import { EngineAudio } from './audio.js';
@@ -309,7 +309,7 @@ function spawnPoint(id) {
   return { x: 0, z: 0, h: 0 };
 }
 
-function makePlayer(spec = CARS[G.carIdx], color = null) {
+function makePlayer(spec = CARS[G.carIdx], color = null, body = null) {
   if (G.carModel) G.scene.remove(G.carModel.root);
   if (spec.kind === 'plane') {
     G.vehicle = new Plane(spec, G.world);
@@ -320,7 +320,7 @@ function makePlayer(spec = CARS[G.carIdx], color = null) {
     G.carModel = buildBikeModel(spec, { color });
   } else {
     G.vehicle = new Vehicle(spec, G.world);
-    G.carModel = buildCarModel(spec, { interior: true, color });
+    G.carModel = buildCarModel(spec, { interior: true, color, body });
   }
   // sempre un faro e un bagliore sul veicolo del giocatore (l'aereo li usa come luce di atterraggio):
   // il numero di luci in scena resta fisso e cambiando veicolo non si ricompilano gli shader
@@ -359,18 +359,20 @@ const flying = () => !G.foot.on && G.vehicle && G.vehicle.isPlane && !G.vehicle.
 const TYPE_SPECS = { car: ['compact', 'sedan', 'sport', 'sedan'], wagon: ['city', 'suv', 'compact'], van: ['van'], bus: ['bus'] };
 const ownBox = () => ({ halfL: G.vehicle.spec.L / 2, halfW: G.vehicle.spec.W / 2 });
 
+G.exitCar = () => exitCar();
 function exitCar() {
   const v = G.vehicle, f = G.foot;
   if (v.isPlane && !v.onGround) { showToast('Atterra prima di scendere', 1200); return; }
   if (Math.abs(v.u) > 2.5) { showToast('Fermati prima di scendere', 1200); return; }
   const lx = Math.cos(v.h), lz = -Math.sin(v.h); // lato guida (sinistra)
-  f.x = v.x + lx * (v.spec.W / 2 + 0.75); f.z = v.z + lz * (v.spec.W / 2 + 0.75); f.h = v.h; f.u = 0; f.y = v.y; f.on = true;
+  f.x = v.x + lx * (v.spec.W / 2 + 0.75); f.z = v.z + lz * (v.spec.W / 2 + 0.75); f.h = v.h; f.u = 0; f.y = v.y; f.on = true; f.air = false; f.vy = 0; f.land = 0; f.vault = 0;
   if (G.camMode === 1 || G.camMode === 2) G.camMode = 0;
   G.orbit.yaw = 0; G.camInit = true;
-  showToast('A piedi — F per salire su un veicolo', 1800);
+  showToast('A piedi — Shift scatta (15 s), Spazio salta, F per salire su un veicolo', 2600);
   flashHelp(6000);
 }
 
+G.enterCar = () => enterCar();   // (per i test)
 function enterCar() {
   const f = G.foot, v = G.vehicle, T = G.traffic;
   const dOwn = Math.hypot(v.x - f.x, v.z - f.z) - v.spec.W / 2;
@@ -386,37 +388,97 @@ function enterCar() {
     G.carModel = null;
     if (T.statics.length > 6) { const s = T.statics.shift(); G.scene.remove(s.model.root); }
     const got = best === dCar ? T.take(car) : T.takeParked(spot);
+    // si guida proprio la carrozzeria che si vedeva (con i dati tecnici del modello piu' vicino)
     const ids = TYPE_SPECS[got.type] || TYPE_SPECS.car;
-    const spec = CARS.find((c) => c.id === ids[got.colour % ids.length]);
-    makePlayer(spec, '#' + fleetPalette[got.colour % fleetPalette.length].toString(16).padStart(6, '0'));
+    const byBody = got.body && (got.body.startsWith('bds-') ? got.body.slice(4) : BODY_SPEC[got.body]);
+    const spec = CARS.find((c) => c.id === byBody) || CARS.find((c) => c.id === ids[got.colour % ids.length]);
+    makePlayer(spec, '#' + fleetPalette[got.colour % fleetPalette.length].toString(16).padStart(6, '0'), got.body);
     G.vehicle.place(got.x, got.z, got.h);
     showToast(spec.name, 1500);
   }
   f.on = false; G.orbit.yaw = 0; G.camInit = true;
 }
 
+// A piedi, alla GTA: camminata, scatto con il fiato contato (15 s di corsa, poi 5 s di fiatone in
+// cui si cammina piano piegati in avanti), salto (si scavalcano muretti, siepi e recinzioni basse),
+// cadute dai bordi e atterraggi. Tastiera: W/S avanti/indietro, A/D gira, Shift scatta, Spazio salta.
+// Gamepad: stick (o grilletto destro) per camminare, grilletto destro a fondo per scattare, il tasto
+// del freno a mano per saltare.
+G.updateFoot = (dt, ctl) => updateFoot(dt, ctl);   // (per i test)
+const FOOT = { walk: 2.3, sprint: 6.9, back: 1.4, tiredSpeed: 1.5, staminaMax: 15, recover: 5, jumpV: 4.7, g: 9.81, step: 0.55 };
 function updateFoot(dt, ctl) {
   const f = G.foot, k = G.input.keys;
-  const run = k.has('ShiftLeft') || k.has('ShiftRight');
-  f.h += ctl.steer * 2.6 * dt;
-  const fwd = (k.has('KeyW') || k.has('ArrowUp') || ctl.throttle > 0.3 ? 1 : 0) - (k.has('KeyS') || k.has('ArrowDown') || ctl.brake > 0.3 ? 0.55 : 0);
-  const sp = fwd * (run ? 6.2 : 2.3);
-  f.u += (sp - f.u) * Math.min(1, dt * 8);
+  if (f.stamina === undefined) { f.stamina = FOOT.staminaMax; f.tired = 0; f.vy = 0; f.air = false; f.land = 0; f.jumpHeld = false; }
+  // comandi
+  const stickF = Math.abs(ctl.padPitch || 0) > 0.3 ? -ctl.padPitch : 0;            // stick avanti = negativo
+  let fwd = (k.has('KeyW') || k.has('ArrowUp') || ctl.throttle > 0.3 ? 1 : 0) - (k.has('KeyS') || k.has('ArrowDown') || ctl.brake > 0.3 ? 1 : 0);
+  if (!fwd && stickF) fwd = Math.sign(stickF);
+  const wantSprint = (k.has('ShiftLeft') || k.has('ShiftRight') || (ctl.padThr || 0) > 0.85) && fwd > 0;
+  const jump = ctl.handbrake > 0 || k.has('Space');
+  // fiato: si consuma scattando, si ricarica camminando; finito il fiato, 5 s di recupero
+  if (f.tired > 0) { f.tired = Math.max(0, f.tired - dt); if (f.tired === 0) f.stamina = FOOT.staminaMax; }
+  const sprinting = wantSprint && f.tired === 0 && !f.air && f.stamina > 0;
+  if (sprinting) { f.stamina = Math.max(0, f.stamina - dt); if (f.stamina === 0) { f.tired = FOOT.recover; showToast('😮‍💨 Fiatone: qualche secondo per riprendere fiato', 1800); } }
+  else if (f.tired === 0) f.stamina = Math.min(FOOT.staminaMax, f.stamina + dt * 2);
+  // velocita': in aria si conserva lo slancio, a terra si accelera verso quella voluta
+  const turn = f.air ? 0.9 : sprinting ? 2.1 : 2.8;
+  f.h += ctl.steer * turn * dt;
+  const sp = fwd > 0 ? (f.tired > 0 ? FOOT.tiredSpeed : sprinting ? FOOT.sprint : FOOT.walk) : fwd < 0 ? -FOOT.back : 0;
+  if (!f.air) f.u += (sp - f.u) * Math.min(1, dt * (sp > f.u ? (sprinting ? 4 : 7) : 9));
+  f.sprint = sprinting;
+  // salto (sul fronte del tasto, non a ripetizione tenendolo premuto)
+  if (jump && !f.jumpHeld && !f.air && f.tired === 0 && f.land < 0.5) {
+    f.vy = FOOT.jumpV; f.air = true; f.stamina = Math.max(0, f.stamina - 0.6);
+    // scavalcare (come in GTA): un muretto, una recinzione o una siepe alti fino a 2 m subito davanti
+    // si superano con la spinta giusta; gli edifici (piu' alti) no
+    let top = -Infinity;
+    for (const d of [0.55, 0.9, 1.25]) top = Math.max(top, G.world.collision.topAt(f.x + Math.sin(f.h) * d, f.z + Math.cos(f.h) * d, 0.3));
+    const dh = top - f.y;
+    if (dh > 0.8 && dh < 2.0) {
+      f.vy = Math.sqrt(2 * FOOT.g * (dh + 0.45));
+      f.u = Math.max(f.u, 2.6);
+      f.vault = top;   // durante lo scavalcamento ci si appoggia all'ostacolo: non blocca
+    }
+  }
+  f.jumpHeld = jump;
   f.x += Math.sin(f.h) * f.u * dt; f.z += Math.cos(f.h) * f.u * dt;
-  // ostacoli: edifici, muri, alberi, veicoli
+  // ostacoli: edifici, muri, alberi, veicoli. Con i piedi piu' in alto della cima di un ostacolo basso
+  // (muretto, siepe, recinzione) ci si passa sopra: e' cosi' che il salto li scavalca
   const own = { x: G.vehicle.x, z: G.vehicle.z, h: G.vehicle.h, box: ownBox() };
   for (let pass = 0; pass < 2; pass++) {
     const fr = f.surface && f.surface.road ? G.roads.ways[f.surface.road.wi] : null;
-    const a = fr && fr.flags & 8 ? null : G.world.collision.resolveCircle(f.x, f.z, 0.32, f.y);
-    if (a) { f.x += a.nx * a.depth; f.z += a.nz * a.depth; }
+    const yc = f.air && f.vault ? Math.max(f.y, f.vault - 0.2) : f.y;
+    const a = fr && fr.flags & 8 ? null : G.world.collision.resolveCircle(f.x, f.z, 0.32, yc);
+    if (a) { f.x += a.nx * a.depth; f.z += a.nz * a.depth; if (pass === 0 && f.air) f.u *= 0.6; }
     G.traffic.statics.push(own);
     const b = G.traffic.resolveCircle(f.x, f.z, 0.32);
     G.traffic.statics.pop();
     if (b) { f.x += b.nx * b.depth; f.z += b.nz * b.depth; }
   }
+  // quota: gradini fino a 55 cm si salgono, dai bordi piu' alti si cade
   f.surface = G.roads.surfaceAt(f.x, f.z, f.y + 0.7);
-  f.y = f.surface.h;
-  f.gait = Math.abs(f.u) / 2.3;
+  const ground = f.surface.h;
+  if (f.air) {
+    f.vy -= FOOT.g * dt; f.y += f.vy * dt;
+    if (f.y <= ground) {
+      const hit = -f.vy;
+      f.y = ground; f.air = false; f.vy = 0; f.vault = 0;
+      f.land = Math.min(1, 0.35 + hit / 9);
+      if (hit > 9) { f.u *= 0.2; f.land = 1.6; showToast('Atterraggio pesante!', 900); }   // caduta da piu' di ~4 m: un attimo a terra
+      else f.u *= 0.85;
+    }
+  } else if (ground < f.y - FOOT.step) { f.air = true; f.vy = 0; }              // giu' da un muretto o da un marciapiede alto
+  else f.y = ground;
+  if (f.land > 0) { f.land = Math.max(0, f.land - dt * 3); if (f.land > 1) f.u = 0; }
+  f.gait = Math.abs(f.u) / FOOT.walk;
+  // barra del fiato
+  const el = $('stamina');
+  if (el) {
+    const show = f.stamina < FOOT.staminaMax - 0.01 || f.tired > 0;
+    el.classList.toggle('hidden', !show);
+    el.classList.toggle('tired', f.tired > 0);
+    el.firstElementChild.style.width = (f.tired > 0 ? (1 - f.tired / FOOT.recover) * 100 : f.stamina / FOOT.staminaMax * 100) + '%';
+  }
 }
 
 // ------------------------------------------------------------------ patente a punti
@@ -878,7 +940,7 @@ function updateCamera(dt, lookBack) {
   if (o.idle > 2.2 && (f.on ? Math.abs(f.u) > 0.5 : Math.abs(v.u) > 2)) { o.yaw *= Math.exp(-dt * 2.5); o.pitch *= Math.exp(-dt * 2.5); }
   if (mode === 0 || mode === 3) {
     const p = f.on ? f : v;
-    const dist = f.on ? 5.6 : (mode === 0 ? (v.isBike ? 3.4 : 4.2) : 8) + v.spec.L * (v.isPlane ? 1.1 : 0.75);
+    const dist = f.on ? 5.6 + (f.sprint ? 0.8 : 0) : (mode === 0 ? (v.isBike ? 3.4 : 4.2) : 8) + v.spec.L * (v.isPlane ? 1.1 : 0.75);
     const hgt = f.on ? 2.5 : mode === 0 ? 2.1 + v.spec.H * 0.4 : 4.2, lookY = f.on ? 1.3 : 1.2;
     const yaw = p.h + o.yaw + (lookBack ? Math.PI : 0);
     const cp = Math.cos(o.pitch), sp = Math.sin(o.pitch);
@@ -887,12 +949,14 @@ function updateCamera(dt, lookBack) {
     const off = tmpV.set(-Math.sin(yaw) * dist * cp, hgt + dist * sp, -Math.cos(yaw) * dist * cp);
     if (G.camInit) { camOff.copy(off); G.camInit = false; }
     camOff.lerp(off, 1 - Math.exp(-dt * (lookBack || o.idle < 0.3 ? 30 : f.on ? 9 : 7)));
-    camPos.set(p.x, p.y, p.z).add(camOff);
+    // a piedi la telecamera segue i salti con un po' di ritardo (non sobbalza con il personaggio)
+    const py = f.on ? (G.footCamY = G.footCamY === undefined || Math.abs(G.footCamY - p.y) > 8 ? p.y : G.footCamY + (p.y - G.footCamY) * Math.min(1, dt * 5)) : p.y;
+    camPos.set(p.x, py, p.z).add(camOff);
     const gh = G.roads.surfaceAt(camPos.x, camPos.z, p.y + 3).h;
     camPos.y = Math.max(camPos.y, gh + 0.8);
     cam.position.copy(camPos);
     const ahead = f.on ? 0.5 : 4;
-    camLook.set(p.x + Math.sin(yaw) * ahead, p.y + lookY, p.z + Math.cos(yaw) * ahead);
+    camLook.set(p.x + Math.sin(yaw) * ahead, py + lookY, p.z + Math.cos(yaw) * ahead);
     cam.lookAt(camLook);
     cam.near = 0.5;
   } else {
@@ -1025,7 +1089,8 @@ function loop(now) {
   const movers = flying() ? [] : [{ x: v.x, z: v.z }];
   for (const c of G.traffic.cars) if (Math.abs(c.x - p.x) < 300 && Math.abs(c.z - p.z) < 300) movers.push(c);
   G.world.gates.update(dt, movers);
-  G.peds.drawPlayer(f.on, f.x, f.y, f.z, f.h, f.gait, f.u, dt);
+  G.peds.drawPlayer(f.on, f.x, f.y, f.z, f.h, f.gait, f.u, dt, { air: f.air ? 1 : 0, vy: f.vy || 0, tired: f.tired > 0 ? 1 : 0, land: Math.min(1, f.land || 0), still: Math.abs(f.u) < 0.4 });
+  if (!f.on && $('stamina')) $('stamina').classList.add('hidden');
   // modello del giocatore
   const m = G.carModel;
   m.root.position.set(v.x, v.y, v.z);

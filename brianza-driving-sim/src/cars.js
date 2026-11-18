@@ -43,7 +43,8 @@ export function stripLights(model) {
 
 export function buildCarModel(spec, opts = {}) {
   const root = new THREE.Group();
-  const name = bodyName(spec), B = bodySpec(name);
+  // opts.body: carrozzeria precisa (l'auto del traffico su cui si e' saliti), altrimenti quella del modello
+  const name = opts.body && bodySpec(opts.body) ? opts.body : bodyName(spec), B = bodySpec(name);
   const ext = makeCar(new THREE.Color(opts.color || spec.color).getHex(), { body: name });
   // la scocca arretra di un soffio nel depth buffer: fanali e modanature a filo non sfarfallano
   const hullMat = ext.children[0] && ext.children[0].material;

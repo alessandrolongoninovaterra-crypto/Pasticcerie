@@ -1,5 +1,22 @@
 import * as THREE from 'three';
-import { makeCarFleet } from './vendor/city/car.js';
+import { makeCarFleet, registerBody } from './vendor/city/car.js';
+
+// Carrozzerie del traffico: oltre alle quattro di base, quelle delle auto guidabili (bds-*, registrate
+// in cars.js) e sei sagome in piu' solo per il traffico. Ogni posto della flotta ne ha una fissa.
+registerBody('tr-hatch', 'wagon', { sz: 0.86, sy: 1.0, sx: 0.93, wheelR: 0.29 });
+registerBody('tr-estate', 'wagon', { sz: 1.07, sy: 0.97, sx: 1.0 });
+registerBody('tr-mpv', 'wagon', { sz: 1.0, sy: 1.13, sx: 1.0, wheelR: 0.33 });
+registerBody('tr-coupe', 'car', { sz: 0.97, sy: 0.9, sx: 1.02 });
+registerBody('tr-limo', 'car', { sz: 1.1, sy: 1.02, sx: 1.03 });
+registerBody('tr-minivan', 'van', { sz: 0.88, sy: 0.86, sx: 0.95, wheelR: 0.32 });
+export const FLEET_VARIANTS = {
+  car: ['car', 'bds-sedan', 'bds-sport', 'tr-coupe', 'tr-limo'],
+  wagon: ['wagon', 'bds-city', 'bds-compact', 'bds-suv', 'tr-hatch', 'tr-estate', 'tr-mpv'],
+  van: ['van', 'bds-van', 'tr-minivan'],
+  bus: ['bus'],
+};
+// a quale veicolo guidabile corrisponde una carrozzeria (salendo su un'auto del traffico)
+export const BODY_SPEC = { car: 'sedan', wagon: 'compact', van: 'van', bus: 'bus', 'tr-hatch': 'city', 'tr-estate': 'compact', 'tr-mpv': 'suv', 'tr-coupe': 'sport', 'tr-limo': 'sedan', 'tr-minivan': 'van' };
 import { VEHICLE_BOX, fleetTypeFor } from './vendor/city/vehicles.js';
 import { nextNormal } from './vendor/city/terrain-shim.js';
 import { CLS, F, NT } from './roads.js';
@@ -17,9 +34,9 @@ export class Traffic {
     this.cars = [];
     this.target = 35;
     this.group = new THREE.Group();
-    this.fleet = makeCarFleet(SLOTS);
+    this.fleet = makeCarFleet(SLOTS, { variants: FLEET_VARIANTS });
     const PARK_SLOTS = (world.settings && world.settings.parked) || 288;   // auto parcheggiate visibili insieme
-    this.parkFleet = makeCarFleet(PARK_SLOTS);
+    this.parkFleet = makeCarFleet(PARK_SLOTS, { variants: FLEET_VARIANTS });
     this.group.add(this.fleet.group, this.parkFleet.group);
     this.free = [];
     for (let i = SLOTS - 1; i >= 0; i--) { this.free.push(i); this.fleet.setAt(i, FAR, FAR, 0, 0, -100); }
@@ -283,8 +300,9 @@ export class Traffic {
   take(c) {
     const i = this.cars.indexOf(c);
     if (i < 0) return null;
+    const body = this.fleet.bodyOf ? this.fleet.bodyOf(c.slot) : c.type;
     this.cars.splice(i, 1); this.release(c);
-    return { type: c.type, colour: c.colour, x: c.x, z: c.z, h: c.h };
+    return { type: c.type, body, colour: c.colour, x: c.x, z: c.z, h: c.h };
   }
 
   nearestCar(x, z, r, maxSpeed = 2.5) {
@@ -332,7 +350,7 @@ export class Traffic {
       const list = byType[t].sort((a, b) => a._d - b._d), pool = this.parkPools[t];
       for (let i = 0; i < pool.length; i++) {
         const s = list[i];
-        if (s) this.parkFleet.setAt(pool[i], s.x, s.z, s.h, s.colour, s.y); else this.parkFleet.setAt(pool[i], FAR, FAR, 0, 0, -100);
+        if (s) { this.parkFleet.setAt(pool[i], s.x, s.z, s.h, s.colour, s.y); s.slot = pool[i]; } else this.parkFleet.setAt(pool[i], FAR, FAR, 0, 0, -100);
       }
     }
   }
@@ -347,7 +365,8 @@ export class Traffic {
     s.taken = true;
     for (const o of s.objs) this.world.collision.remove(o);
     this.parkTimer = 0;
-    return { type: s.type, colour: s.colour, x: s.x, z: s.z, h: s.h };
+    const body = s.slot !== undefined && this.parkFleet.bodyOf ? this.parkFleet.bodyOf(s.slot) : s.type;
+    return { type: s.type, body, colour: s.colour, x: s.x, z: s.z, h: s.h };
   }
 
   // collisione di un cerchio con traffico e auto ferme

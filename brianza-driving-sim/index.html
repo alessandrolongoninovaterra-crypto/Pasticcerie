@@ -86,6 +86,12 @@
   #shop .hint { font-size: 12px; opacity: .6; margin-top: 6px; }
   #subs { position: absolute; left: 50%; bottom: 96px; transform: translateX(-50%); max-width: min(760px, 90vw); padding: 8px 16px; font-size: 16px; opacity: 0; transition: opacity .3s; text-align: center; }
   #subs.show { opacity: 1; }
+  #stamina { position: absolute; left: 50%; bottom: 96px; transform: translateX(-50%); width: 220px; height: 12px; border-radius: 7px; background: rgba(10,14,20,.6); border: 1px solid rgba(255,255,255,.25); }
+  #stamina .fill { height: 100%; width: 100%; border-radius: 6px; background: linear-gradient(90deg, #39c06a, #9be36b); transition: width .1s linear; }
+  #stamina.tired .fill { background: linear-gradient(90deg, #d9442c, #f08a3a); }
+  #stamina span { position: absolute; left: -26px; top: -4px; font-size: 16px; }
+  #stamina.tired { animation: pant .5s ease-in-out infinite alternate; }
+  @keyframes pant { from { opacity: .65; } to { opacity: 1; } }
   #ihint { position: absolute; right: 18px; bottom: 150px; padding: 6px 12px; font-size: 14px; color: #ffd34e; }
   #toast { position: absolute; left: 50%; top: 18%; transform: translateX(-50%); padding: 12px 22px; font-size: 18px; transition: opacity .4s; opacity: 0; }
   #toast.show { opacity: 1; }
@@ -187,6 +193,7 @@
   <div id="shop" class="panel hidden"></div>
   <div id="subs" class="panel"></div>
   <div id="ihint" class="panel hidden"></div>
+  <div id="stamina" class="hidden" title="Fiato: 15 s di scatto, poi 5 s di recupero"><div class="fill"></div><span>🏃</span></div>
   <div id="topright" class="panel"><span id="clock">12:00</span><span id="tspeed" style="color:var(--muted)"></span><span id="money"></span><span id="licence">🪪 20 punti · multe € 0</span><span id="fps" style="color:var(--muted)"></span></div>
   <div id="helpbar" class="panel">F scendi/sali · E clacson · M mappa · C visuale · mouse: telecamera · Esc pausa</div>
   <div id="mini-wrap"><canvas id="minimap" width="300" height="300"></canvas></div>

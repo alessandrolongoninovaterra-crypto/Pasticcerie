@@ -72,9 +72,15 @@ function smoothStations(profile, widths) {
     P.push(profile[i].slice()); W.push(widths[i]);
     if (i === n - 1) break;
     const a = Math.max(0, i - 1), d = Math.min(n - 1, i + 2);
-    if (Math.abs(profile[i][0] - profile[i + 1][0]) < 0.12) continue;     // stazioni gia' fitte (archi)
-    P.push([(profile[i][0] + profile[i + 1][0]) / 2, crPt(profile[a][1], profile[i][1], profile[i + 1][1], profile[d][1], 0.5)]);
-    W.push(Math.max(0.05, crPt(widths[a], widths[i], widths[i + 1], widths[d], 0.5)));
+    const gap = Math.abs(profile[i][0] - profile[i + 1][0]);
+    if (gap < 0.12) continue;     // stazioni gia' fitte (archi)
+    // una stazione intermedia ogni ~25 cm (al massimo tre), sulla curva Catmull-Rom: profilo liscio
+    const m = gap > 0.5 ? 3 : gap > 0.25 ? 2 : 1;
+    for (let q = 1; q <= m; q++) {
+      const t = q / (m + 1);
+      P.push([profile[i][0] + (profile[i + 1][0] - profile[i][0]) * t, crPt(profile[a][1], profile[i][1], profile[i + 1][1], profile[d][1], t)]);
+      W.push(Math.max(0.05, crPt(widths[a], widths[i], widths[i + 1], widths[d], t)));
+    }
   }
   return {profile: P, widths: W};
 }
@@ -87,15 +93,19 @@ function halfSection(w, f, y, lo = false) {
     const rt = Math.min(0.24, h * 0.42, w * 0.38), rb = Math.min(0.07, h * 0.16);
     return [[0, f], [w - rb, f], [w, f + rb], [w, y - rt], [w - rt * 0.3, y - rt * 0.3], [w - rt, y], [0, y + Math.min(0.05, w * 0.035)]];
   }
-  const rt = Math.min(0.24, h * 0.42, w * 0.38), rb = Math.min(0.07, h * 0.16), crown = Math.min(0.05, w * 0.035);
-  const bul = Math.min(0.025, w * 0.02);                 // fianco appena bombato a meta' altezza
-  const pts = [[0, f], [w - rb, f]];
-  for (const a of [-60, -30, 0]) { const r = a * Math.PI / 180; pts.push([w - rb + Math.cos(r) * rb, f + rb + Math.sin(r) * rb]); }
-  const ys = y - rt, ym = (f + rb + ys) / 2;
-  if (ys - (f + rb) > 0.06) pts.push([w + bul, ym]);
-  for (const a of [0, 22.5, 45, 67.5, 90]) { const r = a * Math.PI / 180; pts.push([w - rt + Math.cos(r) * rt, Math.max(f + rb, ys) + Math.sin(r) * rt]); }
+  // raggi ampi (spalla fino a 32 cm, spigolo basso 10 cm), fianco bombato, tetto/cofano a cupola
+  const rt = Math.min(0.32, h * 0.5, w * 0.45), rb = Math.min(0.1, h * 0.2), crown = Math.min(0.08, w * 0.055);
+  const bul = Math.min(0.04, w * 0.03);
+  const pts = [[0, f], [w * 0.5, f], [w - rb, f]];
+  for (const a of [-67.5, -45, -22.5, 0]) { const r = a * Math.PI / 180; pts.push([w - rb + Math.cos(r) * rb, f + rb + Math.sin(r) * rb]); }
+  const ys = y - rt, y0 = f + rb, span = ys - y0;
+  // fianco: tre punti su un arco leggero (bombatura massima a meta'). Sempre tre, anche dove la
+  // sezione e' bassa (sopra i passaruota) e collassano: ogni anello deve avere lo stesso numero di
+  // punti, altrimenti le facce del loft collegano i vertici sbagliati
+  for (const t of [0.25, 0.5, 0.75]) pts.push([w + bul * Math.sin(t * Math.PI) * (span > 0.06 ? 1 : 0), y0 + Math.max(0, span) * t]);
+  for (const a of [0, 15, 30, 45, 60, 75, 90]) { const r = a * Math.PI / 180; pts.push([w - rt + Math.cos(r) * rt, Math.max(f + rb, ys) + Math.sin(r) * rt]); }
   const xd = w - rt, top = pts[pts.length - 1][1];
-  for (const t of [0.66, 0.33]) pts.push([xd * t, top + crown * (1 - t * t)]);
+  for (const t of [0.75, 0.5, 0.25]) pts.push([xd * t, top + crown * (1 - t * t)]);
   pts.push([0, top + crown]);
   return pts;
 }
@@ -104,7 +114,7 @@ function loftRound(spec, profile0, widths0, lo = false) {
   const {profile, widths} = lo ? {profile: profile0, widths: widths0} : smoothStations(profile0, widths0);
   // muso e coda: stazioni in piu' che si stringono e si abbassano (spigoli arrotondati in pianta)
   const big = spec.bus ? 1.6 : 1;
-  const ends = lo ? [[0.06, 0.92, 0.08, 0.06], [0.1, 0.7, 0.24, 0.2]] : [[0.03, 0.985, 0.02, 0.015], [0.06, 0.94, 0.07, 0.05], [0.085, 0.85, 0.15, 0.12], [0.1, 0.7, 0.24, 0.2]];
+  const ends = lo ? [[0.06, 0.92, 0.08, 0.06], [0.1, 0.7, 0.24, 0.2]] : [[0.025, 0.99, 0.015, 0.01], [0.05, 0.96, 0.05, 0.035], [0.075, 0.91, 0.1, 0.075], [0.095, 0.83, 0.17, 0.13], [0.11, 0.7, 0.26, 0.21]];
   const st = profile.map(([z, y], i) => ({z, y, w: widths[i], drop: 0, rise: 0}));
   const nose = st[0], tail = st[st.length - 1];
   const pre = ends.map(([d, wf, dr, ri]) => ({z: nose.z + d * big, y: nose.y, w: nose.w * wf, drop: dr, rise: ri}));
@@ -235,7 +245,7 @@ const cabBaseOf = (spec) => spec.cabBase || spec.cab.map(() => spec.beltY);
 // vertices: the crease where the windscreen meets the side glass is a real edge on a car.
 // 10 vertices per station: 0,1 roof · 2,3 left · 4,5 right · 6..9 cap ring.
 // raggio del raccordo tetto-vetri laterali di una stazione dell'abitacolo
-const cabRound = (w, y, b) => Math.min(0.12, Math.max(0.02, (y - b) * 0.3), w * 0.3);
+const cabRound = (w, y, b) => Math.min(0.18, Math.max(0.03, (y - b) * 0.4), w * 0.36);
 
 function cabinGeometry(spec, omitRoof = false) {
   const cab = spec.cab, cabw = spec.cabw, base = cabBaseOf(spec), tumble = spec.tumble || 0;
@@ -617,7 +627,9 @@ const FLEET_PALETTE = [
 // needs it too — a bus knocks people over along ten metres of flank and only this list says which
 // slots are buses — and two copies of a list like this drift the first time one is edited.
 
-export function makeCarFleet(count) {
+// opts.variants: per tipo di veicolo (car, wagon, van, bus) le carrozzerie tra cui scegliere; ogni
+// posto della flotta ne riceve una fissa (mescolata con un hash), cosi' per strada non sono tutte uguali
+export function makeCarFleet(count, opts = {}) {
   // con la mappa d'ambiente (src/envmap.js): vernice metallizzata con trasparente lucido, vetri
   // scuri che riflettono il cielo, luci che di notte si accendono (setNight)
   const paint = new THREE.MeshPhysicalMaterial({color: 0xffffff, metalness: 0.45, roughness: 0.38, clearcoat: 1.0, clearcoatRoughness: 0.08, side: THREE.DoubleSide, envMapIntensity: 1.6});
@@ -630,9 +642,11 @@ export function makeCarFleet(count) {
   const shadowGeo = new THREE.PlaneGeometry(1, 1).rotateX(-Math.PI / 2);
   const group = new THREE.Group();
 
-  const types = Object.keys(BODIES);
-  const slotsOf = {}; for (const t of types) slotsOf[t] = [];
-  for (let i = 0; i < count; i++) slotsOf[fleetTypeFor(i)].push(i);
+  const variantsOf = (t) => { const v = ((opts.variants && opts.variants[t]) || [t]).filter((n) => BODIES[n]); return v.length ? v : [t]; };
+  const bodyOf = (i) => { const vs = variantsOf(fleetTypeFor(i)); let h = Math.imul(i + 1, 2654435761) >>> 0; h ^= h >>> 15; h = Math.imul(h, 2246822519) >>> 0; return vs[(h >>> 7) % vs.length]; };
+  const slotsOf = {};
+  for (let i = 0; i < count; i++) (slotsOf[bodyOf(i)] || (slotsOf[bodyOf(i)] = [])).push(i);
+  const types = Object.keys(slotsOf);
 
   // Brianza Driving Simulator: livelli di dettaglio e istanze compatte.
   // Per ogni tipo due insiemi di istanze: "vicino" (scocca piena, finiture, ombra proiettata) e
@@ -655,7 +669,7 @@ export function makeCarFleet(count) {
     };
     s.body.castShadow = !lo;
     s.list = [s.body, s.trim, s.glass, s.lamps, s.shadow].filter(Boolean);
-    for (const m of [...s.list, s.wheels]) { m.frustumCulled = false; m.count = 0; group.add(m); }
+    for (const m of [...s.list, s.wheels]) { m.frustumCulled = false; m.count = 0; m.visible = false; group.add(m); }
     s.shadow.renderOrder = 1;
     return s;
   };
@@ -670,8 +684,8 @@ export function makeCarFleet(count) {
   }
   const tmpM = new THREE.Matrix4(), tmpC = new THREE.Color();
   const touch = (S) => {
-    for (const m of S.list) { m.count = S.n; m.instanceMatrix.needsUpdate = true; }
-    S.wheels.count = S.n * 4; S.wheels.instanceMatrix.needsUpdate = true;
+    for (const m of S.list) { m.count = S.n; m.visible = S.n > 0; m.instanceMatrix.needsUpdate = true; }
+    S.wheels.count = S.n * 4; S.wheels.visible = S.n > 0; S.wheels.instanceMatrix.needsUpdate = true;
     if (S.body.instanceColor) S.body.instanceColor.needsUpdate = true;
   };
   // toglie un'auto dal suo insieme: l'ultima istanza in uso prende il suo posto
@@ -756,7 +770,7 @@ export function makeCarFleet(count) {
   const setViewer = (x, z) => { viewer.x = x; viewer.z = z; };
   // di notte fari e fanali accesi (le auto parcheggiate restano spente: dim < 1)
   const setNight = (f, dim = 1) => { lampM.color.setScalar(0.85 + f * 2.6 * dim); };
-  return {group, setAt, setViewer, count, palette: FLEET_PALETTE.length, setNight};
+  return {group, setAt, setViewer, count, palette: FLEET_PALETTE.length, setNight, bodyOf};
 }
 // ---------------------------------------------------------------------------------------------
 // Wheel — real tyre, dished rim with a chrome lip, five twin-spokes and a hub (hero only)

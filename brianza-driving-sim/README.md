@@ -206,8 +206,21 @@ liberty3d, di cui non si usa codice), sui luoghi reali della mappa:
 - **Pedoni** sui marciapiedi delle strade reali e nelle vie pedonali: svoltano agli incroci,
   attraversano sulle strisce quando non arrivano auto, si scansano se un'auto punta verso di loro
   o se suoni il clacson. Se li urti cadono e poi si rialzano (e scatta la multa).
-- **A piedi**: `F` per scendere dall'auto e camminare (`Shift` per correre); `F` vicino a un altro
-  veicolo per salirci: auto del traffico ferme, auto parcheggiate, perfino gli autobus di linea.
+- **A piedi** (alla GTA): `F` per scendere dall'auto. `W/S` avanti/indietro, `A/D` gira,
+  **`Shift` scatta** (6,9 m/s) con il fiato contato: 15 s di scatto, poi **5 s di fiatone** in cui si
+  cammina piano piegati in avanti (barra del fiato sopra la velocità: verde, rossa durante il recupero);
+  camminando il fiato si ricarica. **`Spazio` salta** (circa 1 m); davanti a un muretto, una recinzione
+  o una siepe fino a 2 m il salto diventa uno **scavalcamento** (gli edifici no). Dai bordi si cade e
+  si atterra piegando le ginocchia; da più di ~4 m l'atterraggio è pesante e ci si ferma un attimo. La
+  telecamera segue i salti senza sobbalzare e si allarga un po' nello scatto. Gamepad: stick o grilletto
+  destro per camminare, grilletto a fondo per scattare, tasto del freno a mano per saltare.
+  `F` vicino a un altro veicolo per salirci: auto del traffico ferme, auto parcheggiate, perfino gli
+  autobus di linea; si guida proprio la carrozzeria che si vedeva.
+- **Varietà delle auto**: il traffico e le auto parcheggiate usano 16 carrozzerie (le 4 di base, le 6
+  delle auto guidabili e 6 sagome solo per il traffico: hatchback corta, station wagon lunga,
+  monovolume, coupé bassa, berlina lunga, minivan), una fissa per ogni posto della flotta. Scocche più
+  arrotondate: spalle e fianchi a raggio ampio, profilo con stazioni ogni ~25 cm, raccordo
+  tetto-vetri più morbido.
 - **Auto parcheggiate negli stalli reali** (117.000 posti calcolati dalla pipeline):
   stalli mappati uno per uno (`amenity=parking_space`), file a pettine lungo le corsie interne
   (`service=parking_aisle`, ora percorribili), soste lungo strada in linea / a pettine / a spina
