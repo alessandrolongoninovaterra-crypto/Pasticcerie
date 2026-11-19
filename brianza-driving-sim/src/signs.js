@@ -453,10 +453,42 @@ export class Signage {
     const S = (name, size = 0.7) => ({ uv: uvStd(name), back: uvStd(name, true), w: size, h: size, name });
     const INF = new Set(['deadend', 'parking', 'curveR', 'curveL', 'steep', 'children']);
 
+    // un palo non sta mai in mezzo a una carreggiata: dove la posizione calcolata cade su una strada
+    // (incroci con vie strette, larghezze stimate, carreggiate affiancate) lo si sposta fuori dal bordo,
+    // sul lato da cui si guarda il cartello; se non c'e' modo, il cartello non si mette
+    const offRoad = (x, z, dx, dz) => {
+      for (let it = 0; it < 4; it++) {
+        const th = T.height(x, z);
+        let hit = null;
+        R.segmentsNear(x, z, 16, (wi, k) => {
+          const w = R.ways[wi];
+          if (!w.drivable || (w.flags & 8)) return;
+          const pr = R.projectOnSeg(wi, k, x, z);
+          if (pr.d >= w.width / 2 + 0.35) return;
+          if (Math.abs(R.heightOn(wi, k, pr.t, x, z) - th) > 2.5) return;        // ponte sopra / galleria sotto
+          if (!hit || pr.d < hit.pr.d) hit = { w, pr };
+        });
+        if (!hit) return [x, z];
+        const { w, pr } = hit;
+        let ox = x - pr.px, oz = z - pr.pz, L = Math.hypot(ox, oz);
+        if (L < 0.05) {        // proprio sull'asse: si va a destra di chi legge il cartello
+          const sl = Math.hypot(pr.dx, pr.dz) || 1; ox = -pr.dz / sl; oz = pr.dx / sl;
+          if (ox * -dz + oz * dx < 0) { ox = -ox; oz = -oz; }
+          L = 1;
+        }
+        x = pr.px + ox / L * (w.width / 2 + 0.6); z = pr.pz + oz / L * (w.width / 2 + 0.6);
+      }
+      return null;
+    };
+    // cartello di inizio/fine paese, anche lui fuori dalla carreggiata
+    const town = (x, z, dx, dz, f, b) => { const q = offRoad(x, z, dx, dz); if (q) this.townSign(poles, txt, std, q[0], q[1], dx, dz, f, b); };
     // palo con cartelli impilati, letto dal traffico che viaggia in direzione (dx,dz)
-    const post = (x, z, dx, dz, items, base = 2.0) => {
+    const post = (x0, z0, dx, dz, items, base = 2.0) => {
       items = items.filter((i) => i && i.uv);
       if (!items.length) return;
+      const pos = offRoad(x0, z0, dx, dz);
+      if (!pos) return;
+      const [x, z] = pos;
       for (const it of items) if (INF.has(it.name)) { const e = this.inferred[it.name] || (this.inferred[it.name] = { n: 0 }); e.n++; e.x = x; e.z = z; e.dx = dx; e.dz = dz; }
       const yaw = Math.atan2(-dx, -dz);
       const y0 = T.height(x, z);
@@ -611,7 +643,9 @@ export class Signage {
             const [dx, dz, dl] = dirOf(q);
             const qrx = -dz, qrz = dx, qhw = q.w.width / 2;
             const back = isJunction ? Math.min(dl * 0.6 + 2, R.w1[nd] / 2 + 1.5) : (tag === NT.CROSSING_SIGNALS ? 2.5 : 0);
-            const px = R.nx[nd] - dx * back + qrx * (qhw + 0.9), pz = R.nz[nd] - dz * back + qrz * (qhw + 0.9);
+            // calcolato dalla via che arriva all'incrocio: se e' stretta o la larghezza e' stimata male
+            // finiva dentro la strada principale. Fuori dalla carreggiata (se si puo')
+            const [px, pz] = offRoad(R.nx[nd] - dx * back + qrx * (qhw + 0.9), R.nz[nd] - dz * back + qrz * (qhw + 0.9), dx, dz) || [R.nx[nd] - dx * back + qrx * (qhw + 0.9), R.nz[nd] - dz * back + qrz * (qhw + 0.9)];
             const yaw = Math.atan2(-dx, -dz);
             if (tag === NT.SIGNALS || tag === NT.CROSSING_SIGNALS) {
               const y = T.height(px, pz);
@@ -750,7 +784,9 @@ export class Signage {
         const it = boardPlate(names, color);
         if (it) {
           const [px, pz] = R.pointAt(w, Math.min(18, w.len * 0.4));
-          const bx2 = px + rx * (side + 1.8), bz2 = pz + rz * (side + 1.8), y = T.height(bx2, bz2), yaw = Math.atan2(-sx, -sz);
+          const bpos = offRoad(px + rx * (side + 1.8), pz + rz * (side + 1.8), sx, sz);
+          if (!bpos) continue;
+          const [bx2, bz2] = bpos, y = T.height(bx2, bz2), yaw = Math.atan2(-sx, -sz);
           for (const sg of [1, -1]) boxTo(poles, bx2 + rx * 1.3 * sg, y + 1.6 + it.h / 2, bz2 + rz * 1.3 * sg, 0.1, 3.2 + it.h, 0.1, yaw, grey);
           plate(txt, bx2 - sx * 0.08, y + 3.2 + it.h / 2, bz2 - sz * 0.08, it.w, it.h, yaw, it.uv);
           plate(std, bx2 + sx * 0.08, y + 3.2 + it.h / 2, bz2 + sz * 0.08, it.w, it.h, yaw + Math.PI, uvStd('back'));
@@ -779,8 +815,8 @@ export class Signage {
           let lo = 0, hi = 1;
           for (let it = 0; it < 10; it++) { const m = (lo + hi) / 2; if (this.comuneAt(ax + (bx - ax) * m, az + (bz - az) * m) === ca) lo = m; else hi = m; }
           const cx = ax + (bx - ax) * lo, cz = az + (bz - az) * lo;
-          this.townSign(poles, txt, std, cx + rx * (side + 0.4), cz + rz * (side + 0.4), sx, sz, townPlate(cb, false), townPlate(cb, true));
-          if (!w.oneway) this.townSign(poles, txt, std, cx - rx * (side + 0.4), cz - rz * (side + 0.4), -sx, -sz, townPlate(ca, false), townPlate(ca, true));
+          town(cx + rx * (side + 0.4), cz + rz * (side + 0.4), sx, sz, townPlate(cb, false), townPlate(cb, true));
+          if (!w.oneway) town(cx - rx * (side + 0.4), cz - rz * (side + 0.4), -sx, -sz, townPlate(ca, false), townPlate(ca, true));
         }
       }
 
@@ -900,7 +936,7 @@ export class Signage {
         let ex = fx, ez = fz;
         if (pl) { const sgn = Math.sign((pl.x - px) * dx + (pl.z - pz) * dz) || 1; ex = dx * sgn; ez = dz * sgn; }
         const sx2 = nr.px - ez * (hw2 + 1.3), sz2 = nr.pz + ex * (hw2 + 1.3);
-        this.townSign(poles, txt, std, sx2, sz2, ex, ez, townPlate(text, false), townPlate(text, true));
+        town(sx2, sz2, ex, ez, townPlate(text, false), townPlate(text, true));
       } else if (kind === 4 && nr) {
         post(px, pz, fx, fz, [S('camera', 0.9)], 2.0);
         cameras.push([nr.px + dx * sideSign * 14, nr.pz + dz * sideSign * 14]);
