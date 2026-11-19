@@ -353,17 +353,28 @@ export class World {
   // nessuna altra via la attraversa (sottopassi, tram, strade che tagliano il piazzale)
   roundaboutIsland(tk, rb) {
     const R = this.roads;
-    let yr = null, cross = false;
+    let yr = null;
+    const inside = [];
     R.segmentsNear(rb.x, rb.z, rb.r + 12, (wi, k) => {
       const w = R.ways[wi], pr = R.projectOnSeg(wi, k, rb.x, rb.z);
       const h = R.heightOn(wi, k, pr.t, pr.px, pr.pz);
       if (w.flags & 2) { if (yr === null || Math.abs(pr.d - rb.r) < 6) yr = h; return; }
-      if (w.drivable && pr.d < rb.r - 1.5) cross = true;
+      if (w.drivable && pr.d < rb.r - 1.5 && !(w.flags & 8)) inside.push(h);
     });
     if (yr === null) yr = this.terrain.height(rb.x, rb.z);
-    if (cross) return;
-    const c = this.collision.addCircle(tk, rb.x, rb.z, rb.r, yr + 1.5, yr - 0.8);
-    c.src = 'rotatoria';
+    // una strada che attraversa davvero l'isola (alla stessa quota) la lascia aperta; gallerie e
+    // strade molto piu' in basso o in alto (la tangenziale sotto, un cavalcavia sopra) no: prima
+    // bastavano a togliere la collisione e l'isola si scavalcava
+    if (inside.some((h) => Math.abs(h - yr) < 3)) return;
+    // collisione sul bordo vero del cordolo (il poligono dell'isola), non su un cerchio piu' piccolo
+    // di quasi un metro: prima l'auto montava su cordolo e corona prima di fermarsi
+    let c;
+    if (rb.poly && rb.poly.length >= 6) {
+      const ring = new Float32Array(rb.poly.length * 2);
+      rb.poly.forEach(([x, z], i) => { ring[i * 2] = x; ring[i * 2 + 1] = z; });
+      c = this.collision.addPolygon(tk, ring, yr + 1.5, true, yr - 0.8);
+    } else c = this.collision.addCircle(tk, rb.x, rb.z, rb.r, yr + 1.5, yr - 0.8);
+    if (c) c.src = 'rotatoria';
   }
 
   tileKeyAt(x, z) { const p = this.meta.proj; return Math.floor((z - p.zmin) / 1000) * 1000 + Math.floor((x - p.xmin) / 1000); }

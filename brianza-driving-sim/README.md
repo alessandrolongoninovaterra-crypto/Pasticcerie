@@ -655,6 +655,10 @@ tutta l'area in memoria; il gioco invece non cambia.
 - Prova su un percorso tortuoso con un "pilota" da tastiera: le auto passano da 1-7 uscite di strada
   per giro (scarto fino a 72 m) a nessuna (scarto massimo 2,6 m); le moto da 3-4 testacoda e 15
   uscite a nessun testacoda e 0-3 allargate, e girano più veloci.
+- **Isole delle rotatorie solide**: la collisione segue il bordo vero del cordolo (prima un cerchio
+  quasi un metro più piccolo: l'auto montava su cordolo e corona prima di fermarsi) e non si toglie più
+  per una galleria o una strada che passa sotto o sopra l'isola (a Vimercate 3 rotatorie su 19 erano
+  scavalcabili per la tangenziale in galleria).
 - **Guardrail solidi**: quelli delle superstrade e quelli mappati in OSM (`barrier=guard_rail`, tranne
   i tratti che cadrebbero dentro la carreggiata stimata) ora fermano i veicoli. Nell'urto la componente
   contro l'ostacolo rimbalza poco, quella lungo l'ostacolo resta (attrito proporzionale all'urto) e il
