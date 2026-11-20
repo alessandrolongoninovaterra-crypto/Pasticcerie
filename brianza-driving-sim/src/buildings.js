@@ -565,6 +565,8 @@ export class BuildingFactory {
       const key = Math.round(x * 5) * 100003 + Math.round(z * 5);
       if (done.has(key)) return;
       done.add(key);
+      // un pilastro non sta in mezzo alla carreggiata (portici disegnati sopra vie strette)
+      if (this.roads && this.roads.inCarriageway(x, z, this.terrain)) return;
       // colonna tonda: plinto, fusto rastremato, echino svasato e abaco
       boxV(g, x, y0 - 0.3, z, 0.78, 0.5, 0.78, dx, dz, cap);
       cylV(g, x, y0 + 0.2, z, y1 - y0 - 0.65, 0.31, 0.27, c);

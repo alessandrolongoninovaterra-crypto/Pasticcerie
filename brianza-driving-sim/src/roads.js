@@ -239,6 +239,21 @@ export class RoadNetwork {
     w.cOff = -width / 2 + w.sh + nB * lw;             // linea di mezzeria (destra +)
   }
 
+  // Via stretta tra le case: la larghezza stimata (5,6 m per una residenziale senza tag) era piu'
+  // larga dello spazio vero tra gli edifici dei paesi vecchi. Si restringe la carreggiata; sotto i
+  // 5,2 m una via a doppio senso diventa a corsia unica (senza mezzeria).
+  narrowWay(w, width) {
+    if (w.widthTag > 2 || width >= w.width - 0.1) return false;
+    if (!w.oneway && width < 5.2) { w.nF = 0.5; w.nB = 0.5; }
+    const n = w.nF + w.nB;
+    w.lw = Math.min(LANE_W[w.cls] || 2.8, width / n);
+    w.width = width;
+    w.sh = (width - n * w.lw) / 2;
+    w.cOff = -width / 2 + w.sh + w.nB * w.lw;
+    w.narrowed = true;
+    return true;
+  }
+
   // Il punto cade sulla carreggiata di un'altra via? Serve a interrompere linee,
   // marciapiedi, guardrail e parapetti agli sbocchi (incroci, rotatorie, immissioni).
   // anyPriority=false: conta solo le vie di importanza uguale o maggiore.
@@ -270,7 +285,7 @@ export class RoadNetwork {
   // scostamento a destra (nel verso di marcia) del centro della corsia di marcia
   laneCenter(w, dir = 1) {
     if (w.oneway) return w.nF >= 2 ? -w.width / 2 + w.sh + w.lw * (Math.floor(w.nF) - 0.5) : 0;
-    if (w.nF < 1) return w.width / 4;
+    if (w.nF < 1) return Math.max(0, Math.min(w.width / 4, w.width / 2 - 1.2));   // corsia unica: un po' a destra, mai contro il bordo
     return dir > 0 ? w.cOff + w.lw * (w.nF - 0.5) : w.lw * (w.nB - 0.5) - w.cOff;
   }
 

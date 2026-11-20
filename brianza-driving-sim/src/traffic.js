@@ -319,7 +319,7 @@ export class Traffic {
     const pk = (tile && tile.pk) || [], spots = [];
     const hash = (a, b) => { let n = (Math.imul(a | 0, 374761393) + Math.imul(b | 0, 668265263)) | 0; n = Math.imul(n ^ (n >>> 13), 1274126177); return ((n ^ (n >>> 16)) >>> 0) / 4294967296; };
     for (let i = 0; i < pk.length; i += 5) {
-      const x = pk[i] / 10, z = pk[i + 1] / 10, wd = pk[i + 3] / 10, ln = (pk[i + 4] >> 1) / 10, typ = pk[i + 4] & 1;
+      let x = pk[i] / 10, z = pk[i + 1] / 10; const wd = pk[i + 3] / 10, ln = (pk[i + 4] >> 1) / 10, typ = pk[i + 4] & 1;
       // riempimento del parcheggio (blocchi di 70 m): dal 55% al 95%
       const fill = 0.55 + 0.4 * hash(Math.floor(x / 70), Math.floor(z / 70));
       if (hash(pk[i], pk[i + 1]) > fill) continue;
@@ -327,12 +327,46 @@ export class Traffic {
       if (typ === 0 && hash(pk[i + 1], pk[i]) < 0.45) h += Math.PI;       // a pettine: muso avanti o indietro
       const r2 = hash(pk[i] + 7, pk[i + 1] + 13);
       const type = r2 < 0.7 || wd < 2.35 ? 'car' : r2 < 0.9 ? 'wagon' : (ln >= 5 ? 'van' : 'wagon');
-      const box = VEHICLE_BOX[type], fx = Math.sin(h), fz = Math.cos(h);
+      const box = VEHICLE_BOX[type];
+      // fuori dalla carreggiata: gli stalli lungo strada calcolati dai dati finivano spesso in corsia
+      const fit = this.fitSpot(x, z, h, box);
+      if (!fit) continue;
+      const [x2, z2] = fit;
+      if (x2 !== x || z2 !== z) { x = x2; z = z2; }
+      const fx = Math.sin(h), fz = Math.cos(h);
       const objs = [col.addCircle(tileKey, x + fx * 1.1, z + fz * 1.1, box.halfW - 0.08), col.addCircle(tileKey, x - fx * 1.1, z - fz * 1.1, box.halfW - 0.08)];
       spots.push({ x, z, y: T.height(x, z) + 0.06, h, type, box, colour: Math.floor(hash(pk[i] + 3, pk[i + 1] + 5) * PALETTE), taken: false, objs });
     }
     this.parkSpots.set(tileKey, spots);
     this.parkTimer = 0;
+  }
+
+  // Stallo che invade una carreggiata: lo si sposta oltre il bordo (fino a 1,6 m, a cavallo del
+  // marciapiede come succede davvero); se non basta, o se finirebbe contro un edificio, niente auto
+  fitSpot(x, z, h, box) {
+    const R = this.R, T = this.world.terrain, fx = Math.sin(h), fz = Math.cos(h);
+    let moved = 0;
+    for (let it = 0; it < 3; it++) {
+      let worst = null;
+      for (const o of [1.1, -1.1]) {
+        const cx = x + fx * o, cz = z + fz * o;
+        R.segmentsNear(cx, cz, 14, (wi, k) => {
+          const w = R.ways[wi];
+          if (!w.drivable || (w.flags & (F.BRIDGE | F.TUNNEL))) return;
+          const pr = R.projectOnSeg(wi, k, cx, cz), need = w.width / 2 + box.halfW - 0.2 - pr.d;
+          if (need <= 0 || Math.abs(R.heightOn(wi, k, pr.t, cx, cz) - T.height(cx, cz)) > 2.5) return;
+          if (!worst || need > worst.need) worst = { need, pr, cx, cz };
+        });
+      }
+      if (!worst) break;
+      let ox = worst.cx - worst.pr.px, oz = worst.cz - worst.pr.pz;
+      const L = Math.hypot(ox, oz);
+      if (L < 0.05 || moved + worst.need > 1.6) return null;
+      x += ox / L * (worst.need + 0.05); z += oz / L * (worst.need + 0.05); moved += worst.need + 0.05;
+      if (it === 2) return null;
+    }
+    if (moved > 0 && this.world.wallDist) { const d = this.world.wallDist(x, z, 1.5); if (d !== null && d < 1.0) return null; }
+    return [x, z];
   }
 
   removeTile(tileKey) { this.parkSpots.delete(tileKey); this.parkTimer = 0; }

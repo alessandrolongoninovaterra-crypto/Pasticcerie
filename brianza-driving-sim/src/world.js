@@ -6,6 +6,7 @@ import { BuildingFactory } from './buildings.js';
 import { Vegetation } from './vegetation.js';
 import { Signage } from './signs.js';
 import { Collision } from './collision.js';
+import { CLS, F } from './roads.js';
 import { Gates } from './gates.js';
 import { makeBollards, makeBins, makeBenches, makeHydrants, makeBikeRacks, makeFountains } from './vendor/city/streetprops.js';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
@@ -353,13 +354,14 @@ export class World {
   // nessuna altra via la attraversa (sottopassi, tram, strade che tagliano il piazzale)
   roundaboutIsland(tk, rb) {
     const R = this.roads;
-    let yr = null;
-    const inside = [];
+    let yr = null, under = false;
+    const inside = [], ring = [];
     R.segmentsNear(rb.x, rb.z, rb.r + 12, (wi, k) => {
       const w = R.ways[wi], pr = R.projectOnSeg(wi, k, rb.x, rb.z);
       const h = R.heightOn(wi, k, pr.t, pr.px, pr.pz);
-      if (w.flags & 2) { if (yr === null || Math.abs(pr.d - rb.r) < 6) yr = h; return; }
-      if (w.drivable && pr.d < rb.r - 1.5 && !(w.flags & 8)) inside.push(h);
+      if (w.flags & 2) { ring.push([wi, k]); if (yr === null || Math.abs(pr.d - rb.r) < 6) yr = h; return; }
+      if (w.flags & 8) { under = true; return; }
+      if (w.drivable && pr.d < rb.r - 1.5) inside.push(h);
     });
     if (yr === null) yr = this.terrain.height(rb.x, rb.z);
     // una strada che attraversa davvero l'isola (alla stessa quota) la lascia aperta; gallerie e
@@ -369,12 +371,100 @@ export class World {
     // collisione sul bordo vero del cordolo (il poligono dell'isola), non su un cerchio piu' piccolo
     // di quasi un metro: prima l'auto montava su cordolo e corona prima di fermarsi
     let c;
+    // (con una galleria sotto, la base resta poco sotto la rotatoria: chi passa in galleria non la tocca)
+    const bot = yr - (under ? 0.3 : 0.8);
     if (rb.poly && rb.poly.length >= 6) {
-      const ring = new Float32Array(rb.poly.length * 2);
-      rb.poly.forEach(([x, z], i) => { ring[i * 2] = x; ring[i * 2 + 1] = z; });
-      c = this.collision.addPolygon(tk, ring, yr + 1.5, true, yr - 0.8);
-    } else c = this.collision.addCircle(tk, rb.x, rb.z, rb.r, yr + 1.5, yr - 0.8);
+      const poly = new Float32Array(rb.poly.length * 2);
+      rb.poly.forEach(([x, z], i) => {
+        // il bordo dell'isola resta almeno 10 cm fuori dalla corsia dell'anello (dove i dati disegnano
+        // l'isola piu' larga dello spazio lasciato dall'anello, l'auto che gira la toccava)
+        let need = 0;
+        for (const [wi, k] of ring) { const w = R.ways[wi], pr = R.projectOnSeg(wi, k, x, z); need = Math.max(need, w.width / 2 + 0.1 - pr.d); }
+        const d = Math.hypot(x - rb.x, z - rb.z) || 1, f = Math.max(0.2, (d - need) / d);
+        poly[i * 2] = rb.x + (x - rb.x) * f; poly[i * 2 + 1] = rb.z + (z - rb.z) * f;
+      });
+      c = this.collision.addPolygon(tk, poly, yr + 1.5, true, bot);
+    } else c = this.collision.addCircle(tk, rb.x, rb.z, rb.r, yr + 1.5, bot);
     if (c) c.src = 'rotatoria';
+  }
+
+  // Lati degli edifici di una tessera (dai dati, prima che gli edifici siano costruiti), in una
+  // griglia di 10 m: servono a misurare lo spazio libero tra le case lungo le vie (fitWays)
+  bEdges(t) {
+    if (t.bE !== undefined) return t.bE;
+    t.bE = null;
+    const recs = t.data && t.data.b;
+    if (!recs || !recs.length) return null;
+    const C = 10, grid = new Map(), E = [];
+    for (const rec of recs) {
+      if (rec[2] / 10 > 2.2) continue;               // volumi sospesi (portici, passaggi): ci si passa sotto
+      let x = 0, z = 0; const r = [];
+      for (let i = 8; i < rec.length; i += 2) { x += rec[i]; z += rec[i + 1]; r.push(x / 10, z / 10); }
+      const n = r.length / 2;
+      for (let i = 0; i < n; i++) {
+        const j = (i + 1) % n, e = E.length / 4;
+        E.push(r[i * 2], r[i * 2 + 1], r[j * 2], r[j * 2 + 1]);
+        const x0 = Math.floor(Math.min(r[i * 2], r[j * 2]) / C), x1 = Math.floor(Math.max(r[i * 2], r[j * 2]) / C);
+        const z0 = Math.floor(Math.min(r[i * 2 + 1], r[j * 2 + 1]) / C), z1 = Math.floor(Math.max(r[i * 2 + 1], r[j * 2 + 1]) / C);
+        for (let a = x0; a <= x1; a++) for (let b = z0; b <= z1; b++) { const k = a * 100003 + b; let l = grid.get(k); if (!l) grid.set(k, l = []); l.push(e); }
+      }
+    }
+    t.bE = { C, grid, E: Float32Array.from(E) };
+    return t.bE;
+  }
+
+  // distanza dal muro di edificio piu' vicino entro r (Infinity se nessuno; null se i dati mancano)
+  wallDist(x, z, r) {
+    let best = Infinity, any = false;
+    const seen = new Set();
+    for (const [qx, qz] of [[x - r, z - r], [x + r, z - r], [x - r, z + r], [x + r, z + r]]) {
+      const t = this.tiles.get(this.tileKeyAt(qx, qz));
+      if (!t || seen.has(t)) continue;
+      seen.add(t);
+      if (!t.data) continue;
+      any = true;
+      const B = this.bEdges(t);
+      if (!B) continue;
+      const C = B.C, E = B.E;
+      for (let a = Math.floor((x - r) / C); a <= Math.floor((x + r) / C); a++) for (let b = Math.floor((z - r) / C); b <= Math.floor((z + r) / C); b++) {
+        for (const e of B.grid.get(a * 100003 + b) || []) {
+          const ax = E[e * 4], az = E[e * 4 + 1], dx = E[e * 4 + 2] - ax, dz = E[e * 4 + 3] - az, L2 = dx * dx + dz * dz || 1e-9;
+          let u = ((x - ax) * dx + (z - az) * dz) / L2; u = u < 0 ? 0 : u > 1 ? 1 : u;
+          const d = Math.hypot(x - ax - dx * u, z - az - dz * u);
+          if (d < best) best = d;
+        }
+      }
+    }
+    return any ? best : null;
+  }
+
+  // Vie locali, residenziali e di servizio senza larghezza in OSM: si misura ogni 3 m lo spazio
+  // libero tra l'asse e il muro piu' vicino; se la via corre stretta tra le case per un buon tratto
+  // la carreggiata si restringe a quello spazio (minimo 3,2 m). Una volta per via, prima di disegnarla.
+  fitWays(t) {
+    const R = this.roads;
+    for (const packed of R.tileSegs.get(t.key) || []) {
+      const w = R.ways[Math.floor(packed / 16384)];
+      if (w.fitDone) continue;
+      w.fitDone = true;
+      if (!w.drivable || w.cls < CLS.UNCLASSIFIED || w.cls > CLS.SERVICE || (w.flags & (F.BRIDGE | F.TUNNEL)) || w.widthTag > 2) continue;
+      const half = w.width / 2, r = half + 0.6, cs = [];
+      let n = 0;
+      for (let k = 0; k < w.nodes.length - 1; k++) {
+        const a = w.nodes[k], b = w.nodes[k + 1], ax = R.nx[a], az = R.nz[a], L = Math.hypot(R.nx[b] - ax, R.nz[b] - az);
+        for (let s = 1.5; s < L; s += 3) {
+          const x = ax + (R.nx[b] - ax) * s / L, z = az + (R.nz[b] - az) * s / L;
+          const d = this.wallDist(x, z, r);
+          if (d === null) continue;
+          n++;
+          if (d < r && d >= 1.2) cs.push(d);           // (sotto 1,2 m: edificio sulla via, dati sbagliati o androne)
+        }
+      }
+      if (cs.length < Math.max(3, n * 0.1)) continue;
+      cs.sort((p, q) => p - q);
+      const newHalf = Math.max(1.6, cs[Math.floor(cs.length * 0.3)] - 0.25);
+      if (newHalf < half - 0.15) R.narrowWay(w, newHalf * 2);
+    }
   }
 
   tileKeyAt(x, z) { const p = this.meta.proj; return Math.floor((z - p.zmin) / 1000) * 1000 + Math.floor((x - p.xmin) / 1000); }
@@ -530,7 +620,7 @@ export class World {
       }
       if (!('roads' in t.parts)) {
         // strade ed edifici si costruiscono a passi: si lavora finche' c'e' tempo in questo fotogramma
-        if (!t.gen) t.gen = this.roads.buildTileGen(t.key);
+        if (!t.gen) { this.fitWays(t); t.gen = this.roads.buildTileGen(t.key); }
         let r;
         do { r = t.gen.next(); } while (!r.done && performance.now() - t0 < budget);
         if (!r.done) return false;
