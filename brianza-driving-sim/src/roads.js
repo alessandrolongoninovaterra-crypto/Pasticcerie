@@ -285,7 +285,7 @@ export class RoadNetwork {
   // scostamento a destra (nel verso di marcia) del centro della corsia di marcia
   laneCenter(w, dir = 1) {
     if (w.oneway) return w.nF >= 2 ? -w.width / 2 + w.sh + w.lw * (Math.floor(w.nF) - 0.5) : 0;
-    if (w.nF < 1) return Math.max(0, Math.min(w.width / 4, w.width / 2 - 1.2));   // corsia unica: un po' a destra, mai contro il bordo
+    if (w.nF < 1) return Math.max(0, Math.min(w.width / 4, w.width / 2 - 1.45));  // corsia unica: un po' a destra, mai contro il bordo (vie strette: al centro)
     return dir > 0 ? w.cOff + w.lw * (w.nF - 0.5) : w.lw * (w.nB - 0.5) - w.cOff;
   }
 
