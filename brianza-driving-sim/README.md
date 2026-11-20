@@ -670,6 +670,38 @@ tutta l'area in memoria; il gioco invece non cambia.
   lunghi si controllano a pezzi di 6 m. Verifica sulle corsie di superstrade, ponti e gallerie (984
   tessere): da 14 punti bloccati a 1 (un raccordo tra due tratti dell'A8).
 
+## Collaudo automatico di tutte le strade
+
+Quattro "piloti" automatici in parallelo (un browser senza schermo ciascuno) hanno percorso con
+una utilitaria **ogni via carrozzabile della mappa** (1.600 tessere, circa 36.000 tratti, oltre
+10.000 km a giro), tenendo la corsia di destra al limite di velocità (massimo 90 km/h). Ogni
+problema viene annotato con la posizione: urto contro un ostacolo, auto bloccata, uscita di
+strada, auto sotto o sopra l'asfalto, salto, atterraggio brusco.
+
+Correzioni nate dal collaudo:
+
+- **Vie strette tra le case**: dove i muri degli edifici sono più vicini della larghezza stimata
+  dall'OSM, la carreggiata si restringe a quella reale (campioni ogni 3 m); sotto i 5,2 m una via a
+  doppio senso ha una sola corsia centrale e le auto viaggiano al centro.
+- **Auto parcheggiate fuori dalla corsia**: i posti che cadevano in carreggiata si spostano verso il
+  bordo (fino a 1,6 m) o si tolgono se il muro è troppo vicino.
+- **Pilastri dei portici** fuori dalla carreggiata; **pali dei cartelli e dei semafori** spostati sul
+  marciapiede.
+- **Dati che invadono la strada**: dove il contorno di un edificio, un muro, una recinzione o un
+  albero cade dentro la carreggiata (imprecisioni dei dati, non ostacoli veri) non c'è collisione.
+- **Rotatorie**: l'isola segue le corsie dell'anello senza invaderle; le gallerie sotto l'isola non
+  tolgono più la collisione.
+- **Viadotti e rampe**: dove una rampa si stacca da un ponte l'auto resta sulla carreggiata giusta
+  (prima poteva "saltare" sul livello sbagliato).
+
+| Giro | Problemi distinti | Su strade principali | Auto sotto/sopra l'asfalto | Salti |
+|---|---|---|---|---|
+| Primo | 3.251 | 106 | 60 | 27 |
+| Ultimo | 1.076 (152 solo atterraggi bruschi) | 33 | 40 | 15 |
+
+Gli urti rimasti sono quasi tutti strisciate nei vicoli dei centri storici, dove i muri sono
+davvero al bordo della strada.
+
 ## Fluidità: niente blocchi al tramonto e durante il caricamento
 
 - **Shader**: con il bagliore attivo (qualità media e alta) ogni fotogramma passa dal composer,
