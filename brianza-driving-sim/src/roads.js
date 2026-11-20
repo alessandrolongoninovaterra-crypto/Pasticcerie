@@ -353,7 +353,9 @@ export class RoadNetwork {
       // punteggio: scarto di quota + distanza dall'asse + bonus per la propria via
       // (distanza laterale e propria via pesano di piu' di prima: dove una rampa su ponte si stacca da un
       // viadotto le due carreggiate si sovrappongono e l'auto finiva sulla rampa, poi nel vuoto)
-      const sc = Math.abs(h - yRef) + 0.3 * pr.d - (wi === prefer ? 0.5 : 0);
+      // (la distanza conta solo verso il bordo: stare nella propria corsia, a 1,4 m dall'asse, non deve
+      // far vincere una via laterale ripida che passa li' vicino)
+      const sc = Math.abs(h - yRef) + 0.12 * pr.d + 0.4 * Math.max(0, pr.d - (w.width / 2 - 0.8)) - (wi === prefer ? 0.5 : 0);
       const better = !best ? true : near ? sc < bestS
         : h > bestH + 0.01 || (Math.abs(h - bestH) <= 0.01 && pr.d < best.d);
       if (better) { bestH = h; bestS = sc; best = { wi, k, t: pr.t, d: pr.d }; }
