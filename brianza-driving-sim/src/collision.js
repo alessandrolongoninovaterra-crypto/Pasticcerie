@@ -85,7 +85,8 @@ export class Collision {
 
   // y (facoltativo): quota dei piedi di chi si muove. Gli ostacoli con la sommita' sotto di lui
   // (alberi, isole e muretti sotto un viadotto) non contano.
-  resolveCircle(x, z, r, y = null) {
+  // skip (facoltativo): (oggetto, punto di contatto x, z) => true per ignorare quel contatto
+  resolveCircle(x, z, r, y = null, skip = null) {
     let best = null;
     const seen = new Set();
     this._cells(x - r, z - r, x + r, z + r, (k) => {
@@ -102,6 +103,7 @@ export class Collision {
           const dx = x - o.x, dz = z - o.z, d = Math.hypot(dx, dz);
           if (d < r + o.r) res = { nx: d > 1e-6 ? dx / d : 1, nz: d > 1e-6 ? dz / d : 0, depth: r + o.r - d };
         }
+        if (res && skip && skip(o, x - res.nx * r, z - res.nz * r)) continue;
         if (res && (!best || res.depth > best.depth)) best = res;
       }
     });

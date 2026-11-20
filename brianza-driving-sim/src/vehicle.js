@@ -244,9 +244,13 @@ export class Vehicle {
     // monte sopra la galleria) non si toccano: le collisioni sono in pianta
     const rd = this.surface && this.surface.road ? W.roads.ways[this.surface.road.wi] : null;
     const under = (rd && rd.flags & 8) || (W.terrain && W.terrain.height(this.x, this.z) - this.y > 3);
+    // un edificio che nei dati invade la carreggiata (asse della via disegnato rasente ai muri nei
+    // paesi vecchi) non ferma l'auto nel punto dove la invade: li' l'errore e' dei dati. Oltre il bordo
+    // della strada gli edifici restano solidi come sempre
+    const skip = this._skip || (this._skip = (ob, px, pz) => !!(ob.src && ob.src.charCodeAt(0) === 101 && ob.src.startsWith('edificio') && W.roads.inCarriageway(px, pz, W.terrain, false, -0.1)));
     for (const o of offs) {
       const cx = this.x + fx * o, cz = this.z + fz * o;
-      let hit = under ? null : W.collision.resolveCircle(cx, cz, r, this.y);
+      let hit = under ? null : W.collision.resolveCircle(cx, cz, r, this.y, skip);
       const hitCar = W.traffic ? W.traffic.resolveCircle(cx, cz, r) : null;
       if (hitCar && (!hit || hitCar.depth > hit.depth)) hit = hitCar;
       if (!hit) continue;
