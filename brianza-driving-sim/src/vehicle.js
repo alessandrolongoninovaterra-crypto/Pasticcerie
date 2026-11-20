@@ -2,6 +2,7 @@
 // trasferimento di carico, motore con curva di coppia, cambio automatico,
 // resistenza aerodinamica e di rotolamento, pendenza reale del terreno.
 const G = 9.81;
+const SKIP_IN_ROAD = /^(edificio|muro|recinzione|albero)/;
 
 export class Vehicle {
   constructor(spec, world) {
@@ -247,7 +248,8 @@ export class Vehicle {
     // un edificio che nei dati invade la carreggiata (asse della via disegnato rasente ai muri nei
     // paesi vecchi) non ferma l'auto nel punto dove la invade: li' l'errore e' dei dati. Oltre il bordo
     // della strada gli edifici restano solidi come sempre
-    const skip = this._skip || (this._skip = (ob, px, pz) => !!(ob.src && ob.src.charCodeAt(0) === 101 && ob.src.startsWith('edificio') && W.roads.inCarriageway(px, pz, W.terrain, false, -0.1)));
+    // (lo stesso per muri, siepi, recinzioni e alberi: dove la carreggiata dei dati li attraversa)
+    const skip = this._skip || (this._skip = (ob, px, pz) => !!(ob.src && SKIP_IN_ROAD.test(ob.src) && W.roads.inCarriageway(px, pz, W.terrain, false, -0.1)));
     for (const o of offs) {
       const cx = this.x + fx * o, cz = this.z + fz * o;
       let hit = under ? null : W.collision.resolveCircle(cx, cz, r, this.y, skip);

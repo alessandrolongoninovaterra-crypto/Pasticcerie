@@ -346,21 +346,29 @@ export class RoadNetwork {
       if (pr.d > lim) return;
       const h = this.heightOn(wi, k, pr.t, x, z);
       if (h > yRef + 1.3) return;
-      cand.push(h, Math.max(0.03, 1 - pr.d / lim));
+      cand.push(h, Math.max(0.03, 1 - pr.d / lim), wi);
       // con una quota di riferimento (chi e' gia' su una carreggiata) vince la carreggiata piu' vicina a
       // quella quota: in una galleria poco profonda la via in superficie sopra la volta non "risucchia"
       // l'auto. Senza riferimento (posizionamento) vince la piu' alta.
       // punteggio: scarto di quota + distanza dall'asse + bonus per la propria via
-      const sc = Math.abs(h - yRef) + 0.12 * pr.d - (wi === prefer ? 0.35 : 0);
+      // (distanza laterale e propria via pesano di piu' di prima: dove una rampa su ponte si stacca da un
+      // viadotto le due carreggiate si sovrappongono e l'auto finiva sulla rampa, poi nel vuoto)
+      const sc = Math.abs(h - yRef) + 0.3 * pr.d - (wi === prefer ? 0.5 : 0);
       const better = !best ? true : near ? sc < bestS
         : h > bestH + 0.01 || (Math.abs(h - bestH) <= 0.01 && pr.d < best.d);
       if (better) { bestH = h; bestS = sc; best = { wi, k, t: pr.t, d: pr.d }; }
     });
     // incroci: dove due vie alla stessa quota si sovrappongono si usa la media pesata (vicinanza
     // all'asse di ciascuna), cosi' passando dall'una all'altra non ci sono scalini
-    if (cand.length > 2) {
+    // (non tra un viadotto e una rampa su ponte che se ne stacca: la media tirava giu' l'auto)
+    if (cand.length > 3) {
+      const bBridge = best && (this.ways[best.wi].flags & F.BRIDGE);
       let sw = 0, sh = 0;
-      for (let i = 0; i < cand.length; i += 2) if (Math.abs(bestH - cand[i]) < 0.8) { sh += cand[i] * cand[i + 1]; sw += cand[i + 1]; }
+      for (let i = 0; i < cand.length; i += 3) {
+        if (Math.abs(bestH - cand[i]) >= 0.8) continue;
+        if (best && cand[i + 2] !== best.wi && (bBridge || (this.ways[cand[i + 2]].flags & F.BRIDGE))) continue;
+        sh += cand[i] * cand[i + 1]; sw += cand[i + 1];
+      }
       if (sw > 0) bestH = sh / sw;
     }
     const th = this.terrain.height(x, z);
