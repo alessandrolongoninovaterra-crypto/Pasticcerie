@@ -1,0 +1,779 @@
+# Brianza Driving Simulator — Real World Open World
+
+Simulatore di guida open world nel browser, ambientato nella **Brianza reale**:
+strade, incroci, rotatorie, sensi unici, ponti, edifici, boschi, laghi e confini
+comunali provengono da **OpenStreetMap**; salite e discese da un **modello
+altimetrico reale**. Nessuna strada è generata a caso.
+
+Motore grafico: **Three.js (WebGL)**, impacchettato in un unico file con esbuild.
+
+Comuni inclusi: Giussano · Meda · Seregno · Mariano Comense · Carate Brianza ·
+Besana in Brianza · Verano Brianza · Arosio · Inverigo · Briosco · Desio · Lissone ·
+Albiate · Veduggio con Colzano · Renate (+ i comuni confinanti dentro l'area,
+fino al Lago di Alserio).
+
+## Come si gioca
+
+**Apri `index.html` con doppio clic** (Chrome, Edge o Firefox recenti): non serve
+un server né una connessione internet, i dati sono già inclusi in `data/`.
+In alternativa: `python3 -m http.server 8080` e apri <http://localhost:8080>.
+
+1. Scegli l'auto (6 modelli con dati tecnici diversi) oppure l'**aereo da turismo** (vedi sotto).
+2. Scegli la partenza: predefinita **Giussano – Via Arturo Toscanini 22A**,
+   oppure Via Milano, il centro di qualunque comune, o un punto qualsiasi sulla mappa.
+3. Guida liberamente; premi **M** per la mappa, cerca un paese/via/chiesa/stazione
+   e imposta la destinazione: il navigatore calcola il percorso sulla rete reale
+   (rispettando i sensi unici) e dà le indicazioni, anche vocali.
+
+> Il civico 22A non è presente in OpenStreetMap: la partenza è a metà di Via Arturo
+> Toscanini (Giussano). Per un punto esatto apri
+> `index.html?lat=45.68210&lon=9.21141` con le tue coordinate, oppure aggiungi
+> in `index.html`, prima di `dist/game.js`:
+> `<script>window.BDS_START = { lat: 45.68210, lon: 9.21141 };</script>`
+
+### Gamepad
+
+Funziona qualsiasi gamepad riconosciuto dal browser (il browser lo rende visibile solo dopo la prima
+pressione di un tasto). Con i controller "standard" (Xbox, PlayStation, Switch Pro riconosciuti come
+tali) si gioca subito: stick sinistro sterzo / alettoni (indietro = cabra), RT/LT gas e freno (con
+l'aereo: manetta su/giù), A freno a mano, B scendi/sali, Y visuale, X fari, LB riparti, View mappa,
+Menu pausa, pressione dello stick sinistro clacson. Per i gamepad non standard c'è una mappatura di
+base (riconosce da solo i grilletti montati come assi).
+
+**Controller PlayStation (DualShock 4 / DualSense)**: con la mappatura standard del browser (Chrome,
+Edge) funzionano subito; senza (Firefox, alcuni sistemi) il gioco riconosce il controller Sony e usa
+L2/R2 analogici sugli assi giusti. Accorgimenti: un grilletto mai toccato, che molti browser danno a 0
+invece che a -1, non conta come mezzo premuto (l'auto partiva da sola); i sensori di movimento che su
+Linux compaiono come un secondo gamepad sono ignorati (inclinando il controller sterzava); la croce
+come asse "hat" e gli assi rumorosi non vengono scelti dalla configurazione guidata.
+
+**Per cambiare i comandi**: menu iniziale o pausa (Esc) → **🎮 Gamepad** → *Configura i comandi*.
+Il gioco chiede un comando alla volta (con più controller collegati, per esempio con DS4Windows, usa quello su cui premi; dopo uno stick aspetta che torni al centro, e per i grilletti registra la posizione di riposo quando li rilasci) (sterzo, acceleratore, freno, cabra, freno a mano, visuale,
+scendi, mappa, clacson, fari, riparti, pausa): si muove lo stick o si preme il tasto voluto, oppure
+si salta. Vanno bene assi, grilletti analogici e tasti. La configurazione si salva nel browser per
+quel modello di gamepad; *Ripristina predefiniti* la cancella. Nella stessa finestra si vedono in
+tempo reale i valori di assi e tasti.
+
+### Moto da corsa
+
+Nel menu ci sono due **moto da corsa** (modelli originali, senza marchi): la *Supersportiva 1000*
+(150 kW, 280 kg con il pilota: 0-100 in ~3,7 s, ~285 km/h) e la *Sportiva 600* (90 kW, più facile,
+~245 km/h). Usano la stessa fisica a bicicletta delle auto con i dati di una moto (carreggiata
+stretta, massa leggera, trazione posteriore, frenata ~30 m da 100 km/h). In curva **si piegano**
+verso l'interno con l'angolo reale, tan(piega) = velocità × imbardata / g (fino a ~55°); dal casco
+(visuale abitacolo) si vedono cupolino, semimanubri e strumentazione e l'orizzonte si inclina con
+la piega. Una sola traccia di gomma per ruota nelle derapate. Si comprano anche dal concessionario.
+
+### Caccia a reazione
+
+Nel menu c'è anche un **caccia a reazione** biposto (modello originale, senza insegne) per gli
+spostamenti veloci: parte in volo a 500 m e 580 km/h, arriva a circa 900 km/h a manetta piena e va
+da Milano a Lecco in circa tre minuti. Comandi come l'aereo da turismo; oltre l'85% di manetta si
+accende il postbruciatore (fiamma all'ugello). Senza comandi tiene la quota; rolla molto più in
+fretta e si inclina fino a 80°, il carrello rientra sopra i 40 m. Decolla da terra a ~275 km/h
+(serve un rettilineo lungo, per esempio la SS36) e atterra sotto i 340 km/h. Tetto: 4.500 m dal
+suolo. La telecamera esterna segue il mezzo nel suo sistema di riferimento, quindi resta alla
+stessa distanza anche a 900 km/h. In volo la minimappa usa la rete stradale completa (non solo le
+tessere già caricate) e si allarga con velocità e quota (col caccia ~2 km attorno); il mondo si
+carica davanti all'aereo, fino a 1,2 km più avanti della posizione.
+
+### Aereo da turismo
+
+L'ultima scelta del menu è un piccolo monomotore ad ala alta (modello originale, non riproduce un
+aereo reale). Parte in volo a 250 m sopra il punto di partenza scelto; si può atterrare su un prato
+o su una strada dritta, scendere (F), e ridecollare.
+
+| Tasto | Aereo |
+|---|---|
+| **W / S** | manetta su / giù (resta dove la lasci) |
+| **↑ / ↓** | cabra / picchia |
+| **A / D** (o ← / →) | inclina e vira |
+| **Spazio** | freni a terra |
+| **R** | di nuovo in volo a 250 m |
+| **C** | visuale esterna / abitacolo / sopra l'ala / lontana |
+| Gamepad | stick sinistro (alettoni e cabra/picchia), grilletti per la manetta |
+
+Fisica: spinta dell'elica che cala con la velocità, resistenza parassita e indotta, stallo sotto
+~72 km/h (il muso cade), virate coordinate, trim automatico che a motore ridotto mantiene ~90 km/h
+in planata (circa 8:1). Decollo dopo ~8 s di corsa a ~90 km/h; salita fino a ~5 m/s. Atterraggio:
+velocità di discesa sotto 4 m/s, ali quasi orizzontali e muso non in picchiata, altrimenti è uno
+schianto e si riparte in volo. Edifici, alberi e tralicci hanno la loro altezza: ci si schianta solo
+se si passa più in basso della loro sommità. In volo traffico, pedoni, autovelox e cancelli ignorano
+l'aereo e il navigatore indica la destinazione in linea d'aria.
+
+### Comandi
+
+| Tasto | Azione |
+|---|---|
+| W / ↑ | acceleratore (Shift = parziale) |
+| S / ↓ | freno; tenuto da fermo inserisce la retromarcia |
+| A D / ← → | sterzo |
+| Spazio | freno a mano |
+| C | visuale: esterna / abitacolo / cofano / esterna lontana |
+| V | guarda indietro |
+| M | mappa completa, ricerca, destinazione, teletrasporto |
+| N | mostra/nasconde la minimappa |
+| H | fari (si accendono da soli di notte) |
+| F | scendi dall'auto / sali sul veicolo più vicino |
+| E | clacson |
+| mouse (trascina) | ruota la telecamera |
+| R | rimetti l'auto sulla strada più vicina |
+| T, + / - | velocità del tempo, cambia ora |
+| K | nomi dei punti di riferimento |
+| J | lavori: consegne, inseguimenti, evasioni (e abbandono del lavoro in corso) |
+| G | da fermo: distributore (pieno), officina (riparazioni, elaborazioni), concessionario (auto) |
+| 1-9 | scelta nei pannelli di lavori e negozi |
+| Esc | pausa: traffico, tempo, voce, audio, **configurazione volante** |
+
+Gamepad: grilletti RT/LT, stick sinistro, A freno a mano, Y visuale.
+Volanti e pedaliere (Logitech, Thrustmaster, Fanatec…) via Gamepad API: in pausa
+scegli gli assi di sterzo/acceleratore/freno (vengono mostrati in tempo reale).
+
+## Carriera, polizia, meteo (novembre 2026)
+
+Meccaniche da open world di guida, scritte da zero per questo gioco (idee ispirate al progetto
+liberty3d, di cui non si usa codice), sui luoghi reali della mappa:
+
+- **Derapate**: segni degli pneumatici sull'asfalto (buffer di 2.400 tratti, una sola chiamata di
+  disegno), fumo dalle gomme e stridio quando l'auto slitta: derapata, freno a mano, sgommata in
+  partenza, frenata al limite. Sull'erba niente segni neri; sul bagnato meno fumo.
+- **Meteo dinamico** (menu *Meteo*: variabile o fisso): sereno, nuvoloso, pioggia, temporale con
+  lampi e tuoni, nebbia della pianura. Si somma al ciclo giorno/notte: cielo coperto, luci più
+  basse, foschia vicina (con la nebbia ~170 m), pioggia attorno alla telecamera (non in galleria).
+  L'asfalto si bagna in fretta e si asciuga piano: più scuro e con il 30% di aderenza in meno.
+- **Polizia** (menu *Polizia*: attiva o no), senza armi. In calma le pattuglie **circolano come il
+  resto del traffico**: corsia di destra, limiti di velocità, semafori, precedenze e distanza di
+  sicurezza, lampeggianti e sirena spenti (il traffico si ferma dietro di loro e viceversa). Solo
+  quando ci sono stelle lasciano la corsia e inseguono; in inseguimento il navigatore delle volanti
+  ammette il contromano e l'inversione a U (prima per raggiungere chi stava su una carreggiata a senso
+  unico facevano giri di 3-4 km fino allo svincolo). **Le volanti sono commisurate al tuo veicolo**:
+  potenza proporzionata al tuo rapporto peso/potenza (da un po' meno di te a 1★ a pari a 5★) e velocità
+  massima voluta tra l'88% e il 102% della tua: in rettilineo ci si stacca, nel traffico, in curva e
+  ai posti di blocco ti riprendono. Prima la volante (200 kW, 234 km/h) batteva ogni auto tranne la
+  coupé; con l'utilitaria ora arriva a 145-164 km/h, con coupé e moto si resta a 255 km/h. I reati
+  visti da una volante entro 50 m (da ricercato entro 100 m; rosso, velocità oltre 35 km/h sul limite, incidenti) o gravi (pedone
+  investito, speronare una volante) alzano il livello di ricerca (★ 1-5). Le volanti hanno la
+  stessa fisica dell'auto del giocatore: lontane seguono il percorso stradale calcolato dal
+  navigatore verso l'ultima posizione nota, vicine puntano dove stai andando e cercano di
+  speronarti; da 3★ fanno posti di blocco davanti. **Arresto**: fermo vicino a una volante (alla stessa
+  quota: non dal cavalcavia sopra) per 3 secondi, oppure chiuso tra due volanti anche se provi a
+  ripartire piano; un attimo di movimento non azzera il conteggio (scende piano). Poi il veicolo
+  resta bloccato per qualche secondo, multa di 400 € per stella e punti patente, e le volanti
+  tornano in servizio normale nel traffico. **Fuga**: nessuna volante ti vede (entro 100 m e con la linea di
+  vista libera da edifici, muri, siepi e recinzioni oltre 1,5 m) per 10 s + 5 s per stella, dopo che ti sei allontanato dall'ultimo
+  avvistamento. Sirena bitonale, lampeggianti (luce vera di notte), volanti sulla minimappa.
+- **Economia** (salvata nel browser): soldi, carburante (circa 650 km con un pieno), danni (gli urti
+  consumano l'auto: oltre il 60% perde potenza, al 100% è in panne). Da fermo, con **G**: ai
+  **distributori** reali il pieno (1,85 €/l), nelle **officine** reali (OSM `shop=car_repair`)
+  riparazione ed elaborazioni (motore, gomme, freni), dai **concessionari** reali (`shop=car`) le
+  auto del gioco. Le multe si pagano dal conto. R con il serbatoio vuoto o in panne: carro attrezzi.
+- **Missioni** (tasto **J**, tre offerte vicino a te):
+  - *consegna*: ritiro in un negozio vero (pasticcerie, panetterie, fiorai, gastronomie, pizzerie
+    e ristoranti di OSM) e consegna a tempo in una via vera a 1-3,5 km; il carico teme gli urti e
+    il compenso cala se arriva rovinato o in ritardo;
+  - *inseguimento*: un pirata della strada scappa (stessa IA delle volanti, ma in fuga): speronalo
+    finché la sua resistenza arriva a zero;
+  - *evasione*: un pacco che scotta e la polizia già a 2-3★: seminala entro il tempo.
+  Il navigatore guida verso l'obiettivo (anche verso l'auto in fuga, ricalcolando).
+- **Dialoghi e audio**: personaggi con voce italiana (sintesi vocale del browser, gratuita) e
+  sottotitoli colorati: Rosa della pasticceria, Ugo dell'officina, l'agente Bassi, il Biondo, la
+  Centrale via radio (inseguimenti, posti di blocco, fughe), gli agenti all'arresto. Suoni
+  sintetizzati: sirena, stridio delle gomme, pioggia e tuoni.
+
+## Grafica delle auto (novembre 2026)
+
+- **Riflessi**: mappa d'ambiente ricavata dal cielo del gioco (stesso cielo, con ora, nuvole e
+  meteo) più suolo e orizzonte di case, rigenerata quando il cielo cambia (al massimo una volta al
+  secondo, `src/envmap.js`). Vernice metallizzata con trasparente lucido, vetri scuri che riflettono
+  il cielo, cromature e cerchi in metallo vero. Di notte i riflessi si spengono con il cielo, in
+  galleria quasi del tutto.
+- **Dettagli**: fari con parabola e cornice cromata, frecce, fanali, stop e retromarcia che si
+  accendono davvero (con il bagliore notturno), targhe italiane generiche davanti e dietro,
+  tergicristalli, linee delle portiere e maniglie, ombra morbida sotto ogni auto. Le auto del
+  traffico hanno vetri lucidi, fari e fanali accesi di notte (le parcheggiate restano spente),
+  targhe, cerchi a razze e ombra.
+- **Forme arrotondate**: scocche con spalle e fianchi curvi, cofano e tetto bombati, muso e coda
+  arrotondati anche in pianta, raccordo morbido tra tetto e vetri (auto del giocatore, volanti e
+  traffico); fari, calandra, fanali e targhe appoggiati alla superficie vera. Nella mappa: pali di
+  cartelli, paline e pensiline cilindrici, lampioni e pali più tondi, colonne dei portici rotonde
+  con plinto, echino e abaco, statue e cavalli fatti di forme tonde, chiome degli alberi
+  ombreggiate come sfere (stessi triangoli di prima), siepi con il dorso arrotondato.
+- Nessuna auto riproduce un modello o un marchio reale: sono auto "di segmento" (city car,
+  compatta, berlina, SUV, sportiva, furgone).
+
+## Stile open world
+
+- **Pedoni** sui marciapiedi delle strade reali e nelle vie pedonali: svoltano agli incroci,
+  attraversano sulle strisce quando non arrivano auto, si scansano se un'auto punta verso di loro
+  o se suoni il clacson. Se li urti cadono e poi si rialzano (e scatta la multa).
+- **A piedi** (alla GTA): `F` per scendere dall'auto. `W/S` avanti/indietro, `A/D` gira,
+  **`Shift` scatta** (6,9 m/s) con il fiato contato: 15 s di scatto, poi **5 s di fiatone** in cui si
+  cammina piano piegati in avanti (barra del fiato sopra la velocità: verde, rossa durante il recupero);
+  camminando il fiato si ricarica. **`Spazio` salta** (circa 1 m); davanti a un muretto, una recinzione
+  o una siepe fino a 2 m il salto diventa uno **scavalcamento** (gli edifici no). Dai bordi si cade e
+  si atterra piegando le ginocchia; da più di ~4 m l'atterraggio è pesante e ci si ferma un attimo. La
+  telecamera segue i salti senza sobbalzare e si allarga un po' nello scatto. Gamepad: stick o grilletto
+  destro per camminare, grilletto a fondo per scattare, tasto del freno a mano per saltare.
+  `F` vicino a un altro veicolo per salirci: auto del traffico ferme, auto parcheggiate, perfino gli
+  autobus di linea; si guida proprio la carrozzeria che si vedeva.
+- **Varietà delle auto**: il traffico e le auto parcheggiate usano 16 carrozzerie (le 4 di base, le 6
+  delle auto guidabili e 6 sagome solo per il traffico: hatchback corta, station wagon lunga,
+  monovolume, coupé bassa, berlina lunga, minivan), una fissa per ogni posto della flotta. Scocche più
+  arrotondate: spalle e fianchi a raggio ampio, profilo con stazioni ogni ~25 cm, raccordo
+  tetto-vetri più morbido.
+- **Auto parcheggiate negli stalli reali** (117.000 posti calcolati dalla pipeline):
+  stalli mappati uno per uno (`amenity=parking_space`), file a pettine lungo le corsie interne
+  (`service=parking_aisle`, ora percorribili), soste lungo strada in linea / a pettine / a spina
+  secondo `orientation`, piazzali con file e corsie. Rispettano `capacity`, evitano edifici,
+  strade e alberi; le righe degli stalli sono disegnate a terra e ogni parcheggio ha un suo
+  grado di riempimento (55–95%).
+- **Traffico**: auto, familiari, furgoni e autobus; danno la precedenza in rotatoria e nelle
+  immissioni, si fermano per i pedoni e per il giocatore a piedi.
+- **Patente a punti**: autovelox reali (nodi `highway=speed_camera`), semafori rossi e pedoni
+  urtati costano multe e punti; a zero punti la patente viene sospesa e si riparte da 20.
+- **Arredo urbano reale**: panchine, cestini, paletti, idranti, rastrelliere e fontanelle dove
+  OSM li mappa.
+- **Telecamera**: trascina con il mouse per ruotarla attorno all'auto o al personaggio.
+- **Resa**: tone mapping filmico e alone delle luci di notte.
+
+### Crediti per la grafica importata
+
+I modelli di **veicoli**, **pedoni** (figura articolata, camminata, caduta) e **arredo urbano**
+vengono dal progetto [donmutti/city](https://github.com/donmutti/city) e stanno in
+`src/vendor/city/` con l'elenco delle modifiche in `NOTICE.md`. Il `package.json` di quel
+progetto dichiara licenza **ISC**, ma il repository non ha un file LICENSE: prima di una
+distribuzione pubblica conviene chiedere conferma all'autore. Tutto il resto (mappa, strade,
+segnaletica, edifici, fisica, navigatore, comportamento di pedoni e traffico) è di questo progetto.
+
+## Cosa c'è (fasi 1–6)
+
+- **Mappa reale**: 33.421 vie OSM (nome, classe, limite, sensi unici, corsie, ponti,
+  gallerie), 108.774 edifici con impronta reale e altezza da `height`/`building:levels`
+  (o stimata per tipologia), 149 cavalcavia ricostruiti con rampe al 6%, rotatorie con
+  isola centrale, ferrovie, laghi (Alserio, Pusiano, Montorfano), fiumi (Lambro, Seveso…),
+  boschi/prati/campi/aree urbane dalla copertura del suolo, 1.339 punti di interesse.
+- **Strade aderenti a OpenStreetMap**:
+  - curve morbide: spline che passa esattamente per i nodi OSM, usata anche da fisica,
+    traffico e navigatore;
+  - larghezza e corsie dai tag `width`, `lanes`, `lanes:forward/backward`;
+  - frecce di corsia da `turn:lanes`; pavé/porfido da `surface`; sterrati;
+  - marciapiedi da `sidewalk=*` (o stimati nelle aree edificate), interrotti agli incroci;
+  - percorsi pedonali, ciclabili, sentieri e marciapiedi mappati a parte (`footway`,
+    `cycleway`, `path`), piazze pedonali;
+  - muri di cinta, siepi, muri di sostegno e guardrail (`barrier=*`), elettrodotti con
+    tralicci (`power=line`), piazzole di manovra, mini-rotatorie, dossi e attraversamenti rialzati;
+  - recinzioni (`barrier=fence`: cancellata su muretto, rete, staccionata, ringhiera) e
+    **cancelli** (`barrier=gate`, `swing_gate`, `sliding_gate`, `lift_gate`, `chain`) orientati
+    sulla via che li attraversa, con il varco nel muro o nella recinzione. I cancelli dei passi
+    carrai, delle strade private e dei campi sono chiusi (non si passa e il navigatore li evita);
+    sbarre e cancelli privati sulle strade pubbliche si aprono da soli quando arriva un veicolo;
+    gli altri sono aperti.
+- **Altimetria reale**: griglia di 20 m (Terrarium/AWS, da SRTM ed EU-DEM, 160–530 m s.l.m.);
+  dove c'è l'altimetria del DBGT la griglia passa a 10 m ed è corretta sui dati misurati (vedi sotto).
+- **Edifici in lontananza** (qualità media e alta): oltre il raggio degli edifici dettagliati i
+  paesi si vedono come volumi semplici (un parallelepipedo orientato per edificio, con altezza e
+  colore del tetto; `data/far/`, a blocchi di 4×4 km), fino a 5–7 km in volo e 3 km a
+  terra. In quota la foschia si allontana, così dall'aereo si vedono i paesi vicini.
+- **Gallerie**: la pipeline calcola il profilo di ogni galleria sull'intera catena di vie OSM (quota
+  fissa agli imbocchi veri, mai sopra il terreno, pendenza massima 7%) e segna nella mappa dei
+  colori, con un colore riservato, dove il terreno va aperto (copertura sotto i 7 m: imbocchi e
+  sottopassi). Il gioco disegna volta e pareti lungo la strada, lampade al soffitto, portali in
+  cemento agli imbocchi e, dove il tubo affiora, il guscio esterno; dentro, il sole si spegne, la
+  foschia si scurisce e si accendono i fari (344 tratti, 299 gallerie, 619 imbocchi).
+- **Strade lisce**: ogni via (tranne ponti e gallerie, che hanno un profilo proprio) ha un profilo
+  di quota suo, campionato ogni 4 m dal terreno e lisciato con una media mobile su circa ±20 m;
+  agli incroci tutte le vie passano per la stessa quota (gli estremi di ponti e gallerie restano
+  fissi) e dove due vie si sovrappongono l'auto usa la media pesata delle due quote. La carreggiata
+  è piana in senso trasversale. Il terreno sotto la strada è spianato e gli angoli delle celle da
+  10 m che toccano la carreggiata sono abbassati, così il terreno non sporge sull'asfalto
+  (sbancamento del versante, mai terrapieni). Profili e spianamento si calcolano una volta sola nella
+  pipeline (`tools/bake.mjs`, con lo stesso codice del gioco). Risultato: 99,9% dei punti lisci
+  lungo le vie (prima 95,8%), terreno sopra l'asfalto nello 0,03% dei punti (prima 2,2%); restano i
+  raccordi delle rampe dei cavalcavia.
+- **Chiese e grattacieli** (novembre 2026): le chiese hanno facciate in pietra con finestroni ad arco,
+  vetrate, oculi e lesene, e colori da intonaco, pietra o mattone. Le cattedrali sono in marmo chiaro
+  con terrazze di pietra e pinnacoli fitti lungo la gronda (le guglie del Duomo di Milano), le chiese
+  medie hanno pinnacoli più radi. I campanili (anche quelli che il DBGT separa dalla chiesa come
+  volume alto e stretto) hanno la cella campanaria con le aperture ad arco e la cuspide in rame o in
+  coppi. Gli edifici oltre 38 m hanno facciate continue in vetro (Porta Nuova, CityLife) con le luci
+  degli uffici di notte; i palazzi dai tre piani hanno il cornicione in aggetto.
+- **Piazze storiche: gallerie, portici, monumenti, metro** (novembre 2026), dai dati e quindi
+  ovunque ci siano:
+  - **portici e sottopassaggi** dal DBGT (`UN_VOL_POR` 03 soffitto di portico, 05 loggia, 04
+    sottopassaggio): il volume parte dalla quota reale del soffitto (o, se manca, da circa un terzo
+    dell'altezza), sotto c'è il soffitto e, per portici e logge, una fila di pilastri con capitello
+    lungo il perimetro. Si passa a piedi e in auto sotto gli archi (es. i portici settentrionali e
+    meridionali di Piazza del Duomo, Piazza Mercanti);
+  - **gallerie coperte in vetro** da OSM (`building=roof` con `roof:material=glass` e i percorsi
+    pedonali coperti al suo interno): volta a botte in vetro e costole di ferro lungo ogni braccio,
+    larga quanto il passaggio e impostata alla gronda dei palazzi vicini, e cupola dove i bracci si
+    incrociano (Galleria Vittorio Emanuele II);
+  - **monumenti e statue** da OSM (`historic=monument|memorial`, `tourism=artwork`, `memorial=statue`
+    …): basamento in pietra e figura in bronzo o marmo (statua equestre, statua in piedi, busto,
+    stele, colonna, obelisco, scultura) con altezza, quota del basamento e colore dei tag quando ci
+    sono; sono rivolti verso la strada più vicina e hanno la collisione;
+  - **ingressi della metropolitana** (`railway=subway_entrance`): vano scala con parapetti e palina
+    con il cubo rosso della M.
+- **Portici e vetrine su tutta la mappa** (novembre 2026):
+  - controllo dei 30.000 volumi sollevati del DBGT (portici, sottopassaggi, sporti): quelli che non
+    toccano nessun edificio a terra per almeno il 30% del perimetro (circa 1.500, prima sospesi nel
+    vuoto) ora hanno i pilastri;
+  - i portici hanno i pilastri solo sui lati aperti (non più contro le vetrine dell'edificio
+    dietro) e archi a tutto sesto tra un pilastro e l'altro;
+  - **vetrine al piano terra**: negli edifici che contengono un negozio o un locale OSM (o ne hanno
+    uno entro 6 m: `shop=*`, bar, ristoranti, farmacie, banche…), negli edifici dietro un portico e
+    negli edifici commerciali piccoli (`building=retail/commercial/kiosk`). Quattro tipi: negozio,
+    bar e ristorante, farmacia (croce verde accesa), banca e servizi; insegna, vetrina con la merce,
+    porta ogni quattro campate. Di notte le vetrine e le insegne sono illuminate;
+  - **tende da sole** sulle vetrine che danno sulla strada (non sui muri in comune né sotto i
+    portici), di colori diversi da negozio a negozio;
+  - nel gioco ogni lato di un edificio è classificato (su strada, muro in comune, sotto un portico)
+    guardando gli edifici vicini della tessera; nei dati il bit 32 di `flags` segna le vetrine e i
+    bit 64-128 il tipo.
+  Numeri dell'ultima elaborazione: 33.281 negozi e locali OSM, vetrine in 21.487 edifici con negozi,
+  9.200 dietro i portici e 12.791 edifici commerciali.
+- **Tutto esplorabile, strade senza blocchi** (novembre 2026):
+  - tutti i cancelli e le sbarre restano aperti (il navigatore evita comunque i passaggi privati);
+  - controllo automatico di tutte le autostrade, superstrade, statali e provinciali, dei ponti e
+    delle gallerie (1.234 tessere, corsie campionate ogni 4 m con le regole del veicolo): da 5.387
+    punti con ostacoli o salti a 7 ostacoli residui al centro della corsia (i caselli della barriera
+    autostradale e pochi casi di dati) e gradini sotto i 60 cm. Correzioni:
+    - gli ostacoli hanno quota di base e di sommità: la superstrada che passa sotto una rotatoria
+      sopraelevata o sotto un muro sul ciglio della trincea non urta, e nemmeno l'auto che passa
+      sopra un muro o una recinzione (rilevati); le isole delle rotatorie stanno alla quota
+      dell'anello e mancano se una via attraversa il piazzale;
+    - muri e recinzioni si tagliano dove entrano nella carreggiata di qualunque via alla stessa
+      quota; alberi e paletti in carreggiata restano senza collisione;
+    - edifici attraversati da una via carrozzabile: diventano androni o pensiline (si passa sotto);
+      se la via li tocca solo ai bordi o li attraversa in quota, perdono la collisione;
+    - la superficie su cui sta l'auto è la sua carreggiata (rampe che si staccano da una via alla
+      stessa quota, terreno che sporge ai bordi di trincee e spalle dei cavalcavia);
+    - profili stradali con pendenza massima (16%, 25% su servizio e sterrati) attorno a incroci ed
+      estremi di ponti e gallerie, e quote degli imbocchi corrette dove la strada di accesso era
+      impossibile (330 casi: imbocchi presi dal terreno su versanti ripidi);
+  - prova di guida automatica in tutte le 152 gallerie stradali oltre 120 m: 131 percorse da un
+    capo all'altro, comprese tutte quelle delle strade principali (Monte Barro, San Martino,
+    Valsassina, Pusiano, Somana, Scoglio, Melgone, Tangenziale Nord…); gli altri casi sono rampe
+    di autorimesse e vie di servizio dove il pilota automatico della prova parte fuori strada.
+- **Tipologie edilizie** (novembre 2026): i pacchetti DBGT usati non contengono il livello degli
+  edifici con l'uso (EDIFC: la pipeline trova 0 "corpi edificati"; se un pacchetto lo contiene,
+  il riduttore lo tiene già). La tipologia si ricava da altezza vera DBGT, piani, superficie e
+  muri in comune con gli edifici vicini: **villetta** (isolata, fino a 3 piani: persiane in legno,
+  davanzali in pietra, balconcino in ferro, garage e portoncino con pensilina, zoccolo in pietra),
+  **palazzina** (3-5 piani: finestre con tapparella, logge con parapetto, androne vetrato, box),
+  **condominio** (6 piani e oltre, balconi), **case in linea e centri storici** (muri in comune:
+  persiane e portoni), oltre a capannoni, chiese, torri e grattacieli. Di notte le finestre si
+  accendono in tutte le tipologie.
+- **Correzioni (novembre 2026)**:
+  - *quadrati neri a schermo* (di notte, all'imbrunire, in galleria): alcuni vertici avevano la
+    normale nulla (triangoli degeneri o facce opposte che si annullano); nello shader diventava NaN,
+    e il bloom notturno sfocava quel pixel in un quadrato nero grande come mezzo schermo. Ora le
+    normali nulle sono sostituite alla costruzione (`fixNormals` in `src/geo.js`, agganciato a ogni
+    `computeVertexNormals`, modelli importati compresi) e un passaggio di pulizia prima del bloom
+    scarta comunque i pixel NaN o infiniti;
+  - *gallerie non percorribili*: le collisioni sono in pianta, e alberi, recinzioni e case sul monte
+    sopra la galleria fermavano l'auto in galleria. Ora in galleria (o sotto terra) gli ostacoli in
+    superficie non contano, e gli ostacoli con la sommità sotto l'auto (isole delle rotatorie,
+    muretti, alberi bassi sotto un viadotto) non la fermano. Nelle gallerie poco profonde (Monza) la
+    superficie scelta è la carreggiata più vicina alla quota dell'auto, non la via sopra la volta.
+    Verifica: Galleria Monte Barro (3,3 km) e Galleria Monza (1,9 km) percorse da un capo all'altro.
+- **Palazzi**: numero intero di piani per edificio (finestre allineate in alto e in basso), piano
+  terra distinto (portoni, garage, ingressi vetrati), stili condominio con balconi e palazzina
+  moderna oltre a casa con persiane e capannone, base dei muri più scura, file di coppi sui tetti a
+  falde (da vicino).
+- **Strade**: tinta dell'asfalto leggermente diversa da via a via, banchina di ghiaia che sfuma
+  nell'erba sulle strade extraurbane senza marciapiede.
+- **Cartelli dedotti** (dove OSM non li mappa): strada senza uscita all'imbocco dei vicoli ciechi,
+  parcheggio dove una corsia di parcheggio si stacca dalla strada, curva pericolosa (svolta oltre
+  ~32° in 45 m, fuori dai centri abitati), discesa ripida oltre il 9% (dalle quote reali),
+  attenzione bambini davanti alle scuole.
+- **Recinzioni dedotte**: lungo il perimetro delle aree che nella realtà sono quasi sempre recintate
+  (scuole, cimiteri, campi sportivi, stadi, cabine elettriche, depuratori, parchi giochi, aree
+  cani), con il varco dove passano strade e vialetti, senza attraversare edifici e senza
+  raddoppiare muri e recinzioni già mappati (5.600 tratti da 3.200 aree).
+- **Schermo sgombro**: la barra dei comandi compare per pochi secondi (all'avvio, cambiando
+  veicolo, uscendo dalla pausa) e poi sparisce; le etichette dei luoghi mostrano solo le 7 più
+  vicine, senza sovrapposizioni.
+- **Prestazioni** (novembre 2026): curve delle strade con freccia di 12 cm (non 4), passo adattivo
+  di asfalto e marciapiedi (10 m dove il terreno è regolare), segnaletica continua non spezzata,
+  recinzioni senza facce nascoste e senza ombre, edifici dettagliati solo entro 1,5–2,2 km (oltre
+  ci sono i volumi semplici), piano lontano della telecamera legato alla foschia. Strade ed edifici
+  di una tessera si costruiscono a passi su più fotogrammi (niente scatti da 100 ms). **Qualità
+  automatica**: sotto ~24 fps il gioco spegne prima le ombre e poi riduce la risoluzione di disegno
+  (non sotto il 75%, per non sfocare l'immagine); risale sopra ~50 fps. Di notte, con il bagliore
+  delle luci, l'immagine è disegnata con antialiasing a 4 campioni. Si disattiva con `index.html?auto=0`.
+- **Laghi, fiumi e corsi d'acqua** (novembre 2026): il terreno è scavato sotto ogni specchio d'acqua,
+  così la riva coincide con il bordo dell'acqua, e una fascia di sponda ne segna il confine (prima il
+  blu della mappa dei colori sbordava sul terreno). I laghi hanno un livello unico; fiumi e canali
+  disegnati come area (Adda, Lambro, Navigli) scendono con le rive: ogni vertice prende la quota più
+  bassa delle sponde entro 45 m. I corsi d'acqua disegnati come linea (Seveso, Molgora, rogge, canali)
+  sono nastri d'acqua veri con un profilo che non risale mai verso valle; da 4 m di larghezza in su
+  hanno il letto scavato, i ruscelli seguono il terreno; lungo le sponde l'erba è più verde e ci sono
+  più alberi. Anche gli stagni dai 150 m² hanno l'acqua (accorpati per blocchi da 4 km: una mesh per
+  blocco). Pontili in legno su pali dove OSM li mappa (`man_made=pier`).
+- **Aspetto**: acqua dei laghi con onde animate e riflesso del cielo, roccia sui pendii oltre ~45°,
+  luce riflessa dal suolo sulle facciate in ombra.
+- **Guida**: modello a bicicletta con pneumatici a saturazione, cerchio d'attrito,
+  trasferimento di carico, curva di coppia, cambio automatico, freno motore, pendenze,
+  aderenza ridotta su sterrato/erba, ESC leggero; collisioni con edifici, muri, alberi,
+  isole delle rotatorie e veicoli. Visuale esterna e abitacolo con volante e quadro strumenti.
+- **Segnaletica italiana dai dati OSM**:
+  - orizzontale: margini, mezzeria (continua vicino agli incroci, doppia a 4 corsie),
+    corsie, strisce zebrate (`highway=crossing`, non quelle `unmarked`), linee di arresto,
+    scritta STOP, triangoli di precedenza, frecce;
+  - semafori funzionanti, STOP e dare precedenza nel verso indicato dal tag `direction`;
+  - rotatorie: dare precedenza + segnale di rotatoria a ogni ingresso;
+  - senso unico all'ingresso e senso vietato all'uscita delle vie `oneway`;
+  - attraversamento pedonale, dosso, passaggio a livello con sbarre, autovelox;
+  - limiti di velocità dove `maxspeed` cambia;
+  - **targhe con il nome della via** a ogni incrocio;
+  - inizio/fine centro abitato: dai nodi `traffic_sign=city_limit` e ai confini comunali reali;
+  - tabelle di direzione agli svincoli dal tag `destination`; identificazione strada (SP/SS) da `ref`;
+  - frecce di direzione alle uscite delle rotatorie: indicano il primo comune o la prima
+    località che si raggiunge davvero seguendo quella strada (calcolato sulla rete);
+  - fermate bus con pensilina e nome, distributori, lampioni (`lit=yes`, `highway=street_lamp`).
+- **Ambiente**: edifici con intonaci lombardi, persiane, tetti in coppi con gronda
+  (a capanna, a padiglione, a falde su piante irregolari), comignoli, capannoni; alberi
+  da OSM e dai boschi reali (latifoglie, conifere, filari); cielo con nuvole, ciclo
+  giorno/notte con sole calcolato per la latitudine della Brianza, stelle, finestre
+  illuminate, aloni di luce dei lampioni, fari.
+- **Traffico AI** sulla rete reale: rispetta sensi unici, limiti, semafori e distanze (IDM).
+- **Interfaccia**: minimappa stile navigatore orientata con la marcia, tachimetro e
+  contagiri, nome della via e del comune/frazione, coordinate GPS e quota, limite
+  di velocità (reale o indicativo), indicazioni di svolta e rotatorie con distanza ed ETA.
+- **Prestazioni**: tessere di 1 km caricate/scaricate in streaming attorno all'auto,
+  geometrie unite per materiale, atlanti di texture per i cartelli, alberi e lampioni
+  instanziati, tre livelli di qualità.
+- **Caricamento a blocchi** (novembre 2026): anche terreno, colori del suolo e strade arrivano a
+  tessere, solo attorno al giocatore. All'avvio si caricano soltanto l'indice, una panoramica del
+  terreno a bassa risoluzione (orizzonte e ripiego dove una tessera non c'è ancora) e la rete del
+  navigatore, quindi la dimensione della mappa non pesa più su avvio e memoria. Vedi
+  [Struttura dei dati](#struttura-dei-dati).
+
+## Edifici, altimetria e dettagli dal DBGT di Regione Lombardia (facoltativo)
+
+Il **DBGT** (Database Geo-Topografico) della Regione contiene le forme degli edifici rilevate
+dalla cartografia comunale e, per ogni porzione di edificio di altezza omogenea ("unità
+volumetrica"), l'**altezza misurata**. Se lo fornisci alla pipeline, nei comuni coperti le forme
+e le altezze degli edifici vengono dal DBGT invece che da OpenStreetMap; tipologia, nomi e
+colori restano quelli di OSM.
+
+1. Registrati gratuitamente sul [Geoportale della Lombardia](https://www.geoportale.regione.lombardia.it/download-dati),
+   fai l'accesso, cerca nel catalogo il *Database Geo-Topografico* e scarica il pacchetto di
+   ciascun comune che ti interessa.
+2. Hai due possibilità:
+   - metti gli zip così come sono (anche il pacchetto provinciale da oltre 1 GB) in
+     `brianza-driving-sim/dbgt/` (cartella esclusa da git): la pipeline legge l'intestazione dei
+     file dentro lo zip ed estrae solo i livelli degli edifici;
+   - oppure, **senza installare nulla**, apri con doppio clic `riduci-dbgt.html` (nella cartella
+     del gioco), scegli lo zip del DBGT e scarica i file ridotti con edifici, altimetria e dettagli
+     dell'ambiente dell'area del gioco, ognuno sotto i 28 MB. Funziona nel browser (Chrome, Edge, Firefox), senza inviare il
+     file da nessuna parte; anche il pacchetto provinciale da oltre 1 GB va bene;
+     se la pagina viene aperta da sola (senza la cartella `data/` accanto) ritaglia comunque,
+     sull'area predefinita del gioco;
+   - oppure fai la stessa riduzione da riga di comando, se hai Python:
+     `python3 tools/dbgt_solo_edifici.py pacchetto.zip DBGT_MB` (su Windows `py` al posto di
+     `python3`). Usa solo la libreria standard di Python, ritaglia sull'area del gioco e scrive
+     uno o più file `DBGT_MB_N.dbgt.json.gz` sotto i 28 MB ciascuno. Con i ~110.000 edifici
+     dell'area attuale si ottengono pochi MB: si possono conservare, inviare o mettere in `dbgt/`.
+
+   Il pacchetto di Monza e Brianza non comprende i comuni in provincia di Como (Mariano Comense,
+   Arosio, Inverigo): lì restano gli edifici OSM, a meno di aggiungere anche il pacchetto di Como.
+3. Rigenera i dati: `tools/run_pipeline.sh` (oppure solo `build_data.py`).
+
+I pacchetti del Geoportale sono **GeoPackage** (`dbgt.gpkg`, un database SQLite): gli edifici
+sono nella tabella `UN_VOL`, in coordinate RDN2008 / UTM 32N (EPSG 7791). Sono supportati anche
+gli shapefile. La pipeline riconosce i livelli dai nomi dei campi (`UN_VOL_AV` per le unità volumetriche,
+`CR_EDF_*` / `EDIFC_USO` per i corpi edificati), legge il sistema di riferimento dal `.prj` e
+stampa un riepilogo: comuni coperti, edifici OSM sostituiti, volumi aggiunti. Un
+comune viene sostituito solo se la maggior parte dei suoi edifici OSM trova un volume DBGT, così
+i pacchetti dei comuni vicini non lasciano buchi ai confini. I crediti compaiono nel menu.
+
+I volumi contenuti per oltre l'80% in un volume più alto (porzioni interne) vengono scartati.
+Nel repository sono conservati solo i file ridotti `dbgt/*.dbgt.json.gz` (gli zip originali sono
+esclusi da git). Comuni già importati: tutta la parte delle **province di Monza e Brianza e di Como**
+dentro l'area del gioco (57 comuni, tra cui Giussano, Seregno, Meda, Desio, Lissone, Carate, Besana,
+Verano, Briosco, Albiate, Renate, Veduggio, Monza, Mariano Comense, Arosio, Inverigo, Cabiate):
+circa 240.000 volumi al posto di 101.000 edifici OSM. Restano con gli edifici OSM i comuni in
+provincia di Lecco e quelli coperti solo in parte dall'area del gioco o dal pacchetto (Como, Casatenovo,
+Paderno Dugnano).
+
+Quando lo stesso comune compare in più pacchetti (per esempio Cabiate nel pacchetto comunale e in
+quello provinciale di Como, di aggiornamento diverso) si usa un solo pacchetto per comune, quello con
+più volumi in quel comune, per evitare edifici doppi.
+
+Controlli di qualità applicati ai dati: le porzioni di tipo 08 senza altezza (piccole e quasi mai
+corrispondenti a edifici reali) vengono scartate; le altezze non plausibili per l'impronta (per
+esempio 212 m su 13 m²) vengono considerate mancanti e stimate dalla tipologia.
+
+### Dettagli dell'ambiente dal DBGT
+
+Oltre a edifici e altimetria, riduttore e pipeline tengono i livelli che descrivono l'ambiente
+attorno agli edifici (codici del Catalogo dei dati territoriali, D.M. 10/11/2011):
+
+| Classe DBGT | Nel gioco |
+|---|---|
+| `ALBERO` alberi isolati | alberi (gli alberi OSM entro 3 m vengono tolti; quelli messi a caso in giardini e parchi si riducono) |
+| `FIL_AL` filari | filari di alberi; le siepi diventano siepi |
+| `EL_DIV` elementi divisori | cancellate su muretto, reti, staccionate, siepi, muri di cinta; tagliati dove passa una strada; tolgono le recinzioni OSM doppie e quelle dedotte |
+| `MU_SOS` muri di sostegno | muri lungo la linea mediana del poligono |
+| `AC_VEI`, `AC_PED`, `AC_CIC` | asfalto, pavimentazione pedonale, ciclabili nella mappa dei colori del terreno |
+| `AATT` aree attrezzate | cortili, corti, aie, vialetti (pavimentati: l'auto tiene come su strada) |
+| `AR_VRD` aree verdi | giardini, prati, aiuole, siepi |
+| `ATTR_SP` attrezzature sportive | piscine, campi da calcio, tennis in terra rossa, piste |
+| `MAN_TR` manufatti di trasporto | isole di traffico e spartitraffico |
+| `MN_IND` manufatti industriali | cabine elettriche, silos e serbatoi (altezza dal diametro), ciminiere, serre; vasche e pannelli solari come superfici |
+| `PALO` pali | lampioni (illuminazione pubblica) e pali delle linee elettriche e telefoniche |
+
+Box, tettoie e baracche (`EDI_MIN`) sono già tra le unità volumetriche. Esempio, Cabiate (3,2 km²):
+8.370 alberi, 5.923 recinzioni e muri, 2.552 cortili, 3.393 aree verdi; il file compatto passa da
+0,35 a 0,65 MB.
+Con Monza e Brianza, Como e Lecco complete (189 comuni): 908.000 alberi, 781.000 recinzioni e
+muri, 48.500 muri di sostegno, oltre 300.000 cortili e 330.000 aree verdi; prima di Lecco: 607.000
+alberi, 635.000 recinzioni e muri, 12.000 manufatti, 52.000 lampioni e 14.000 pali di linea.
+Solo la provincia di Monza e Brianza (parte nella mappa): 440.000 alberi, 385.000 recinzioni e muri,
+180.000 cortili, 158.000 aree verdi, 68.000 carreggiate, 30.000 aree pedonali, 6.900 manufatti,
+35.000 pali; i file compatti passano da 14 a 49 MB (tre parti). Per non appesantire la grafica gli
+alberi oltre ~650 m hanno una chioma semplificata e muri e recinzioni oltre ~1,1 km non si
+disegnano.
+
+La pipeline tiene i dati in forma compatta: legge i file DBGT un record alla volta, conserva quote e
+dettagli in tabelle di numeri invece che come oggetti singoli, disegna la mappa dei colori
+direttamente con la tavolozza fissa della copertura del suolo (un byte per pixel) e calcola
+l'ingombro degli ostacoli solo dove serve; la correzione dell'altimetria (20 milioni di quote, quasi
+tutte dalle curve di livello) lavora a blocchi. Con Monza e Brianza, Como e Lecco complete il
+picco di memoria è ~9,1 GB (7,7 GB senza Lecco; prima oltre 11 GB solo con Monza e Brianza), con risultati identici byte per
+byte; i passaggi pesanti stampano `[memoria]` con il picco raggiunto.
+
+### Altimetria dal DBGT
+
+Il DBGT contiene anche l'altimetria rilevata: punti quotati (`PT_QUO`), curve di livello
+(`CV_LIV`), assi stradali con la quota (`EL_STR`) e la quota del piede di ogni edificio (la Z delle
+unità volumetriche). La pagina `riduci-dbgt.html` e `tools/dbgt_solo_edifici.py` li conservano
+insieme agli edifici (i punti quotati in gronda, `PT_QUO_SED = 0302`, vengono scartati perché non
+sono il terreno). Se ci sono, la pipeline:
+
+1. porta la griglia del terreno da 20 a 10 m e la corregge sui punti misurati (convoluzione
+   normalizzata: prima su ~40 m, poi ripetuta su ~14 m); lontano dai dati resta il modello satellitare;
+2. dà ai nodi delle strade OSM a raso la quota dell'asse DBGT più vicino e parallelo e porta il
+   terreno sotto la strada a quella quota (trincee, rilevati, rampe); ponti e gallerie sono esclusi;
+3. verifica il risultato sul 5% dei punti quotati tenuti da parte e stampa l'errore prima e dopo.
+
+**Area della mappa** (novembre 2026): i 15 comuni principali più un rettangolo da Milano a Bellagio
+(lat 45,44–45,99, lon 9,06–9,415, circa 1.700 km² in 1.707 tessere da 1 km): a sud Milano fino alla
+Darsena e all'inizio dei Navigli, con tutto il centro e il nord (Porta Ticinese, Duomo, Porta Nuova,
+Città Studi, Bicocca), Sesto, Cinisello, Rho e Monza; poi la Brianza, i laghi brianzoli, il lago di
+Como con il ramo di Como e quello di Lecco fino a Bellagio, il triangolo lariano, i Corni di Canzo,
+il San Martino e la Grigna sul bordo. Edifici e altimetria DBGT in 226 comuni (province di Monza e
+Brianza, Como, Lecco e Milano per la parte nella mappa), anche a Milano e Monza: 955.000 volumi,
+1,55 milioni di alberi, 1,25 milioni di recinzioni e muri. La pipeline con tutti i pacchetti
+arriva a un picco di ~11,3 GB. Sulle pareti di
+roccia la griglia da 10 m non segue i salti verticali: le curve di livello lì si discostano anche
+di decine di metri e vengono scartate dalla correzione. La mappa dei colori del terreno è a 4 m
+per pixel (6.890 × 11.188 in tutto), consegnata al gioco a tessere da 1 km. Le curve di livello vengono semplificate (1,5 m in pianta) dal
+riduttore Python.
+
+L'altimetria è importata per le **province di Monza e Brianza e di Como** (e Cabiate dal pacchetto
+comunale; della provincia di Milano nella mappa cade solo la parte nord di Paderno Dugnano, importata): circa 2,9 milioni di punti a terra (punti quotati e vertici delle curve di livello),
+250.000 piedi di edifici e 770.000 campioni lungo gli assi stradali; 111.000 nodi stradali hanno la
+quota reale. Sui punti di verifica (146.000, dentro la mappa) l'errore medio del terreno passa da
+3,9 m a 0,6 m (95% dei punti: da 12,8 a 2,2 m). Le correzioni più grandi sono nelle valli (Lambro
+tra Triuggio e Albiate: fino a 38 m), che il modello satellitare riempiva. Le curve di livello
+concordano con i punti quotati (scarto mediano 2 cm).
+
+Dati scartati come errori: quote sotto i 50 m s.l.m. (nel pacchetto di Como ~2.700 punti quotati
+con valori di 2–4 m, quote relative e non sul livello del mare), quote che si discostano più di
+15 m da quelle vicine (~2.900 su 3,8 milioni) e nodi stradali a più di 12 m dal terreno corretto.
+Manca ancora la provincia di Lecco.
+
+I pacchetti provinciali ridotti senza ritaglio (tutta la provincia) si possono ritagliare
+sull'area del gioco ripassandoli in `tools/dbgt_solo_edifici.py`, che legge anche i file compatti:
+`python3 tools/dbgt_solo_edifici.py cartella_con_le_parti DBGT_PROV_COMO`.
+
+**Licenza:** il Geoportale pubblica i dati con licenze diverse per prodotto (CC-BY 4.0, IODL 2.0
+o altre): controlla quella indicata nella pagina di download del DBGT prima di distribuire il gioco.
+
+## Ampliare la mappa (fase 4)
+
+Aggiungi i comuni a `tools/config.json` (nome come in OSM) e rigenera i dati:
+
+```bash
+pip install -r requirements.txt
+tools/run_pipeline.sh          # scarica l'estratto Lombardia, ritaglia, genera data/
+```
+
+La pipeline: `extract_bbox.py` (confini comunali → ritaglio), `build_elevation.py`
+(altimetria), `build_data.py` (strade, edifici a tessere, copertura del suolo, POI, nella cartella
+di stadio `.work/stage`), `bake.mjs` (taglio a tessere per il gioco, vedi sotto).
+Per altre regioni cambia `source_pbf_url` con un altro estratto OSM. Con i pacchetti DBGT completi di
+Monza e Brianza, Como e Lecco servono circa 9–10 GB di memoria.
+
+## Struttura dei dati
+
+Il gioco carica solo quello che serve attorno al giocatore; nessun file cresce con l'area tranne
+l'indice e la rete del navigatore, entrambi piccoli.
+
+| File | Contenuto | Quando si carica |
+|---|---|---|
+| `data/meta.js` | proiezione, comuni, località, punti di interesse, laghi, fiumi, elenco dei blocchi | all'avvio |
+| `data/overview.js` | quote ogni 40 m e colori del suolo ogni 32 m (orizzonte, ripiego) | all'avvio |
+| `data/net.js` | strade carrabili semplificate (navigatore, mappa completa, ricerca vie) | all'avvio |
+| `data/ground/g_i_j.js` | per tessera da 1 km: quote ogni 10 m (già spianate sotto le strade), colori del suolo ogni 4 m, strade che la toccano con curve, larghezze, limiti e profilo di quota già calcolati, ferrovie, rotatorie | anello attorno al giocatore (raggio di vista + 1 tessera) |
+| `data/tiles/t_i_j.js` | edifici, alberi, arredo, cancelli, recinzioni | tessere entro il raggio di vista |
+| `data/far/f_I_J.js` | edifici semplificati per la vista da lontano, blocchi 4×4 km | entro 3–7 km |
+
+Le strade di una tessera includono intere tutte le vie che la toccano: costruendo una tessera
+quando le otto vicine sono caricate, ogni incrocio, marciapiede e cartello trova tutte le sue vie.
+Una via condivisa tra tessere si aggiunge una volta sola (id globale); le vie restano in memoria
+anche lasciando la zona (pochi MB per centinaia di km di strade), mentre quote, colori e mesh
+vengono liberati. Il terreno lontano (orizzonte, fino a 11 km) si costruisce a pezzi da 2 km
+dalla panoramica, sempre un po' sotto quello vicino.
+
+Misure (CPU rallentata 4×): con la mappa da 1.240 km² l'avvio fino al menu è sceso da 10,0 s a
+3,9 s e la memoria JavaScript da ~450 MB a 167 MB al menu. Con la mappa fino a Milano (1.700 km²,
+il doppio delle strade: 154.000 vie) l'avvio è di 3,8 s e la memoria al menu di 212 MB: la rete del
+navigatore si costruisce senza tabelle di id e il grafo del percorso in due passate su array compatti.
+
+`tools/bake.mjs` usa `src/roadprep.js` (curve morbide, rotatorie, profili di quota, spianamento:
+lo stesso codice che prima girava nel browser all'avvio) e scrive i file sopra. Per mappe molto
+più grandi (tutta la Lombardia) il collo di bottiglia diventa la pipeline Python, che tiene ancora
+tutta l'area in memoria; il gioco invece non cambia.
+
+## Guidabilità e guardrail
+
+- **Controllo di stabilità (ESC)** come quello vero: confronta la rotazione dell'auto con quella
+  chiesta dallo sterzo (entro il limite d'aderenza) e, se la coda parte, la riporta in traiettoria e
+  smorza la deriva; il controsterzo funziona. Si spegne tenendo il freno a mano (derapate).
+- **Controllo di trazione**: la spinta si ferma al limite dell'aderenza, le ruote motrici non
+  pattinano e non perdono tenuta in curva (la moto da 150 kW su 280 kg pattinava sempre e partiva
+  di coda). Col freno a mano tirato si spegne anche questo.
+- **Freni più potenti** del 30% (sempre entro il limite delle gomme): da 100 km/h le auto comuni si
+  fermano in ~33 m (prima ~42), il furgone in ~40 (prima 52), la coupé in ~29.
+- **Più tenuta**: +10% di aderenza sull'asfalto, pneumatici che oltre il limite perdono poca
+  aderenza (scivolata progressiva), nessun asse che si scarica del tutto in frenata o in accelerazione.
+  Moto con baricentro più basso (pilota in carena).
+- Prova su un percorso tortuoso con un "pilota" da tastiera: le auto passano da 1-7 uscite di strada
+  per giro (scarto fino a 72 m) a nessuna (scarto massimo 2,6 m); le moto da 3-4 testacoda e 15
+  uscite a nessun testacoda e 0-3 allargate, e girano più veloci.
+- **Isole delle rotatorie solide**: la collisione segue il bordo vero del cordolo (prima un cerchio
+  quasi un metro più piccolo: l'auto montava su cordolo e corona prima di fermarsi) e non si toglie più
+  per una galleria o una strada che passa sotto o sopra l'isola (a Vimercate 3 rotatorie su 19 erano
+  scavalcabili per la tangenziale in galleria).
+- **Guardrail solidi**: quelli delle superstrade e quelli mappati in OSM (`barrier=guard_rail`, tranne
+  i tratti che cadrebbero dentro la carreggiata stimata) ora fermano i veicoli. Nell'urto la componente
+  contro l'ostacolo rimbalza poco, quella lungo l'ostacolo resta (attrito proporzionale all'urto) e il
+  muso si allinea: a 130 km/h con 10° si striscia e si esce a circa 95 km/h, frontalmente ci si ferma.
+  Vale anche per muri ed edifici: strisciando non ci si inchioda più.
+  I guardrail non diventano muri invisibili: niente collisione dove il guardrail passerebbe dentro
+  una carreggiata (anche su rilevato, in trincea o in un casello largo 60 m) o a meno di 90 cm da
+  un'altra carreggiata affiancata (immissioni, rampe parallele: lì quello vero finisce); i tratti OSM
+  lunghi si controllano a pezzi di 6 m. Verifica sulle corsie di superstrade, ponti e gallerie (984
+  tessere): da 14 punti bloccati a 1 (un raccordo tra due tratti dell'A8).
+
+## Collaudo automatico di tutte le strade
+
+Quattro "piloti" automatici in parallelo (un browser senza schermo ciascuno) hanno percorso con
+una utilitaria **ogni via carrozzabile della mappa** (1.600 tessere, circa 36.000 tratti, oltre
+10.000 km a giro), tenendo la corsia di destra al limite di velocità (massimo 90 km/h). Ogni
+problema viene annotato con la posizione: urto contro un ostacolo, auto bloccata, uscita di
+strada, auto sotto o sopra l'asfalto, salto, atterraggio brusco.
+
+Correzioni nate dal collaudo:
+
+- **Vie strette tra le case**: dove i muri degli edifici sono più vicini della larghezza stimata
+  dall'OSM, la carreggiata si restringe a quella reale (campioni ogni 3 m); sotto i 5,2 m una via a
+  doppio senso ha una sola corsia centrale e le auto viaggiano al centro.
+- **Auto parcheggiate fuori dalla corsia**: i posti che cadevano in carreggiata si spostano verso il
+  bordo (fino a 1,6 m) o si tolgono se il muro è troppo vicino.
+- **Pilastri dei portici** fuori dalla carreggiata; **pali dei cartelli e dei semafori** spostati sul
+  marciapiede.
+- **Dati che invadono la strada**: dove il contorno di un edificio, un muro, una recinzione o un
+  albero cade dentro la carreggiata (imprecisioni dei dati, non ostacoli veri) non c'è collisione.
+- **Rotatorie**: l'isola segue le corsie dell'anello senza invaderle; le gallerie sotto l'isola non
+  tolgono più la collisione.
+- **Viadotti e rampe**: dove una rampa si stacca da un ponte l'auto resta sulla carreggiata giusta
+  (prima poteva "saltare" sul livello sbagliato).
+
+| Giro | Problemi distinti | Su strade principali | Auto sotto/sopra l'asfalto | Salti |
+|---|---|---|---|---|
+| Primo | 3.251 | 106 | 60 | 27 |
+| Ultimo | 1.076 (152 solo atterraggi bruschi) | 33 | 40 | 15 |
+
+Gli urti rimasti sono quasi tutti strisciate nei vicoli dei centri storici, dove i muri sono
+davvero al bordo della strada.
+
+## Fluidità: niente blocchi al tramonto e durante il caricamento
+
+- **Shader**: con il bagliore attivo (qualità media e alta) ogni fotogramma passa dal composer,
+  di giorno con il bagliore spento. Prima al tramonto si passava dal disegno diretto al composer e
+  tutti gli shader della scena si ricompilavano (47 nella prova a Monza: un blocco di secondi).
+  A fine caricamento si precompilano anche gli oggetti che compaiono solo di notte (aloni dei
+  lampioni, fasci dei fari, pioggia), i passaggi del bagliore e la variante senza ombre che la
+  qualità automatica può attivare. Il numero di luci in scena è fisso (volanti, fuggitivi e auto
+  lasciate usano solo fanali emissivi): ogni luce in più o in meno ricompilava tutti i materiali.
+  Prova (Monza, giorno→notte e 1,2 km di guida): shader nuovi da 47 al tramonto a 0, in guida da 31 a 2.
+- **Costruzione delle tessere a passi**: segnaletica, muri e recinzioni e l'unione finale delle
+  geometrie (normali calcolate a blocchi) sono generatori che si fermano quando il fotogramma ha
+  esaurito il suo tempo. Prova su quattro zone caricate da zero: fotogrammi oltre 40 ms da 72 a 3,
+  il 99% sotto 22 ms (prima 66 ms), il più lento 43 ms (prima 132).
+
+### Frame rate (meno lavoro per la scheda video)
+
+Misure a Monza centro, mezzogiorno, traffico 60%: triangoli e chiamate di disegno per fotogramma.
+
+| Qualità | prima | dopo |
+|---|---|---|
+| Media | 4,9 milioni di triangoli, 706 chiamate | 2,6 milioni, 553 chiamate |
+| Alta | 6,3 milioni, 914 chiamate | 4,0 milioni, 798 chiamate |
+
+- **Auto del traffico e parcheggiate**: si disegnano solo le istanze in uso (prima ogni posto,
+  anche vuoto, passava per la scheda video) e oltre 60-75 m una scocca leggera (circa un quarto dei
+  triangoli, ruote a 8 lati) che non proietta ombra.
+- **Ombre**: le proiettano solo le tessere a ridosso dell'area delle ombre (180 m attorno al
+  giocatore): i triangoli nella mappa delle ombre sono scesi da 2,7 milioni a meno di 0,5.
+- **Dettagli per distanza**: segnaletica, arredo, percorsi, cancelli, segnaletica orizzontale e i
+  dettagli a livello strada degli edifici (tende, cornicioni, portici) si nascondono oltre 350/500/750 m
+  (bassa/media/alta); oltre 700 m i boschi si diradano (istanze in ordine casuale), gli alberi vicini
+  usano la chioma piena solo entro ~300 m.
+- **Di giorno si disegna direttamente sullo schermo**; l'immagine intermedia del bagliore serve
+  solo di notte (gli shader di entrambe le strade si preparano al caricamento, niente blocchi al tramonto).
+- Risoluzione di disegno predefinita 1× in media e 1,5× in alta (prima 1,25× e 2× sugli schermi ad alta
+  densità); la qualità automatica ora punta ai 30 fps (sotto spegne le ombre, poi scende fino al 70%).
+- Mappa d'ambiente dei riflessi rigenerata al massimo ogni 4 s (prima ogni secondo).
+
+## Sviluppo
+
+```bash
+npm install
+npm run build     # src/*.js -> dist/game.js
+npm run watch
+```
+
+| File | Ruolo |
+|---|---|
+| `src/data.js` | caricamento dati compressi (funziona anche da file://), proiezione |
+| `src/terrain.js` | altimetria e copertura del suolo a tessere, panoramica, mesh del terreno |
+| `src/roads.js` | rete stradale caricata a tessere (e rete del navigatore), corsie, quote/ponti, marciapiedi, segnaletica orizzontale, percorsi, muri |
+| `src/roadprep.js` | preparazione della rete completa (solo per `tools/bake.mjs`) |
+| `tools/bake.mjs` | taglio dei dati a tessere per il gioco |
+| `src/buildings.js` | edifici estrusi, facciate, tetti |
+| `src/signs.js` | atlante dei segnali italiani, semafori, cartelli da OSM, indicazioni, lampioni |
+| `src/vegetation.js` | alberi |
+| `src/vehicle.js` / `src/cars.js` | fisica e modelli delle auto |
+| `src/traffic.js` | traffico AI, precedenze, auto parcheggiate |
+| `src/pedestrians.js` | comportamento dei pedoni |
+| `src/vendor/city/` | modelli di veicoli, pedoni e arredo urbano (da donmutti/city) |
+| `src/router.js` | navigatore (A*) e indicazioni |
+| `src/maps.js` | minimappa e mappa completa |
+| `src/world.js` | streaming delle tessere, laghi, etichette |
+| `src/sky.js` | ciclo giorno/notte |
+| `src/main.js` | menu, HUD, telecamere, ciclo di gioco |
+| `tools/dbgt.py` | lettura dei pacchetti DBGT di Regione Lombardia |
+| `tools/dbgt_solo_edifici.py` | riduce un pacchetto DBGT a file compatti (< 28 MB) con edifici e altimetria dell'area |
+| `src/gates.js` | cancelli, sbarre e recinzioni |
+| `src/plane.js` | aereo da turismo: modello, fisica di volo, strumenti |
+
+## Licenze dei dati
+
+- Cartografia © [OpenStreetMap contributors](https://www.openstreetmap.org/copyright), ODbL.
+- Altimetria: Terrarium tiles (Mapzen / AWS Open Data Registry; fonti SRTM, EU-DEM e altre).

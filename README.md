@@ -70,3 +70,10 @@ Slovenia, Croazia e Corsica nelle zone di confine. `scripts/filter_to_italy.py`
 (eseguito automaticamente da `fetch_pasticcerie_osm.py`) le scarta tenendo
 solo i punti che ricadono entro i confini regionali italiani (con un
 margine di ~3km per non perdere attività costiere/portuali).
+
+
+## Brianza Driving Simulator
+
+Nella cartella [`brianza-driving-sim/`](brianza-driving-sim/) c'è un simulatore di guida open world
+sulla rete stradale reale della Brianza (OpenStreetMap + altimetria reale, Three.js):
+apri `brianza-driving-sim/index.html` nel browser. Dettagli nel suo README.

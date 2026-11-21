@@ -1,0 +1,21 @@
+{
+  "_comment": "Comuni inclusi nella mappa. Per ampliare la mappa aggiungi nomi (come in OSM, admin_level=8) e rilancia la pipeline.",
+  "comuni": [
+    "Giussano", "Meda", "Seregno", "Mariano Comense", "Carate Brianza",
+    "Besana in Brianza", "Verano Brianza", "Arosio", "Inverigo", "Briosco",
+    "Desio", "Lissone", "Albiate", "Veduggio con Colzano", "Renate"
+  ],
+  "margin_deg": 0.008,
+  "extra_bbox": [45.44, 9.06, 45.99, 9.415],
+  "_extra_bbox_comment": "lat_min, lon_min, lat_max, lon_max aggiunto all'area dei comuni: laghi brianzoli e lago di Como con i rami di Como e di Lecco fino alla latitudine di Bellagio; a sud Milano fino alla Darsena e ai Navigli",
+  "featured_extra": ["Milano", "Monza", "Como", "Lecco", "Bellagio"],
+  "_featured_extra_comment": "comuni fuori dalla lista principale (che definisce l'area) da proporre comunque come partenza",
+  "source_pbf": "lombardia.osm.pbf",
+  "source_pbf_url": "https://download.openstreetmap.fr/extracts/europe/italy/lombardia.osm.pbf",
+  "height_grid_m": 20,
+  "landcover_m_per_px": 4,
+  "_landcover_comment": "metri per pixel della mappa dei colori del terreno (il gioco la riceve a tessere da 1 km: deve dividere esattamente tile_m)",
+  "tile_m": 1000,
+  "dbgt_dir": "dbgt",
+  "_dbgt_comment": "Cartella (relativa a brianza-driving-sim) con i pacchetti DBGT di Regione Lombardia scaricati dal Geoportale: zip o shapefile. Se esiste, nei comuni coperti le forme degli edifici e le altezze vengono dal DBGT."
+}
