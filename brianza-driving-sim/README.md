@@ -300,6 +300,21 @@ Ogni veicolo ha la sua voce, sintetizzata campione per campione in un AudioWorkl
   Se il browser non ha AudioWorklet (o il gioco è aperto da disco) la stessa voce gira nel thread
   principale.
 
+## Personaggio animato (Quaternius)
+
+A piedi si gioca con il manichino della **Universal Animation Library** di
+[Quaternius](https://quaternius.com) (licenza CC0, preso dal progetto open source
+[OpenCity](https://github.com/webgl-games/opencity)): 65 ossa, 17 delle sue animazioni
+(`tools/import-character.mjs` le sceglie e le comprime: `data/char/player.js`, 2 MB).
+
+- **Locomozione** miscelata sulla velocità vera: fermo, camminata, corsa e scatto, accelerate o
+  rallentate perché i piedi non scivolino; salto in tre tempi (stacco, volo, atterraggio).
+- **Con l'arma**: le gambe camminano e corrono, busto e braccia tengono la mira e si inclinano in su
+  e in giù con lei (pose di mira di Quaternius), con le animazioni di sparo e di ricarica sopra;
+  l'arma segue la mano destra.
+- Colori ritoccati (giacca blu-grigia, giunture scure); i pedoni restano le figure semplici, molto
+  più leggere da disegnare in decine.
+
 ## Armi a piedi (sistema di sparo di Riposte: Frontline)
 
 A piedi, `Tab` estrae l'arma: la telecamera passa sopra la spalla destra, il mouse mira (il

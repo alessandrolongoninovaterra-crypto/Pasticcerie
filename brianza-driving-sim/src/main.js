@@ -7,6 +7,7 @@ import { Sky } from './sky.js';
 import { CARS, buildCarModel, drawCluster, stripLights } from './cars.js';
 import { loadRealFleet, loadHero, realCredits } from './realcars.js';
 import { Weapons } from './weapons.js';
+import { PlayerModel } from './player3d.js';
 import { buildBikeModel } from './bike.js';
 import { Vehicle } from './vehicle.js';
 import { Plane, buildPlaneModel, drawPlaneCluster } from './plane.js';
@@ -229,6 +230,7 @@ function ensureGame() {
   scene.add(G.traffic.group);
   G.peds = new Pedestrians(G.world);
   G.weapons = new Weapons(G);
+  G.playerModel = new PlayerModel(G);      // manichino animato di Quaternius (si carica in sottofondo)
   G.peds.setTarget(q.peds);
   G.peds.onHit = (p, speed, t) => { if (t.player) infraction('ped'); };
   scene.add(G.peds.group);
@@ -1116,7 +1118,11 @@ function loop(now) {
   for (const c of G.traffic.cars) if (Math.abs(c.x - p.x) < 300 && Math.abs(c.z - p.z) < 300) movers.push(c);
   G.world.gates.update(dt, movers);
   const W = G.weapons, armed = W.drawn && f.on;
-  G.peds.drawPlayer(f.on, f.x, f.y, f.z, f.h, f.gait, f.u, dt, { air: f.air ? 1 : 0, vy: f.vy || 0, tired: f.tired > 0 ? 1 : 0, land: Math.min(1, f.land || 0), still: Math.abs(f.u) < 0.4,
+  const shot = W.shotFlag; W.shotFlag = false;
+  const sp3 = Math.hypot(f.u, f.us || 0) * (f.u < -0.1 ? -1 : 1);
+  if (G.playerModel.update(dt, { on: f.on, x: f.x, y: f.y, z: f.z, h: f.h, speed: sp3, air: f.air, vy: f.vy || 0, land: f.land || 0, tired: f.tired > 0, armed, aimPitch: armed ? W.aimPitch : 0, reloading: armed && !!W.reload, shot }))
+    G.peds.drawPlayer(false, f.x, f.y, f.z, f.h, f.gait, f.u, dt);     // figura semplice nascosta
+  else G.peds.drawPlayer(f.on, f.x, f.y, f.z, f.h, f.gait, f.u, dt, { air: f.air ? 1 : 0, vy: f.vy || 0, tired: f.tired > 0 ? 1 : 0, land: Math.min(1, f.land || 0), still: Math.abs(f.u) < 0.4,
     aim: armed ? (W.reload ? 0.35 : 0.75 + 0.25 * W.ads) : 0, aimPitch: armed ? W.aimPitch * 0.9 : 0, twoHands: armed && W.w.def.id !== 'pistol' });
   if (!f.on && $('stamina')) $('stamina').classList.add('hidden');
   // modello del giocatore

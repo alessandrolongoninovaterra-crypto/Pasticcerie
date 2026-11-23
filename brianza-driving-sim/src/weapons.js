@@ -266,7 +266,7 @@ export class Weapons {
 
   shoot(now) {
     const G = this.G, f = G.foot, w = this.w, d = w.def;
-    w.mag--; this.shots = (this.shots || 0) + 1;
+    w.mag--; this.shots = (this.shots || 0) + 1; this.shotFlag = true;
     const ads = this.ads, spd = Math.abs(f.u);
     let spread = lerp(d.spread[0], d.spread[1], ads * ads);
     spread += d.moveSpread * clamp(spd / MOVE_SPEED, 0, 1.5) * (1 - ads * 0.7) + this.bloom * (1 - ads * 0.6);
@@ -452,6 +452,9 @@ export class Weapons {
       const reach = (two ? 0.32 : 0.48) + 0.06 * this.ads - this.kick * 0.05;
       const y = f.y + 1.36 - low + Math.sin(pt) * reach;
       m.position.set(f.x + fx * reach * Math.cos(pt) + rx * (two ? 0.16 : 0.08), y, f.z + fz * reach * Math.cos(pt) + rz * (two ? 0.16 : 0.08));
+      // con il manichino animato l'arma sta nella mano destra (segue le animazioni di mira e ricarica)
+      const PM = G.playerModel;
+      if (PM && PM.ready && PM.root.visible) m.position.copy(PM.hand).addScaledVector(new THREE.Vector3(fx, 0, fz), two ? 0.12 : 0.03);
       m.rotation.set(-pt + this.kick * 0.25 + (this.reload ? 0.6 : 0) + (this.pumpT > 0 ? 0.15 : 0) + low * 1.2, h, 0, 'YXZ');
     }
     this.hud();
