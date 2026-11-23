@@ -1,5 +1,52 @@
 import * as THREE from 'three';
 import { GeoBuilder, hash } from './geo.js';
+import { loadData } from './data.js';
+
+// Dettaglio fotografico delle facciate: foto CC0 di Poly Haven (polyhaven.com) ridotte a rilievo in
+// scala di grigi (media 128, tools/facade-detail.mjs) e moltiplicate sull'intonaco disegnato, in
+// coordinate del mondo (si ripetono ogni ~2-3 m qualunque sia la facciata). Il colore resta quello
+// dell'edificio; finestre, persiane e vetrine (zone scure dell'immagine della facciata) non lo prendono.
+const DETAIL = {
+  plaster: { scale: 2.2, amt: 0.55 },     // intonaco tinteggiato (painted_plaster_wall)
+  concrete: { scale: 2.7, amt: 0.6 },     // cemento a casseri (concrete_wall_008)
+  stone: { scale: 3.0, amt: 0.75 },       // blocchi di arenaria (large_sandstone_blocks_01)
+  weathered: { scale: 1.6, amt: 0.6 },    // intonaco vissuto (grey_plaster_02)
+};
+const DETAIL_OF = { res: 'plaster', villa: 'plaster', pal: 'plaster', condo: 'plaster', shop: 'plaster', modern: 'concrete', ind: 'concrete', glass: 'concrete', church: 'stone', plain: 'weathered' };
+function detailTextures() {
+  const out = {};
+  for (const k of Object.keys(DETAIL)) {
+    // finche' la foto non e' caricata: grigio medio (nessun effetto)
+    const c = document.createElement('canvas'); c.width = c.height = 4;
+    const x = c.getContext('2d'); x.fillStyle = '#808080'; x.fillRect(0, 0, 4, 4);
+    const t = new THREE.Texture(c);
+    t.wrapS = t.wrapT = THREE.RepeatWrapping; t.anisotropy = 8; t.colorSpace = THREE.NoColorSpace; t.needsUpdate = true;
+    out[k] = t;
+    loadData('tex_' + k, 'data/tex/' + k + '.js').then((img) => { t.image = img; t.needsUpdate = true; }).catch(() => {});
+  }
+  return out;
+}
+function addDetail(mat, tex, d) {
+  mat.onBeforeCompile = (sh) => {
+    sh.uniforms.uDetail = { value: tex };
+    sh.uniforms.uDetailK = { value: new THREE.Vector2(1 / d.scale, d.amt) };
+    sh.vertexShader = sh.vertexShader.replace('#include <common>', '#include <common>\nvarying vec3 vDW;\nvarying vec3 vDN;')
+      .replace('#include <beginnormal_vertex>', '#include <beginnormal_vertex>\nvDN = normalize(mat3(modelMatrix) * objectNormal);')
+      .replace('#include <worldpos_vertex>', '#include <worldpos_vertex>\nvDW = (modelMatrix * vec4(transformed, 1.0)).xyz;');
+    sh.fragmentShader = sh.fragmentShader.replace('#include <common>', '#include <common>\nvarying vec3 vDW;\nvarying vec3 vDN;\nuniform sampler2D uDetail;\nuniform vec2 uDetailK;')
+      .replace('#include <map_fragment>', `#include <map_fragment>
+        {
+          vec3 dn = normalize(vDN);
+          vec2 duv = abs(dn.y) < 0.6 ? vec2(dot(vDW.xz, vec2(-dn.z, dn.x)), vDW.y) : vDW.xz;
+          float dd = texture2D(uDetail, duv * uDetailK.x).r * 2.0;
+          // solo dove la facciata e' muro (chiaro nell'immagine), sfuma con la distanza
+          float wallM = smoothstep(0.55, 0.85, dot(sampledDiffuseColor.rgb, vec3(0.3333)));
+          float fade = clamp(1.6 - distance(cameraPosition, vDW) / 160.0, 0.0, 1.0);
+          diffuseColor.rgb *= mix(1.0, dd, uDetailK.y * wallM * fade);
+        }`);
+  };
+  mat.customProgramCacheKey = () => 'facade-detail';
+}
 
 // Edifici reali OSM estrusi con altezza da height / building:levels, o stimata
 // per tipologia. Intonaci e tetti in coppi tipici della Brianza.
@@ -316,6 +363,8 @@ export class BuildingFactory {
       church: wall(t.church, t.emiCh), glass: wall(t.glass, t.emiG), shop: wall(t.shop, t.emiS), villa: wall(t.villa, t.emiV), pal: wall(t.pal, t.emiP),
       roof: new THREE.MeshLambertMaterial({ vertexColors: true, side: THREE.DoubleSide }),
     };
+    const det = detailTextures();
+    for (const [k, d] of Object.entries(DETAIL_OF)) addDetail(this.mats[k], det[d], DETAIL[d]);
     // tetti a falde: file di coppi (bande lungo le linee di livello della falda), da vicino
     this.mats.roof.onBeforeCompile = (sh) => {
       sh.vertexShader = sh.vertexShader.replace('#include <common>', '#include <common>\nvarying vec3 vRW;\nvarying float vRUp;')

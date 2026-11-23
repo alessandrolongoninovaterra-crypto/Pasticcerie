@@ -248,6 +248,40 @@ codice MIT). I modelli sono di autori di Sketchfab e del simulatore CARLA, tutti
   appena abbozzati) con i vetri trasparenti; l'occhio del guidatore si ricava dalla base del
   parabrezza di ogni modello.
 
+## Suono del motore (dal progetto OSDS)
+
+Ogni veicolo ha la sua voce, sintetizzata campione per campione in un AudioWorklet
+(`src/enginesynth.js`), adattata dal sintetizzatore di [OSDS](https://github.com/simcruisegame/osds)
+(codice MIT):
+
+- **Gli scoppi nell'ordine di accensione vero**: 4 per ciclo nel quattro cilindri, 6 nel V6, 8 nel V8;
+  ogni scoppio esce dal tubo della sua bancata, quello più vicino si sente di più. Da qui il borbottio
+  del V8 a croce (cabriolet anni '60, coupé anni '80, supercar, SUV V8) e il ringhio del V6 a 60°
+  (monovolume, pick-up). Il timbro passa da carico leggero a pieno carico con l'acceleratore.
+- **Risonanze fisse** della marmitta e del tubo (restano ferme mentre i giri salgono, come in un'auto
+  vera), piccole differenze tra cilindro e cilindro, "lope" della camma al minimo sulle V8.
+- **Limitatore**: sopra il regime massimo con il pedale giù l'iniezione si taglia e il motore
+  "balbetta" a 14 Hz; rilasciando ad alti giri qualche scoppiettio sulle sportive e sulle moto.
+- **Turbo** (citycar, SUV compatto, berlina, pick-up biturbo, furgone, autobus): fischio della
+  turbina che sale con la pressione, soffio dell'aria, sfiato della valvola al rilascio.
+- **Elettrica**: fischio magnetico del motore (ordini dei poli e delle cave) e ingranaggi del
+  riduttore che crescono con la coppia.
+- **Abitacolo e fuori**: dall'abitacolo il suono è più cupo e c'è il rimbombo della scocca; da fuori
+  è più brillante. A piedi il motore dell'auto lasciata resta al minimo, più piano.
+- Disposizione dei cilindri, ordine di accensione, bancate, timbro e turbo vengono dalle schede di
+  OSDS dove ci sono; per le altre auto (berlina, SUV grande, furgone, autobus, moto) sono stime.
+  Se il browser non ha AudioWorklet (o il gioco è aperto da disco) la stessa voce gira nel thread
+  principale.
+
+## Facciate con dettaglio fotografico
+
+Sopra l'intonaco disegnato delle facciate c'è ora la grana di foto vere (Poly Haven, licenza CC0):
+intonaco tinteggiato per case, villette, palazzine e condomini, cemento a casseri per gli edifici
+moderni e industriali, blocchi di arenaria per le chiese, intonaco vissuto per i muri ciechi. Le foto
+sono ridotte a rilievo in scala di grigi (`tools/facade-detail.mjs`, `data/tex/`), quindi ogni edificio
+tiene il suo colore; finestre, persiane e vetrine non le prendono; il dettaglio sfuma oltre i
+~150 m. Costo: 4 texture da 512 px e una lettura in più per pixel delle facciate.
+
 ## Stile open world
 
 - **Pedoni** sui marciapiedi delle strade reali e nelle vie pedonali: svoltano agli incroci,

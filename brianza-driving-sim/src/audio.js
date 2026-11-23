@@ -1,6 +1,44 @@
-// Suono del motore sintetizzato (WebAudio): frequenza legata ai giri.
+// Suono del motore sintetizzato (WebAudio). La voce del motore vera e propria e' in src/enginesynth.js
+// (AudioWorklet: scoppi nell'ordine di accensione di ogni motore, turbo, motore elettrico); qui restano
+// rotolamento, stridio, pioggia, tuono, sirena, clacson. Se il browser non ha AudioWorklet resta la
+// vecchia voce a oscillatori.
+import { WORKLET_SRC, voiceFor } from './enginesynth.js';
 export class EngineAudio {
-  constructor() { this.ctx = null; this.muted = false; }
+  constructor() { this.ctx = null; this.muted = false; this.voice = null; this.voiceCfg = null; }
+  // voce del motore del veicolo guidato
+  setVoice(spec) {
+    this.voiceCfg = voiceFor(spec);
+    if (this.voice) this.voice.port.postMessage({ cfg: this.voiceCfg });
+  }
+  startVoice() {
+    const C = this.ctx;
+    const out = C.createGain(); out.gain.value = 0.24; out.connect(C.destination);
+    const ready = (node) => { node.connect(out); this.voice = node; if (this.voiceCfg) node.port.postMessage({ cfg: this.voiceCfg }); };
+    // Thread audio (AudioWorklet) quando si puo'. Aprendo il gioco da disco (file://) il browser non
+    // carica moduli da Blob: si prova da data: URL e, se non va, la stessa voce gira nel thread
+    // principale (ScriptProcessor, ~1 ms ogni 85 ms di suono).
+    const fallback = () => ready(this.mainThreadVoice());
+    if (!C.audioWorklet || typeof AudioWorkletNode === 'undefined') { fallback(); return; }
+    const url = 'data:application/javascript;base64,' + btoa(unescape(encodeURIComponent(WORKLET_SRC)));
+    C.audioWorklet.addModule(url).then(() => ready(new AudioWorkletNode(C, 'bds-engine-voice', { numberOfInputs: 0, numberOfOutputs: 1, outputChannelCount: [1] })))
+      .catch(() => { try { fallback(); } catch (e) { console.warn('voce del motore non disponibile', e); } });
+  }
+  // la stessa classe del processore, istanziata qui con un AudioWorkletProcessor finto
+  mainThreadVoice() {
+    const C = this.ctx;
+    let Proc = null;
+    const shim = new Function('sampleRate', 'AudioWorkletProcessor', 'registerProcessor', WORKLET_SRC);
+    shim(C.sampleRate, class { constructor() { this.port = { onmessage: null }; } }, (n, c) => { Proc = c; });
+    const proc = new Proc();
+    const sp = C.createScriptProcessor(4096, 0, 1);
+    const block = [[new Float32Array(128)]];
+    sp.onaudioprocess = (e) => {
+      const o = e.outputBuffer.getChannelData(0);
+      for (let i = 0; i < o.length; i += 128) { proc.process([], block); o.set(block[0][0].subarray(0, Math.min(128, o.length - i)), i); }
+    };
+    sp.port = { postMessage: (data) => proc.port.onmessage({ data }) };
+    return sp;
+  }
   start() {
     if (this.ctx) return;
     try {
@@ -27,6 +65,7 @@ export class EngineAudio {
       this.sqg = C.createGain(); this.sqg.gain.value = 0;
       this.sq.connect(this.sqf); this.sqf.connect(this.sqg); this.sqg.connect(C.destination);
       this.o1.start(); this.o2.start(); this.noise.start(); this.sq.start(0.37);
+      this.startVoice();
     } catch (e) { this.ctx = null; }
   }
   // pioggia: rumore rosa filtrato, volume con l'intensita'
@@ -77,15 +116,23 @@ export class EngineAudio {
       this.hornGain = g;
     } else if (!on && this.hornOsc) { for (const o of this.hornOsc) o.stop(); this.hornGain.disconnect(); this.hornOsc = null; }
   }
-  update(rpm, throttle, speed, slip, squeal = 0) {
+  // o: { cabin, limiter, motorRpm, engineOff }
+  update(rpm, throttle, speed, slip, squeal = 0, o = {}) {
     if (!this.ctx) return;
     const t = this.ctx.currentTime;
-    const f = rpm / 60 * 2; // 4 cilindri: 2 scoppi per giro
-    this.o1.frequency.setTargetAtTime(f, t, 0.03);
-    this.o2.frequency.setTargetAtTime(f * 0.5, t, 0.03);
-    this.filt.frequency.setTargetAtTime(400 + rpm * 0.25 + throttle * 600, t, 0.05);
-    const vol = this.muted ? 0 : 0.05 + throttle * 0.06;
-    this.gain.gain.setTargetAtTime(vol, t, 0.05);
+    if (this.voice) {
+      // carico all'albero: + quando il motore spinge, - in rilascio (e' l'auto che trascina il motore)
+      const load = throttle > 0.05 ? throttle : rpm > 1200 ? -0.7 : 0;
+      this.voice.port.postMessage({ inp: { rpm, comb: throttle, load, pedal: throttle, cabin: !!o.cabin, motorRpm: o.motorRpm || rpm, limiter: o.limiter || 6500, stalled: !!o.engineOff, gain: this.muted ? 0 : o.engineOff ? 0 : o.quiet ? 0.35 : 1 } });
+      this.gain.gain.setTargetAtTime(0, t, 0.05);
+    } else {
+      const f = rpm / 60 * 2; // 4 cilindri: 2 scoppi per giro
+      this.o1.frequency.setTargetAtTime(f, t, 0.03);
+      this.o2.frequency.setTargetAtTime(f * 0.5, t, 0.03);
+      this.filt.frequency.setTargetAtTime(400 + rpm * 0.25 + throttle * 600, t, 0.05);
+      const vol = this.muted ? 0 : 0.05 + throttle * 0.06;
+      this.gain.gain.setTargetAtTime(vol, t, 0.05);
+    }
     this.ng.gain.setTargetAtTime(this.muted ? 0 : Math.min(0.12, speed / 300 + slip * 0.25), t, 0.1);
     this.nf.frequency.setTargetAtTime(300 + speed * 6 + slip * 1500, t, 0.1);
     this.sqg.gain.setTargetAtTime(this.muted ? 0 : Math.min(0.16, squeal * 0.2), t, 0.06);

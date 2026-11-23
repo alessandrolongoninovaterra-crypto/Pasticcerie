@@ -351,6 +351,7 @@ function makePlayer(spec = CARS[G.carIdx], color = null, body = null) {
   if (!M.tailGlow) { M.tailGlow = new THREE.PointLight(0xff2a12, 0, 1.4, 3.4); M.tailGlow.position.set(0, 1, -L * 0.45); M.root.add(M.tailGlow); }
   G.scene.add(G.carModel.root);
   G.lightsOn = false;
+  if (G.audio) G.audio.setVoice(spec);
   $('helpbar').textContent = spec.kind === 'plane'
     ? 'W/S manetta · ↑/↓ cabra/picchia · A/D vira · Spazio freni a terra · R riparti in volo · C visuale · F scendi (a terra)'
     : 'F scendi/sali · E clacson · M mappa · J lavori · G negozi (fermo) · C visuale · Esc pausa';
@@ -1178,7 +1179,9 @@ function loop(now) {
   // derapate: segni sull'asfalto, fumo e stridio delle gomme
   const skid = f.on || G.loadingWorld ? 0 : G.fx.fromVehicle('p', v, G.weather ? G.weather.wet : 0);
   G.fx.update(dt);
-  if (f.on) G.audio.update(800, 0, 0, 0, 0); else G.audio.update(v.rpm, v.throttle, Math.abs(v.u) * 3.6, v.slip, skid);
+  // a piedi il motore dell'auto lasciata resta al minimo, piu' piano (si sente da fuori)
+  if (f.on) G.audio.update(800, 0, 0, 0, 0, { quiet: true, limiter: v.spec.rpmMax });
+  else G.audio.update(v.rpm, v.throttle, Math.abs(v.u) * 3.6, v.slip, skid, { cabin: G.camMode === 1, limiter: v.spec.rpmMax, motorRpm: v.rpm });
   if (v.impact > 0.25 && !f.on && !v.isPlane) { showToast('💥 Urto!', 700); }
   v.impact = 0;
   // di notte il bagliore passa da un'immagine intermedia (composer), di giorno si disegna
