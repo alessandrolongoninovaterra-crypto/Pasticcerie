@@ -124,6 +124,10 @@ l'aereo e il navigatore indica la destinazione in linea d'aria.
 | G | da fermo: distributore (pieno), officina (riparazioni, elaborazioni), concessionario (auto) |
 | 1-9 | scelta nei pannelli di lavori e negozi |
 | Esc | pausa: traffico, tempo, voce, audio, **configurazione volante** |
+| Tab (a piedi) | estrai / rinfodera l'arma (il mouse passa alla mira) |
+| clic sinistro / destro (arma in mano) | spara / mira (zoom sopra la spalla) |
+| R (a piedi, arma in mano) | ricarica |
+| 1-4 / rotellina (a piedi) | pistola, mitraglietta, fucile d'assalto, fucile a pompa |
 
 Gamepad: grilletti RT/LT, stick sinistro, A freno a mano, Y visuale.
 Volanti e pedaliere (Logitech, Thrustmaster, Fanatec…) via Gamepad API: in pausa
@@ -272,6 +276,41 @@ Ogni veicolo ha la sua voce, sintetizzata campione per campione in un AudioWorkl
   OSDS dove ci sono; per le altre auto (berlina, SUV grande, furgone, autobus, moto) sono stime.
   Se il browser non ha AudioWorklet (o il gioco è aperto da disco) la stessa voce gira nel thread
   principale.
+
+## Armi a piedi (sistema di sparo di Riposte: Frontline)
+
+A piedi, `Tab` estrae l'arma: la telecamera passa sopra la spalla destra, il mouse mira (il
+puntatore viene catturato; `Esc` lo libera), il personaggio si gira dove si mira e `A`/`D` spostano
+di lato. Clic destro per mirare (zoom, passo più lento, rinculo e dispersione ridotti), clic sinistro
+per sparare, `R` ricarica, `1-4` o rotellina per cambiare arma. Gamepad: grilletto sinistro mira,
+destro spara, si cammina con lo stick.
+
+Il "sistema di sparo" è adattato dal gioco open source
+[Riposte: Frontline](https://github.com/BenDBSS/Riposte-Frontline-Source) (codice MIT; i suoi nomi,
+musiche, animazioni e suoni non sono usati):
+
+- **Quattro armi** con i valori di Riposte: pistola 9 mm (semiautomatica, 15 colpi), mitraglietta
+  (900 colpi/min), fucile d'assalto (780 colpi/min), fucile a pompa (8 pallini per colpo, ricarica
+  cartuccia per cartuccia interrompibile sparando, pompa tra un colpo e l'altro).
+- **Colpo istantaneo** lungo la mira con **dispersione a cono**: larga dall'anca, stretta mirando, più
+  larga camminando, in aria e tenendo premuto ("bloom"); il mirino si allarga e si stringe con lei.
+- **Danno che cala con la distanza** e colpi alla testa più forti.
+- **Rinculo a schema**: il fucile sale e serpeggia, la mitraglietta saltella, pistola e pompa a caso;
+  primo colpo più dolce, pieno rinculo dopo 5 colpi; meno mirando, di più correndo e in aria.
+- **Ritorno della mira**: 0,1 s dopo l'ultimo colpo la mira scende da sola di gran parte del rinculo
+  (70% per fucile e mitraglietta, 85-90% per pistola e pompa) non ancora ripreso con il mouse:
+  raffiche brevi restano sul bersaglio, una raffica lunga sale (prova: 12 colpi di fucile alzano la
+  mira di 8,5°, dopo il ritorno ne restano 2,5°).
+- **Ricarica** con il caricatore che entra al 60% del gesto, più lunga a caricatore vuoto; ricarica
+  automatica quando si svuota; munizioni al distributore (`G`, € 300).
+- **Bersagli**: pedoni (cadono nella direzione del colpo; feriti si rialzano e scappano, colpiti a
+  morte restano a terra), auto del traffico (si fermano; con troppi colpi restano ferme e fumano),
+  auto parcheggiate e volanti (scintille), edifici, muri, alberi e terreno (polvere e fori).
+- **Effetti**: lampo alla bocca, scia del proiettile, scintille, polvere, segnale di colpo a segno,
+  sobbalzo della vista; spari sintetizzati diversi per arma (schiocco, corpo, botta ed eco tra le
+  case), rumori di caricatore, cartucce e pompa.
+- **Conseguenze**: chi è vicino scappa; gli spari si sentono lontano (la polizia arriva se una
+  volante è entro ~125 m), colpire una persona o una volante fa salire subito le stelle.
 
 ## Facciate con dettaglio fotografico
 

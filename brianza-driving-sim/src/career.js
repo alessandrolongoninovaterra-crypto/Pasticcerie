@@ -4,7 +4,10 @@ import { CARS } from './cars.js';
 // missioni (consegna, inseguimento, evasione) sui luoghi veri della mappa. I progressi restano nel
 // browser (localStorage). Tasti: J lavori, G interagisci (al distributore / in officina / dal
 // concessionario, fermi), 1-6 per scegliere nei pannelli.
-const PRICES = { city: 0, compact: 14000, sedan: 26000, suv: 31000, sport: 62000, van: 19000, bike: 21000, bike600: 12500, plane: 85000, jet: 250000 };
+const PRICES = { city: 0, compact: 14000, sedan: 26000, suv: 31000, sport: 62000, van: 19000, bike: 21000, bike600: 12500, plane: 85000, jet: 250000,
+  // auto vere (src/realcars.js)
+  mini: 0, miata: 9000, accord: 24000, camaro: 28000, crv: 29000, odyssey: 33000, model3: 39000, mustang: 45000, grandcherokee: 52000, tahoe: 58000, f150: 61000, c8: 95000 };
+const AMMO_EUR = 300;   // munizioni per tutte le armi (src/weapons.js), al distributore
 const FUEL_EUR = 1.85, TANK = 50;          // euro al litro, litri del serbatoio
 const fmt = (n) => Math.round(n).toLocaleString('it');
 
@@ -12,14 +15,14 @@ export class Career {
   constructor(G) {
     this.G = G;
     this.money = 1500; this.fuel = 1; this.damage = 0;
-    this.owned = ['city']; this.up = { engine: 0, tyres: 0, brakes: 0 };
+    this.owned = ['city', 'mini']; this.up = { engine: 0, tyres: 0, brakes: 0 };
     this.stats = { deliveries: 0, chases: 0, escapes: 0, earned: 0 };
     this.mission = null; this.offers = null; this.panel = null; this.near = null;
     this.load();
     this.saveT = 0;
   }
 
-  load() { try { const s = JSON.parse(localStorage.getItem('bds-career') || 'null'); if (s) Object.assign(this, { money: s.money, fuel: s.fuel, damage: s.damage, owned: s.owned || ['city'], up: s.up || this.up, stats: s.stats || this.stats }); } catch (e) { /* niente salvataggi */ } }
+  load() { try { const s = JSON.parse(localStorage.getItem('bds-career') || 'null'); if (s) Object.assign(this, { money: s.money, fuel: s.fuel, damage: s.damage, owned: [...new Set([...(s.owned || ['city']), 'mini'])], up: s.up || this.up, stats: s.stats || this.stats }); } catch (e) { /* niente salvataggi */ } }
   save() { try { localStorage.setItem('bds-career', JSON.stringify({ money: this.money, fuel: this.fuel, damage: this.damage, owned: this.owned, up: this.up, stats: this.stats })); } catch (e) { /* privato */ } }
 
   earn(eur, why) { this.money += eur; this.stats.earned += eur; this.G.toast(`💶 +€ ${fmt(eur)} — ${why}`, 2600); this.save(); }
@@ -96,6 +99,8 @@ export class Career {
       const litres = (1 - this.fuel) * TANK, eur = litres * FUEL_EUR;
       items.push({ t: `Pieno: ${litres.toFixed(1).replace('.', ',')} litri — € ${eur.toFixed(2).replace('.', ',')}`, ok: litres > 0.5 && this.money >= eur, go: () => { this.pay(eur); this.fuel = 1; G.toast('⛽ Pieno fatto', 1800); } });
       items.push({ t: `20 litri — € ${(20 * FUEL_EUR).toFixed(2).replace('.', ',')}`, ok: this.fuel < 0.6 && this.money >= 20 * FUEL_EUR, go: () => { this.pay(20 * FUEL_EUR); this.fuel = Math.min(1, this.fuel + 20 / TANK); } });
+      const W = G.weapons, low = W && W.inv.some((w) => w.reserve < w.def.reserve);
+      if (W) items.push({ t: `🔫 Munizioni per tutte le armi — € ${AMMO_EUR}`, ok: low && this.money >= AMMO_EUR, go: () => { this.pay(AMMO_EUR); W.refill(); G.toast('🔫 Munizioni rifornite', 1500); } });
       if (G.say) G.say('benzinaio');
     } else if (this.near.kind === 'garage') {
       const rep = Math.round(this.damage * 1800);
@@ -107,7 +112,7 @@ export class Career {
       }
       if (G.say) G.say('officina');
     } else if (this.near.kind === 'dealer') {
-      for (const c of CARS.filter((q) => !q.hidden && PRICES[q.id] !== undefined)) {
+      for (const c of CARS.filter((q) => !q.hidden && !q.menuHidden && PRICES[q.id] !== undefined)) {
         const own = this.owned.includes(c.id), price = PRICES[c.id];
         items.push({ t: `${c.name} — ${own ? 'già tua: la prendi' : '€ ' + fmt(price)}`, ok: own || this.money >= price, go: () => { if (!own) { this.pay(price); this.owned.push(c.id); } G.switchCar(c.id); G.toast(`🚗 Ora guidi: ${c.name}`, 2200); } });
       }

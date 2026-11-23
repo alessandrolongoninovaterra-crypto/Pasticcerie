@@ -43,6 +43,7 @@ export class Pedestrians {
       const w = R.ways[nr.wi];
       if (w.cls <= CLS.SECONDARY && w.limit > 50) continue;
       p.wi = nr.wi; p.k = nr.k; p.dir = Math.random() < 0.5 ? 1 : -1;
+      p.hp = 100; p.dead = false;
       const L = w.cum[nr.k + 1] - w.cum[nr.k];
       p.s = (p.dir > 0 ? nr.t : 1 - nr.t) * L;
       p.side = Math.random() < 0.5 ? 1 : -1;
@@ -146,6 +147,8 @@ export class Pedestrians {
         const g = R.surfaceAt(p.x, p.z, p.y + 1).h;
         crowd.drawRagdoll(i, p.rag, g);
         roadPts.push([p.x, p.z]);
+        // colpito a morte: resta a terra (poi sparisce), altrimenti si rialza e scappa
+        if (p.rag.done && p.dead) { p.deadT -= dt; if (p.deadT <= 0) { p.alive = false; p.rag = null; p.dead = false; crowd.hideAt(i); } continue; }
         if (p.rag.done) { p.rag = null; p.flee = 4; p.h = Math.atan2(p.x - cx, p.z - cz); this.rejoin(p); }
         continue;
       }
@@ -241,6 +244,28 @@ export class Pedestrians {
     p.wi = nr.wi; p.k = nr.k; p.s = (p.dir > 0 ? nr.t : 1 - nr.t) * L;
     const lat = ((p.x - nr.px) * -nr.dz + (p.z - nr.pz) * nr.dx) / dl;
     p.side = lat >= 0 ? 1 : -1; p.lat = lat; p.wait = 0; p.fdx = undefined;
+  }
+
+  // colpo d'arma da fuoco (src/weapons.js): danno, caduta nella direzione del colpo
+  shoot(p, dx, dz, dmg, head) {
+    if (!p || !p.alive || p.rag) return;
+    if (p.hp === undefined) p.hp = 100;
+    p.hp -= dmg;
+    const l = Math.hypot(dx, dz) || 1, tx = dx / l, tz = dz / l;
+    if (p.hp <= 0) { p.dead = true; p.deadT = 45; }
+    p.rag = strikeRagdoll({ facing: p.h, scale: p.build.scale, x: p.x, z: p.z, travelX: tx, travelZ: tz, awayX: tx, awayZ: tz, speed: 3 + Math.min(6, dmg / 12) + (head ? 2 : 0), pose: p.pose, rand: this.crowd.rand });
+    const i = this.peds.indexOf(p);
+    if (i >= 0) this.crowd.drawRagdoll(i, p.rag, p.y);
+  }
+
+  // spari vicini: chi e' entro r metri scappa di corsa, lontano da chi spara
+  panic(x, z, r) {
+    for (const p of this.peds) {
+      if (!p.alive || p.rag || p === this.peds[this.me]) continue;
+      const dx = p.x - x, dz = p.z - z, d = Math.hypot(dx, dz);
+      if (d > r || d < 0.01) continue;
+      p.flee = 3 + Math.random() * 3; p.fdx = dx / d; p.fdz = dz / d; p.idle = 0; p.wait = 0;
+    }
   }
 
   // persone vicine a un punto (per il giocatore a piedi)

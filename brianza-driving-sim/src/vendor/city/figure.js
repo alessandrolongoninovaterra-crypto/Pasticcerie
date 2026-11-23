@@ -587,6 +587,13 @@ export function createCrowd(COUNT, seed = 20260919) {
         pose.neck -= 0.45 * t
         pose.spine += 0.05 * Math.sin(clock * 10) * t          // respiro corto
       }
+      // (Brianza Driving Simulator) arma in mano: braccia avanti verso la mira, la sinistra sostiene
+      const am = st.aim || 0
+      if (am > 0) {
+        const ap = st.aimPitch || 0, two = st.twoHands ? 1 : 0.7
+        pose.shRs = mix(pose.shRs, -1.45 - ap, am); pose.shRz = mix(pose.shRz, 0.05, am); pose.elbR = mix(pose.elbR, two > 0.9 ? 0.35 : 0.12, am)
+        pose.shLs = mix(pose.shLs, -1.3 - ap, am * two); pose.shLz = mix(pose.shLz, -0.42, am * two); pose.elbL = mix(pose.elbL, 0.75, am * two)
+      }
       const l = st.land || 0
       if (l > 0) { pose.kneeL += 0.8 * l; pose.kneeR += 0.8 * l; pose.hipLs -= 0.7 * l; pose.hipRs -= 0.7 * l; swing += 0.3 * l }
       rootFrame(F.root, x, ground + hipHeight(pose, k), z, yaw + 0.12 * Math.sin(ped.phase) * (ped.idle > 0 || a > 0 ? 0 : 1), swing, roll)

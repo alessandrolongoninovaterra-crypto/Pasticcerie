@@ -76,8 +76,10 @@ export class Police {
     if (!this.enabled) return;
     const now = performance.now() / 1000;
     if (this.cool[kind] && now - this.cool[kind] < 4) return;
-    const add = { red: 1, speed: 1, ped: 2, ram: 1, crash: 0.6, evade: 1 }[kind] || 0.5;
-    const always = kind === 'ped' || kind === 'evade';
+    const add = { red: 1, speed: 1, ped: 2, ram: 1, crash: 0.6, evade: 1, shots: 1, shootPed: 2, shootCop: 3 }[kind] || 0.5;
+    // colpire qualcuno (o una volante) e' sempre denunciato; gli spari si sentono lontano
+    const always = kind === 'ped' || kind === 'evade' || kind === 'shootPed' || kind === 'shootCop';
+    if (kind === 'shots' && !always && !this.witness(x, z, (this.heat >= 1 ? CHASE_VIEW : WITNESS_R) * 2.5)) return;
     // serve un testimone: entro 50 m se non sei ricercato, entro la vista d'inseguimento se lo sei
     // (prima da ricercato contava tutto e rivelava alla polizia dove eri anche senza vederti)
     if (!always && !this.witness(x, z, this.heat >= 1 ? CHASE_VIEW : WITNESS_R)) return;

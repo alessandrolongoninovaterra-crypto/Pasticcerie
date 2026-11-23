@@ -108,6 +108,40 @@ export class EngineAudio {
     this.sirO.frequency.setValueAtTime(Math.floor(t / 0.55) % 2 ? 588 : 784, t);
     this.sirG.gain.setTargetAtTime(this.muted ? 0 : k * k * 0.09, t, 0.15);
   }
+  // Spari sintetizzati: schiocco (rumore acuto, pochi ms), corpo (rumore filtrato basso), botta
+  // (sinusoide che cala) ed eco tra le case (rumore cupo in ritardo). Valori per arma.
+  gunShot(kind) {
+    if (!this.ctx || this.muted) return;
+    const C = this.ctx, t = C.currentTime;
+    const P = { pistol: [0.9, 900, 0.09, 110, 0.5], smg: [0.75, 1100, 0.07, 120, 0.4], rifle: [1.0, 750, 0.12, 95, 0.65], shotgun: [1.15, 450, 0.22, 70, 0.9] }[kind] || [0.9, 900, 0.1, 100, 0.5];
+    const [vol, body, dur, boom, tail] = P;
+    if (!this.noiseBuf) { const n = C.sampleRate * 2, b = C.createBuffer(1, n, C.sampleRate), d = b.getChannelData(0); for (let i = 0; i < n; i++) d[i] = Math.random() * 2 - 1; this.noiseBuf = b; }
+    const out = C.createGain(); out.gain.value = 0.5 * vol; out.connect(C.destination);
+    const burst = (type, f, q, g0, dly, len) => {
+      const s = C.createBufferSource(); s.buffer = this.noiseBuf; s.playbackRate.value = 0.9 + Math.random() * 0.2;
+      const fl = C.createBiquadFilter(); fl.type = type; fl.frequency.value = f; fl.Q.value = q;
+      const g = C.createGain(); g.gain.setValueAtTime(0, t + dly); g.gain.linearRampToValueAtTime(g0, t + dly + 0.002); g.gain.exponentialRampToValueAtTime(0.0008, t + dly + len);
+      s.connect(fl); fl.connect(g); g.connect(out); s.start(t + dly, Math.random()); s.stop(t + dly + len + 0.05);
+    };
+    burst('highpass', 2500, 0.7, 0.9, 0, 0.035);                 // schiocco
+    burst('lowpass', body, 0.9, 1.1, 0, dur);                     // corpo
+    burst('lowpass', 500, 0.5, 0.35 * tail, 0.09, 0.35 + tail * 0.5);  // eco tra le case
+    const o = C.createOscillator(), og = C.createGain();           // botta
+    o.frequency.setValueAtTime(boom * 1.8, t); o.frequency.exponentialRampToValueAtTime(boom * 0.6, t + 0.12);
+    og.gain.setValueAtTime(0.9, t); og.gain.exponentialRampToValueAtTime(0.001, t + 0.16 + tail * 0.1);
+    o.connect(og); og.connect(out); o.start(t); o.stop(t + 0.35);
+  }
+  // rumori meccanici: estrarre l'arma, caricatore, cartuccia, pompa, a vuoto, colpo a segno
+  gunMech(kind) {
+    if (!this.ctx || this.muted) return;
+    const C = this.ctx, t = C.currentTime;
+    const clicks = { draw: [[0, 1800, 0.12], [0.08, 1200, 0.1]], mag: [[0, 900, 0.2], [0.05, 2200, 0.15]], reload: [[0, 1400, 0.12]], shell: [[0, 1600, 0.12], [0.04, 700, 0.1]], pump: [[0, 600, 0.25], [0.14, 900, 0.25]], empty: [[0, 3200, 0.1]], hit: [[0, 4200, 0.07]] }[kind] || [[0, 1500, 0.1]];
+    for (const [dly, f, g0] of clicks) {
+      const o = C.createOscillator(), g = C.createGain(); o.type = kind === 'hit' ? 'sine' : 'square'; o.frequency.value = f;
+      g.gain.setValueAtTime(g0, t + dly); g.gain.exponentialRampToValueAtTime(0.0005, t + dly + (kind === 'hit' ? 0.06 : 0.03));
+      o.connect(g); g.connect(C.destination); o.start(t + dly); o.stop(t + dly + 0.08);
+    }
+  }
   horn(on) {
     if (!this.ctx) return;
     if (on && !this.hornOsc) {

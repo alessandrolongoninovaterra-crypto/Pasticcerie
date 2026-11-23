@@ -6,6 +6,7 @@ import { World } from './world.js';
 import { Sky } from './sky.js';
 import { CARS, buildCarModel, drawCluster, stripLights } from './cars.js';
 import { loadRealFleet, loadHero, realCredits } from './realcars.js';
+import { Weapons } from './weapons.js';
 import { buildBikeModel } from './bike.js';
 import { Vehicle } from './vehicle.js';
 import { Plane, buildPlaneModel, drawPlaneCluster } from './plane.js';
@@ -227,6 +228,7 @@ function ensureGame() {
   G.switchCar = (id) => { const i = CARS.findIndex((c) => c.id === id); if (i < 0) return; const o = G.vehicle; G.carIdx = i; makePlayer(CARS[i]); G.vehicle.place(o.x, o.z, o.h); G.camInit = true; };
   scene.add(G.traffic.group);
   G.peds = new Pedestrians(G.world);
+  G.weapons = new Weapons(G);
   G.peds.setTarget(q.peds);
   G.peds.onHit = (p, speed, t) => { if (t.player) fine('ped', speed); };
   scene.add(G.peds.group);
@@ -243,7 +245,7 @@ function ensureGame() {
   }
   // telecamera orbitale: trascina con il mouse
   let drag = null;
-  canvas.addEventListener('mousedown', (e) => { drag = [e.clientX, e.clientY]; });
+  canvas.addEventListener('mousedown', (e) => { if (G.weapons && G.weapons.drawn && G.foot.on) return; drag = [e.clientX, e.clientY]; });   // con l'arma in mano il mouse mira (src/weapons.js)
   addEventListener('mouseup', () => { drag = null; });
   addEventListener('mousemove', (e) => {
     if (!drag || G.mapOpen || G.paused || !G.started) return;
@@ -434,19 +436,30 @@ function updateFoot(dt, ctl) {
   if (f.stamina === undefined) { f.stamina = FOOT.staminaMax; f.tired = 0; f.vy = 0; f.air = false; f.land = 0; f.jumpHeld = false; }
   // comandi
   const stickF = Math.abs(ctl.padPitch || 0) > 0.3 ? -ctl.padPitch : 0;            // stick avanti = negativo
-  let fwd = (k.has('KeyW') || k.has('ArrowUp') || ctl.throttle > 0.3 ? 1 : 0) - (k.has('KeyS') || k.has('ArrowDown') || ctl.brake > 0.3 ? 1 : 0);
+  // con l'arma i grilletti mirano e sparano: si cammina con lo stick
+  const trig = !(G.weapons && G.weapons.drawn);
+  let fwd = (k.has('KeyW') || k.has('ArrowUp') || (trig && ctl.throttle > 0.3) ? 1 : 0) - (k.has('KeyS') || k.has('ArrowDown') || (trig && ctl.brake > 0.3) ? 1 : 0);
   if (!fwd && stickF) fwd = Math.sign(stickF);
-  const wantSprint = (k.has('ShiftLeft') || k.has('ShiftRight') || (ctl.padThr || 0) > 0.85) && fwd > 0;
+  const wantSprint = (k.has('ShiftLeft') || k.has('ShiftRight') || (trig && (ctl.padThr || 0) > 0.85)) && fwd > 0;
   const jump = ctl.handbrake > 0 || k.has('Space');
   // fiato: si consuma scattando, si ricarica camminando; finito il fiato, 5 s di recupero
   if (f.tired > 0) { f.tired = Math.max(0, f.tired - dt); if (f.tired === 0) f.stamina = FOOT.staminaMax; }
-  const sprinting = wantSprint && f.tired === 0 && !f.air && f.stamina > 0;
+  const sprinting = wantSprint && f.tired === 0 && !f.air && f.stamina > 0 && !(G.weapons && G.weapons.drawn && (G.weapons.ads > 0.3 || G.weapons.fireHeld));
   if (sprinting) { f.stamina = Math.max(0, f.stamina - dt); if (f.stamina === 0) { f.tired = FOOT.recover; showToast('😮‍💨 Fiatone: qualche secondo per riprendere fiato', 1800); } }
   else if (f.tired === 0) f.stamina = Math.min(FOOT.staminaMax, f.stamina + dt * 2);
   // velocita': in aria si conserva lo slancio, a terra si accelera verso quella voluta
   const turn = f.air ? 0.9 : sprinting ? 2.1 : 2.8;
-  f.h += ctl.steer * turn * dt;
-  const sp = fwd > 0 ? (f.tired > 0 ? FOOT.tiredSpeed : sprinting ? FOOT.sprint : FOOT.walk) : fwd < 0 ? -FOOT.back : 0;
+  const W = G.weapons, armed = W && W.drawn;
+  if (armed) {
+    // con l'arma: il corpo segue la mira, A/D spostano di lato (sinistra = +X locale)
+    let dh = W.aimYaw - f.h; while (dh > Math.PI) dh -= Math.PI * 2; while (dh < -Math.PI) dh += Math.PI * 2;
+    f.h += dh * Math.min(1, dt * 14);
+    const want = ctl.steer * (W.ads > 0.5 ? 1.6 : 2.4);
+    f.us = (f.us || 0) + (want - (f.us || 0)) * Math.min(1, dt * 8);
+    if (!f.air) { f.x += Math.cos(f.h) * f.us * dt; f.z -= Math.sin(f.h) * f.us * dt; }
+  } else { f.us = 0; f.h += ctl.steer * turn * dt; }
+  const slow = armed && W.ads > 0.5 ? 0.65 : 1;
+  const sp = (fwd > 0 ? (f.tired > 0 ? FOOT.tiredSpeed : sprinting ? FOOT.sprint : FOOT.walk) : fwd < 0 ? -FOOT.back : 0) * slow;
   if (!f.air) f.u += (sp - f.u) * Math.min(1, dt * (sp > f.u ? (sprinting ? 4 : 7) : 9));
   f.sprint = sprinting;
   // salto (sul fronte del tasto, non a ripetizione tenendolo premuto)
@@ -958,6 +971,9 @@ function updateCamera(dt, lookBack) {
   m.interior.visible = mode === 1;
   for (const e of m.exterior) e.visible = mode !== 1;
   document.body.classList.toggle('cockpit', mode === 1);
+  // con l'arma in mano: telecamera sopra la spalla, guidata dalla mira (src/weapons.js)
+  if (f.on && G.weapons && G.weapons.drawn) { G.weapons.camera(cam, dt); cam.updateProjectionMatrix(); G.camInit = true; return; }
+  if (cam.fov !== 62) cam.fov = 62;
   // la visuale orbitale torna dietro al veicolo dopo un paio di secondi
   o.idle += dt;
   if (o.idle > 2.2 && (f.on ? Math.abs(f.u) > 0.5 : Math.abs(v.u) > 2)) { o.yaw *= Math.exp(-dt * 2.5); o.pitch *= Math.exp(-dt * 2.5); }
@@ -1058,7 +1074,7 @@ function loop(now) {
   if (inp.consume('KeyM') || ctl.actions.has('map')) { openMap('dest'); return; }
   if (inp.consume('KeyN')) $('mini-wrap').classList.toggle('hidden');
   if (inp.consume('KeyH') || ctl.actions.has('lights')) { G.lightsOn = !G.lightsOn; showToast(G.lightsOn ? 'Fari accesi' : 'Fari spenti', 900); }
-  if ((inp.consume('KeyR') || ctl.actions.has('reset')) && !G.foot.on) { if (G.career.tow()) respawnOnRoad(); else respawnOnRoad(); }
+  if (!G.foot.on && (inp.consume('KeyR') || ctl.actions.has('reset'))) { if (G.career.tow()) respawnOnRoad(); else respawnOnRoad(); }
   if (inp.consume('KeyJ')) G.career.jobs();
   if (inp.consume('KeyG')) G.career.interact();
   if (G.career.panel) for (let i = 1; i <= 9; i++) if (inp.consume('Digit' + i) || inp.consume('Numpad' + i)) G.career.choose(i - 1);
@@ -1088,7 +1104,8 @@ function loop(now) {
     } else { ctl.throttle = 0; ctl.brake = 1; }
   }
   if (!G.loadingWorld) {
-    if (f.on) { v.update(dt, { throttle: 0, brake: 1, steer: 0, handbrake: 1, pitch: 0 }); updateFoot(dt, ctl); }
+    if (f.on) { v.update(dt, { throttle: 0, brake: 1, steer: 0, handbrake: 1, pitch: 0 }); G.weapons.update(dt, ctl); updateFoot(dt, ctl); }
+    else if (G.weapons.drawn) G.weapons.holster();
     else v.update(dt, v.isPlane ? planeInput(ctl) : ctl);
   }
   if (v.isPlane) {
@@ -1112,7 +1129,9 @@ function loop(now) {
   const movers = flying() ? [] : [{ x: v.x, z: v.z }];
   for (const c of G.traffic.cars) if (Math.abs(c.x - p.x) < 300 && Math.abs(c.z - p.z) < 300) movers.push(c);
   G.world.gates.update(dt, movers);
-  G.peds.drawPlayer(f.on, f.x, f.y, f.z, f.h, f.gait, f.u, dt, { air: f.air ? 1 : 0, vy: f.vy || 0, tired: f.tired > 0 ? 1 : 0, land: Math.min(1, f.land || 0), still: Math.abs(f.u) < 0.4 });
+  const W = G.weapons, armed = W.drawn && f.on;
+  G.peds.drawPlayer(f.on, f.x, f.y, f.z, f.h, f.gait, f.u, dt, { air: f.air ? 1 : 0, vy: f.vy || 0, tired: f.tired > 0 ? 1 : 0, land: Math.min(1, f.land || 0), still: Math.abs(f.u) < 0.4,
+    aim: armed ? (W.reload ? 0.35 : 0.75 + 0.25 * W.ads) : 0, aimPitch: armed ? W.aimPitch * 0.9 : 0, twoHands: armed && W.w.def.id !== 'pistol' });
   if (!f.on && $('stamina')) $('stamina').classList.add('hidden');
   // modello del giocatore
   const m = G.carModel;
@@ -1170,6 +1189,7 @@ function loop(now) {
   G.world.signage.update(now / 1000, G.sky.night);
   G.traffic.setNight(G.sky.night);
   updateCamera(dt, inp.keys.has('KeyV'));
+  G.weapons.updateFx(dt);
   G.world.updateLabels(G.camera, flying());
   updateHUD(dt);
   updateNav(dt);
