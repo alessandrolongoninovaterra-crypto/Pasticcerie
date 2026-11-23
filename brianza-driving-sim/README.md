@@ -129,24 +129,32 @@ l'aereo e il navigatore indica la destinazione in linea d'aria.
 | R (a piedi, arma in mano) | ricarica |
 | 1-4 / rotellina (a piedi) | pistola, mitraglietta, fucile d'assalto, fucile a pompa |
 
-**Gamepad, come in GTA V** (tra parentesi PlayStation):
+**Gamepad, come in GTA V** (PlayStation 4 / Xbox):
 
-| Tasto | In auto | A piedi |
-|---|---|---|
-| stick sinistro | sterzo (in aereo anche cabra/picchia) | cammina e gira (con l'arma: passo laterale) |
-| stick destro | telecamera attorno al veicolo | telecamera; con l'arma in mano mira |
-| RT (R2) | accelera | spara |
-| LT (L2) | frena / retromarcia | mira (zoom sopra la spalla) |
-| RB (R1) | freno a mano | — |
-| Y (triangolo) | scendi | sali sul veicolo più vicino |
-| A (croce) | — | scatto |
-| X (quadrato) | — | salto / scavalcamento |
-| B (cerchio) | — | ricarica |
-| LB (L1) | — | estrai l'arma, poi cambiala; dopo l'ultima la rinfoderi |
-| L3 / R3 | clacson / guarda indietro | — / guarda indietro |
-| View (Share) | cambia visuale | cambia visuale |
-| croce: destra / giù / sinistra | fari / mappa / rimetti in strada | |
-| Menu (Options) | pausa | pausa |
+| Tasto | A piedi | In auto | In aereo |
+|---|---|---|---|
+| stick sinistro | cammina e gira (con l'arma: passo laterale) | sterzo | inclina e cabra/picchia |
+| L3 | furtività (accovacciato, passo lento) | clacson | — |
+| stick destro | guarda attorno; con l'arma mira | guarda attorno | guarda attorno |
+| R3 | guarda dietro | guarda dietro | guarda dietro |
+| quadrato (X) | salta e scavalca; mirando: schivata (capriola) | — | — |
+| triangolo (Y) | sali sul veicolo | scendi | scendi (a terra) |
+| croce (A) | scatto | — | — |
+| cerchio (B) | ricarica | — | — |
+| L1 (LB) | tenuto: ruota delle armi (scegli con lo stick destro, rilascia); un tocco: arma successiva | — | virata a sinistra |
+| R1 (RB) | — | freno a mano | virata a destra |
+| L2 (LT) | mira | freno / retromarcia | spinta giù (a terra a fondo: freni) |
+| R2 (RT) | spara | accelera | spinta su |
+| touchpad / Share (View) | cambia visuale | cambia visuale | cambia visuale |
+| croce ↑ | telefono: lavori | telefono: lavori | |
+| croce → | entra nel negozio (vicino a distributore, officina, concessionario) | fari / entra nel negozio (da fermo) | |
+| croce ↓ / ← | mappa / — | mappa / rimetti in strada | mappa / riparti in volo |
+| Options (Menu) | pausa | pausa | pausa |
+
+Nei pannelli di negozi e lavori: croce ↑↓ scorre, croce (A) sceglie, cerchio (B) chiude. Non ci
+sono, perché il gioco non ha quelle funzioni: abilità speciale (L3+R3), cambio personaggio,
+copertura (R1 a piedi), colpi corpo a corpo, radio e armi dei veicoli. La croce ↓ apre la mappa (in GTA
+V la mappa è nel menu di pausa). Tastiera: Ctrl furtività, Spazio mirando schivata, Q/E timone dell'aereo.
 
 I gamepad senza mappatura standard (DualShock e compatibili Xbox su alcuni sistemi) usano la stessa
 disposizione dove il browser la riconosce; in pausa c'è la configurazione guidata, che ora chiede

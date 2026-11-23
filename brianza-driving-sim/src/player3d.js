@@ -45,6 +45,9 @@ export class PlayerModel {
     for (const n of LOCO) { this.full[n] = act(clips[n]); this.low[n] = act(split(clips[n], true)); }
     // salto
     this.jump = { start: act(clips.Jump_Start, false), loop: act(clips.Jump_Loop), land: act(clips.Jump_Land, false) };
+    // furtivita' (accovacciato, fermo e in cammino) e capriola di schivata
+    this.crouch = { idle: act(clips.Crouch_Idle_Loop), fwd: clips.Crouch_Fwd_Loop ? act(clips.Crouch_Fwd_Loop) : null, idleLow: act(split(clips.Crouch_Idle_Loop, true)), fwdLow: clips.Crouch_Fwd_Loop ? act(split(clips.Crouch_Fwd_Loop, true)) : null };
+    this.roll = act(clips.Roll, false);
     // busto: mira (pose ferme, si tengono al primo fotogramma), sparo, ricarica
     const pose = (n) => { const a = act(split(clips[n], false)); a.paused = true; a.time = 0; return a; };
     this.aim = { up: pose('Pistol_Aim_Up'), mid: pose('Pistol_Aim_Neutral'), down: pose('Pistol_Aim_Down') };
@@ -61,7 +64,8 @@ export class PlayerModel {
     R.visible = st.on;
     if (!st.on) return true;
     R.position.set(st.x, st.y, st.z);
-    R.rotation.set(0, st.h, 0);
+    // capriola di lato: il corpo si gira nel verso della schivata (+ = sinistra)
+    R.rotation.set(0, st.h + (st.roll > 0 && st.rollSide ? st.rollSide * Math.PI / 2 : 0), 0);
     const S = this.state, sp = Math.abs(st.speed);
     // pesi della locomozione: fermo -> camminata (2,3 m/s) -> corsa -> scatto (6,9 m/s)
     const w = { Idle_Loop: 0, Walk_Loop: 0, Jog_Fwd_Loop: 0, Sprint_Loop: 0 };
@@ -77,12 +81,23 @@ export class PlayerModel {
     const jStart = st.air ? Math.max(0, 1 - S.jumpT / 0.3) : 0, jLoop = st.air ? 1 - jStart : 0, jLand = S.landT > 0 ? S.landT / 0.35 : 0;
     const airK = Math.min(1, jStart + jLoop + jLand);
     const armed = !!st.armed;
+    // capriola: tutto il corpo per la sua durata
+    if (st.roll > 0 && !S.rolling) { this.roll.reset(); this.roll.timeScale = this.roll.getClip().duration / 0.75; this.roll.play(); }
+    S.rolling = st.roll > 0;
+    const rollK = S.rolling ? 1 : 0;
+    // furtivita': le animazioni accovacciate prendono il posto di quelle in piedi
+    const cr = st.sneak && !st.air ? 1 : 0, crMove = Math.min(1, sp / 0.6);
+    const keep = (1 - airK) * (1 - cr) * (1 - rollK);
+    const C = this.crouch;
+    C.idle.setEffectiveWeight(armed ? 0 : cr * (1 - crMove) * (1 - rollK)); C.idleLow.setEffectiveWeight(armed ? cr * (1 - crMove) * (1 - rollK) : 0);
+    if (C.fwd) { C.fwd.setEffectiveWeight(armed ? 0 : cr * crMove * (1 - rollK)); C.fwdLow.setEffectiveWeight(armed ? cr * crMove * (1 - rollK) : 0); C.fwd.timeScale = C.fwdLow.timeScale = Math.max(0.5, sp / 1.1) * (st.speed < 0 ? -1 : 1); }
+    this.roll.setEffectiveWeight(rollK);
     for (const n of LOCO) {
       const ts = n === 'Idle_Loop' ? 1 : Math.max(0.4, sp / NATURAL[n]) * (st.speed < 0 ? -1 : 1);
-      this.full[n].setEffectiveWeight(armed ? 0 : w[n] * (1 - airK)); this.full[n].timeScale = ts;
-      this.low[n].setEffectiveWeight(armed ? w[n] * (1 - airK) : 0); this.low[n].timeScale = ts;
+      this.full[n].setEffectiveWeight(armed ? 0 : w[n] * keep); this.full[n].timeScale = ts;
+      this.low[n].setEffectiveWeight(armed ? w[n] * keep : 0); this.low[n].timeScale = ts;
     }
-    this.jump.start.setEffectiveWeight(jStart); this.jump.loop.setEffectiveWeight(jLoop); this.jump.land.setEffectiveWeight(jLand * (1 - jStart - jLoop));
+    this.jump.start.setEffectiveWeight(jStart * (1 - rollK)); this.jump.loop.setEffectiveWeight(jLoop * (1 - rollK)); this.jump.land.setEffectiveWeight(jLand * (1 - jStart - jLoop) * (1 - rollK));
     // busto in mira: su / dritto / giu' secondo l'inclinazione (pose di Quaternius a circa +-45 gradi)
     const p = Math.max(-1, Math.min(1, (st.aimPitch || 0) / 0.75));
     const aimK = armed ? 1 : 0;
@@ -91,7 +106,7 @@ export class PlayerModel {
     if (st.reloading && !S.reloading) this.reload.reset().play();
     S.reloading = !!st.reloading;
     const relK = armed && st.reloading ? 1 : 0, shotK = armed && S.shotT > 0 && !relK ? Math.min(1, S.shotT * 6) : 0;
-    const hold = aimK * (1 - relK) * (1 - shotK * 0.6);
+    const hold = aimK * (1 - relK) * (1 - shotK * 0.6) * (1 - rollK);
     this.aim.up.setEffectiveWeight(hold * Math.max(0, p));
     this.aim.down.setEffectiveWeight(hold * Math.max(0, -p));
     this.aim.mid.setEffectiveWeight(hold * (1 - Math.abs(p)));

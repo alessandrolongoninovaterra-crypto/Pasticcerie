@@ -119,6 +119,8 @@ export class Plane {
     // virata coordinata
     this.w = G * Math.tan(this.bank) / Math.max(15, this.u) * lf;
     this.h += this.w * dt;
+    // timone (LB/RB come in GTA V, Q/E): imbardata lenta senza inclinarsi
+    if (inp.yaw) this.h += inp.yaw * 0.22 * dt;
     // velocita' lungo la traiettoria: spinta - resistenza - componente del peso
     const gamma = Math.atan2(this.vy, Math.max(1, this.u));
     this.u += ((T - D) / s.mass - G * Math.sin(gamma)) * dt;

@@ -9,10 +9,15 @@
 //   tipo 'axis': analogico a due versi (sterzo, cabra/picchia): si muove nel verso indicato
 //   tipo 'analog': analogico a un verso (acceleratore, freno): grilletto, tasto o stick
 //   tipo 'button': tasto
-// Disposizione come in GTA V (tra parentesi PlayStation): in auto RT/R2 accelera, LT/L2 frena,
-// RB/R1 freno a mano, Y/triangolo scendi, L3 clacson, R3 guarda dietro, View/Share cambia visuale,
-// croce destra fari; a piedi stick sinistro cammina, stick destro telecamera e mira, A/croce scatta,
-// X/quadrato salta, B/cerchio ricarica, Y/triangolo sali, LT mira, RT spara, LB/L1 cambia arma.
+// Disposizione di GTA V (tra parentesi PlayStation 4):
+//  a piedi: stick sinistro cammina, L3 furtivita', stick destro guarda attorno, R3 guarda dietro,
+//    X/quadrato salta e scavalca (mirando: schivata), Y/triangolo sali, A/croce scatta, LB/L1 tenuto
+//    ruota delle armi (stick destro per scegliere), LT/L2 mira, RT/R2 spara, B/cerchio ricarica;
+//  in auto: RT/R2 accelera, LT/L2 frena e retromarcia, RB/R1 freno a mano, L3 clacson, R3 guarda
+//    dietro, Y/triangolo scendi, croce destra fari (vicino a un negozio: entra);
+//  in aereo: stick sinistro inclina e cabra, RT/R2 e LT/L2 spinta su e giu' (a terra LT frena),
+//    LB/L1 e RB/R1 virano a sinistra e a destra;
+//  sempre: View/touchpad cambia visuale, croce in alto telefono (lavori), Menu/Options pausa.
 export const PAD_ACTIONS = [
   ['steer', 'Sterzo / alettoni (stick sinistro): muovi lo stick verso SINISTRA', 'axis'],
   ['throttle', 'Acceleratore / spara (RT, R2): premi il grilletto destro', 'analog'],
@@ -25,17 +30,18 @@ export const PAD_ACTIONS = [
   ['sprint', 'A piedi: scatto (A, croce)', 'button'],
   ['jump', 'A piedi: salto (X, quadrato)', 'button'],
   ['reload', 'A piedi: ricarica (B, cerchio)', 'button'],
-  ['weapon', 'A piedi: estrai / cambia / rinfodera l\'arma (LB, L1)', 'button'],
+  ['weapon', 'A piedi: ruota delle armi, tenuto; un tocco cambia arma (LB, L1)', 'button'],
   ['camera', 'Cambia visuale (View, Share)', 'button'],
-  ['horn', 'Clacson (pressione stick sinistro, L3)', 'button'],
+  ['horn', 'Clacson in auto, furtività a piedi (pressione stick sinistro, L3)', 'button'],
   ['lookBack', 'Guarda indietro (pressione stick destro, R3)', 'button'],
-  ['lights', 'Fari (croce direzionale DESTRA)', 'button'],
+  ['lights', 'Fari / entra nel negozio (croce direzionale DESTRA)', 'button'],
+  ['jobs', 'Telefono: lavori (croce direzionale SU)', 'button'],
   ['map', 'Mappa (croce direzionale GIÙ)', 'button'],
   ['reset', 'Rimetti in strada / riparti in volo (croce direzionale SINISTRA)', 'button'],
   ['pause', 'Pausa (Menu, Options)', 'button'],
 ];
 // comandi-tasto tenuti premuti (non a scatto)
-const HELD = new Set(['handbrake', 'horn', 'sprint', 'jump', 'lookBack']);
+const HELD = new Set(['handbrake', 'horn', 'sprint', 'jump', 'lookBack', 'weapon']);
 
 const ax = (i, dir = 1, rest = 0) => ({ t: 'a', i, dir, rest });
 const bt = (i) => ({ t: 'b', i });
@@ -45,7 +51,7 @@ const bt = (i) => ({ t: 'b', i });
 const STANDARD = {
   steer: ax(0, -1), throttle: bt(7), brake: bt(6), pitch: ax(1, 1), camX: ax(2, 1), camY: ax(3, -1),
   handbrake: bt(5), exit: bt(3), sprint: bt(0), jump: bt(2), reload: bt(1), weapon: bt(4),
-  camera: bt(8), horn: bt(10), lookBack: bt(11), lights: bt(15), map: bt(13), reset: bt(14), pause: bt(9),
+  camera: bt(8), horn: bt(10), lookBack: bt(11), lights: bt(15), jobs: bt(12), map: bt(13), reset: bt(14), pause: bt(9),
 };
 // gamepad non standard: ipotesi piu' comune (stick sinistro su 0/1, grilletti come tasti 6/7)
 const GENERIC = { ...STANDARD };
@@ -109,7 +115,7 @@ export class Input {
         m = { ...GENERIC, steer: ax(0, -1), pitch: ax(1, 1), throttle: win ? ax(4, 1, -1) : ax(5, 1, -1), brake: win ? ax(3, 1, -1) : ax(2, 1, -1),
           camX: win ? ax(2, 1) : ax(3, 1), camY: win ? ax(5, -1) : ax(4, -1),
           handbrake: bt(5), exit: bt(3), sprint: bt(1), jump: bt(0), reload: bt(2), weapon: bt(4), camera: bt(8), pause: bt(9), horn: bt(10), lookBack: bt(11),
-          lights: null, map: null, reset: null };
+          lights: null, map: null, reset: null, jobs: null };
         decided = true;
       } else if (gp.axes.length >= 6 && gp.axes[2] < -0.9 && gp.axes[5] < -0.9) {
         // assi 2 e 5 a -1 a riposo: grilletti (Linux, compatibili Xbox). Prima di toccarli molti
@@ -117,7 +123,7 @@ export class Input {
         // driver xpad (Linux): A B X Y = 0 1 2 3, LB RB = 4 5, View 6, Menu 7, stick 9/10; stick destro 3/4
         m = { ...GENERIC, throttle: ax(5, 1, -1), brake: ax(2, 1, -1), pitch: ax(1, 1), camX: ax(3, 1), camY: ax(4, -1),
           handbrake: bt(5), exit: bt(3), sprint: bt(0), jump: bt(2), reload: bt(1), weapon: bt(4), camera: bt(6), pause: bt(7), horn: bt(9), lookBack: bt(10),
-          lights: null, map: null, reset: null };
+          lights: null, map: null, reset: null, jobs: null };
         decided = true;
       }
       this.genericFor[gp.id] = { map: m, decided };
@@ -164,6 +170,8 @@ export class Input {
       padThr: 0, padBrk: 0, padPitch: 0,   // per l'aereo: manetta e cabra/picchia dal gamepad
       camX: 0, camY: 0,            // stick destro: telecamera e mira (+ = destra, + = in alto)
       sprint: false, jump: false, lookBack: false,
+      weaponHeld: false, padR1: false, padHorn: false,   // LB/L1 tenuto, RB/R1 e L3 del gamepad (aereo, furtivita')
+      dpadUp: false, dpadDown: false, padA: false, padB: false,   // per i pannelli dei negozi
       pad: null,
     };
     if (k.has('ShiftLeft') || k.has('ShiftRight')) out.throttle *= 0.45; // acceleratore parziale
@@ -201,6 +209,13 @@ export class Input {
       out.sprint = out.sprint || Input.value(gp, map.sprint, 'analog', T) > 0.5;
       out.jump = out.jump || Input.value(gp, map.jump, 'analog', T) > 0.5;
       out.lookBack = out.lookBack || Input.value(gp, map.lookBack, 'analog', T) > 0.5;
+      out.weaponHeld = out.weaponHeld || Input.value(gp, map.weapon, 'analog', T) > 0.5;
+      out.padR1 = out.padR1 || Input.value(gp, map.handbrake, 'analog', T) > 0.5;
+      out.padHorn = out.padHorn || Input.value(gp, map.horn, 'analog', T) > 0.5;
+      out.dpadUp = out.dpadUp || Input.value(gp, map.jobs, 'analog', T) > 0.5;
+      out.dpadDown = out.dpadDown || Input.value(gp, map.map, 'analog', T) > 0.5;
+      out.padA = out.padA || Input.value(gp, map.sprint, 'analog', T) > 0.5;
+      out.padB = out.padB || Input.value(gp, map.reload, 'analog', T) > 0.5;
       if (Input.value(gp, map.handbrake, 'analog', T) > 0.5) out.handbrake = 1;
       out.horn = out.horn || Input.value(gp, map.horn, 'analog', T) > 0.5;
       // comandi-tasto: fronte di salita
@@ -210,6 +225,10 @@ export class Input {
         now[key] = Input.value(gp, map[key], 'analog', T) > 0.5;
         if (now[key] && !prev[key]) out.actions.add(key);
       }
+      // PlayStation 4: anche il touchpad cambia visuale (come in GTA V; in Chrome e' il tasto 17)
+      const tp = isSony(gp) && gp.buttons[17] && gp.buttons[17].pressed;
+      if (tp && !prev.touchpad) out.actions.add('camera');
+      now.touchpad = !!tp;
       this.padPrev[gp.index] = now;
     }
     return out;

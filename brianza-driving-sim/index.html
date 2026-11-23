@@ -83,6 +83,7 @@
   #shop button { display: block; width: 100%; text-align: left; margin: 5px 0; padding: 8px 10px; border-radius: 8px; border: 1px solid rgba(255,255,255,.12); background: rgba(255,255,255,.06); color: #fff; font-size: 14px; cursor: pointer; }
   #shop button:disabled { opacity: .4; cursor: default; }
   #shop button b { display: inline-block; width: 20px; color: #ffd34e; }
+  #shop button.sel { border-color: #ffd34e; background: rgba(255,211,78,.16); }
   #shop .hint { font-size: 12px; opacity: .6; margin-top: 6px; }
   #subs { position: absolute; left: 50%; bottom: 96px; transform: translateX(-50%); max-width: min(760px, 90vw); padding: 8px 16px; font-size: 16px; opacity: 0; transition: opacity .3s; text-align: center; }
   #subs.show { opacity: 1; }
@@ -106,6 +107,11 @@
   #ammo b { display: block; font-size: 13px; opacity: .8; font-weight: 600; }
   #ammo span { font-size: 28px; font-weight: 700; font-variant-numeric: tabular-nums; }
   #ammo small { font-size: 16px; opacity: .7; }
+  #wwheel { position: absolute; left: 50%; top: 50%; width: 360px; height: 360px; transform: translate(-50%,-50%); border-radius: 50%; background: radial-gradient(circle, rgba(10,14,20,.25) 0 22%, rgba(10,14,20,.72) 23% 100%); pointer-events: none; }
+  #wwheel div { position: absolute; transform: translate(-50%,-50%); width: 112px; text-align: center; font-size: 13px; padding: 6px 4px; border-radius: 10px; color: #dfe6ee; }
+  #wwheel div b { display: block; font-size: 24px; }
+  #wwheel div small { display: block; opacity: .75; font-size: 12px; }
+  #wwheel div.sel { background: rgba(255,211,78,.25); color: #fff; box-shadow: 0 0 0 2px #ffd34e inset; }
   #ihint { position: absolute; right: 18px; bottom: 150px; padding: 6px 12px; font-size: 14px; color: #ffd34e; }
   #toast { position: absolute; left: 50%; top: 18%; transform: translateX(-50%); padding: 12px 22px; font-size: 18px; transition: opacity .4s; opacity: 0; }
   #toast.show { opacity: 1; }
@@ -219,6 +225,7 @@
   <div id="xhair" class="hidden"><i></i><i></i><i></i><i></i><b></b></div>
   <div id="hitmark" class="hidden"></div>
   <div id="ammo" class="panel hidden"></div>
+  <div id="wwheel" class="hidden"></div>
   <div id="flash"></div>
 </div>
 

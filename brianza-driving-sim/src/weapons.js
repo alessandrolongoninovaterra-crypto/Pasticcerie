@@ -191,12 +191,32 @@ export class Weapons {
     if (!f.on) { if (this.drawn) this.holster(); return; }
     // tastiera: 1-4 armi, R ricarica (pannelli dei negozi aperti: i numeri sono loro)
     if (!(G.career && G.career.panel)) for (let i = 0; i < this.inv.length; i++) if (inp.consume('Digit' + (i + 1))) { if (!this.drawn) this.toggle(); this.select(i); }
-    // LB/L1 come in GTA: estrae l'arma, poi la cambia; dopo l'ultima la rinfodera
-    if (ctl && ctl.actions && ctl.actions.has('weapon')) {
-      if (!this.drawn) this.toggle();
+    // LB/L1 come in GTA V: tenuto apre la ruota delle armi (si sceglie con lo stick destro, si
+    // conferma rilasciando); un tocco breve passa all'arma successiva (dopo l'ultima si rinfodera)
+    const held = !!(ctl && ctl.weaponHeld);
+    if (held) {
+      this.wheelT = (this.wheelT || 0) + dt;
+      if (this.wheelT > 0.22) {
+        this.wheelOpen = true;
+        const m = Math.hypot(ctl.camX || 0, ctl.camY || 0);
+        if (m > 0.5) {
+          // 5 settori, il primo in alto, in senso orario: disarmato e le quattro armi
+          const a = (Math.atan2(ctl.camX, ctl.camY) + Math.PI * 2 + Math.PI / 5) % (Math.PI * 2);
+          this.wheelSel = Math.floor(a / (Math.PI * 2 / 5));
+        }
+      }
+    } else if (this.wheelT > 0) {
+      if (this.wheelOpen) {
+        const sel = this.wheelSel === undefined ? (this.drawn ? this.cur + 1 : 0) : this.wheelSel;
+        if (sel === 0) { if (this.drawn) this.holster(); }
+        else { if (!this.drawn) this.toggle(); this.select(sel - 1); }
+      } else if (!this.drawn) this.toggle();
       else if (this.cur < this.inv.length - 1) this.select(this.cur + 1);
       else { this.holster(); this.cur = 0; }
+      this.wheelT = 0; this.wheelOpen = false; this.wheelSel = undefined;
     }
+    this.wheelHud();
+    if (this.wheelOpen) return;       // con la ruota aperta lo stick destro sceglie, non mira
     if (!this.drawn) return;
     if (inp.consume('KeyR') || (ctl && ctl.actions && ctl.actions.has('reload'))) this.startReload();
     // stick destro: mira (curva morbida al centro, piu' lenta mirando)
@@ -481,6 +501,19 @@ export class Weapons {
     cam.near = 0.1;
   }
 
+  // ruota delle armi (HUD)
+  wheelHud() {
+    const el = document.getElementById('wwheel');
+    if (!el) return;
+    el.classList.toggle('hidden', !this.wheelOpen);
+    if (!this.wheelOpen) return;
+    if (!el.childElementCount) {
+      const names = ['Disarmato', ...WEAPONS.map((d) => d.name)], icons = ['✋', '🔫', '🔫', '🔫', '🔫'];
+      el.innerHTML = names.map((n, i) => { const a = i * Math.PI * 2 / 5; return `<div style="left:${50 + Math.sin(a) * 36}%;top:${50 - Math.cos(a) * 36}%"><b>${icons[i]}</b>${n}<small></small></div>`; }).join('');
+    }
+    const cur = this.drawn ? this.cur + 1 : 0, sel = this.wheelSel === undefined ? cur : this.wheelSel;
+    [...el.children].forEach((d, i) => { d.classList.toggle('sel', i === sel); d.lastChild.textContent = i ? `${this.inv[i - 1].mag} / ${this.inv[i - 1].reserve}` : ''; });
+  }
   // mirino, munizioni, segnale di colpo
   hud() {
     const G = this.G, on = this.drawn && G.foot.on;

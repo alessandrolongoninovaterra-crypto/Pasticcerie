@@ -83,7 +83,7 @@ export class Career {
 
   hint() {
     if (this.panel) return '';
-    if (this.near) return { fuel: `G — ⛽ ${this.near.name}: fai il pieno`, garage: `G — 🔧 ${this.near.name}: riparazioni ed elaborazioni`, dealer: `G — 🚗 ${this.near.name}: compra un'auto` }[this.near.kind];
+    if (this.near) return { fuel: `G / croce → — ⛽ ${this.near.name}: pieno e munizioni`, garage: `G / croce → — 🔧 ${this.near.name}: elaborazioni`, dealer: `G / croce → — 🚗 ${this.near.name}: compra un'auto` }[this.near.kind];
     return '';
   }
 
@@ -119,12 +119,19 @@ export class Career {
   open(title, items) {
     this.panel = items;
     const el = document.getElementById('shop');
-    el.innerHTML = `<h3>${title}</h3><div class="money">💶 € ${fmt(this.money)}</div>` + items.map((it, i) => `<button data-i="${i}" ${it.ok ? '' : 'disabled'}><b>${i + 1}</b> ${it.t}</button>`).join('') + '<div class="hint">1-' + items.length + ' per scegliere · G o Esc per chiudere</div>';
+    if (this.sel === undefined || this.sel >= items.length) this.sel = 0;
+    el.innerHTML = `<h3>${title}</h3><div class="money">💶 € ${fmt(this.money)}</div>` + items.map((it, i) => `<button data-i="${i}" ${it.ok ? '' : 'disabled'} class="${i === this.sel ? 'sel' : ''}"><b>${i + 1}</b> ${it.t}</button>`).join('') + '<div class="hint">1-' + items.length + ' per scegliere · G o Esc per chiudere · gamepad: croce ↑↓, A/croce sceglie, B/cerchio chiude</div>';
     el.querySelectorAll('button').forEach((b) => { b.onclick = () => this.choose(+b.dataset.i); });
     el.classList.remove('hidden');
   }
 
-  close() { this.panel = null; document.getElementById('shop').classList.add('hidden'); }
+  close() { this.panel = null; this.sel = 0; document.getElementById('shop').classList.add('hidden'); }
+  // gamepad: scorre le voci del pannello
+  move(d) {
+    if (!this.panel) return;
+    this.sel = (this.sel + d + this.panel.length) % this.panel.length;
+    document.querySelectorAll('#shop button').forEach((b, i) => b.classList.toggle('sel', i === this.sel));
+  }
 
   choose(i) {
     const it = this.panel && this.panel[i];

@@ -377,7 +377,9 @@ function planeInput(ctl) {
   return {
     throttle: Math.max(k.has('KeyW') ? 1 : 0, ctl.padThr || 0), brake: Math.max(k.has('KeyS') ? 1 : 0, ctl.padBrk || 0),
     pitch: Math.max(-1, Math.min(1, (k.has('ArrowUp') ? 1 : 0) - (k.has('ArrowDown') ? 1 : 0) + (ctl.padPitch || 0))),
-    steer: ctl.steer, handbrake: ctl.handbrake,
+    // come in GTA V: LB/L1 e RB/R1 virano (timone); a terra il grilletto sinistro tirato a fondo frena
+    yaw: (ctl.weaponHeld ? 1 : 0) - (ctl.padR1 ? 1 : 0) + (k.has('KeyQ') ? 1 : 0) - (k.has('KeyE') ? 1 : 0),
+    steer: ctl.steer, handbrake: (k.has('Space') ? 1 : 0) || ((ctl.padBrk || 0) > 0.6 && G.vehicle.onGround ? 1 : 0),
   };
 }
 const flying = () => !G.foot.on && G.vehicle && G.vehicle.isPlane && !G.vehicle.onGround;
@@ -445,6 +447,23 @@ function updateFoot(dt, ctl) {
   // gamepad come in GTA: A/croce scatta, X/quadrato salta
   const wantSprint = (k.has('ShiftLeft') || k.has('ShiftRight') || ctl.sprint) && fwd > 0;
   const jump = ctl.jump || k.has('Space');
+  // furtivita' (L3 come in GTA V, oppure Ctrl): ci si abbassa e si cammina piano; lo scatto la toglie
+  const sneakBtn = ctl.padHorn || k.has('ControlLeft');
+  if (sneakBtn && !f.sneakHeld) { f.sneak = !f.sneak; showToast(f.sneak ? '🤫 Furtivo' : 'In piedi', 800); }
+  f.sneakHeld = sneakBtn;
+  if (wantSprint && f.sneak) f.sneak = false;
+  // schivata (come in GTA V: salto mentre si mira): capriola di lato o in avanti
+  const Wd = G.weapons;
+  if (jump && !f.jumpHeld && Wd && Wd.drawn && Wd.ads > 0.5 && !f.air && !(f.roll > 0)) {
+    const side = ctl.steer || (k.has('KeyA') ? 1 : k.has('KeyD') ? -1 : 0);
+    f.roll = 0.75; f.rollSide = Math.abs(side) > 0.3 ? Math.sign(side) : 0; f.rollFwd = f.rollSide ? 0 : (fwd < 0 ? -1 : 1);
+    f.jumpHeld = true;
+  }
+  if (f.roll > 0) {
+    f.roll -= dt;
+    const v = 4.2 * Math.min(1, f.roll / 0.25 + 0.3), h = f.h;
+    f.x += (Math.cos(h) * f.rollSide + Math.sin(h) * f.rollFwd) * v * dt; f.z += (-Math.sin(h) * f.rollSide + Math.cos(h) * f.rollFwd) * v * dt;
+  }
   // fiato: si consuma scattando, si ricarica camminando; finito il fiato, 5 s di recupero
   if (f.tired > 0) { f.tired = Math.max(0, f.tired - dt); if (f.tired === 0) f.stamina = FOOT.staminaMax; }
   const sprinting = wantSprint && f.tired === 0 && !f.air && f.stamina > 0 && !(G.weapons && G.weapons.drawn && (G.weapons.ads > 0.3 || G.weapons.fireHeld));
@@ -461,12 +480,13 @@ function updateFoot(dt, ctl) {
     f.us = (f.us || 0) + (want - (f.us || 0)) * Math.min(1, dt * 8);
     if (!f.air) { f.x += Math.cos(f.h) * f.us * dt; f.z -= Math.sin(f.h) * f.us * dt; }
   } else { f.us = 0; f.h += ctl.steer * turn * dt; }
-  const slow = armed && W.ads > 0.5 ? 0.65 : 1;
+  const slow = (armed && W.ads > 0.5 ? 0.65 : 1) * (f.sneak ? 0.5 : 1) * (f.roll > 0 ? 0 : 1);
   const sp = (fwd > 0 ? (f.tired > 0 ? FOOT.tiredSpeed : sprinting ? FOOT.sprint : FOOT.walk) : fwd < 0 ? -FOOT.back : 0) * slow;
   if (!f.air) f.u += (sp - f.u) * Math.min(1, dt * (sp > f.u ? (sprinting ? 4 : 7) : 9));
   f.sprint = sprinting;
   // salto (sul fronte del tasto, non a ripetizione tenendolo premuto)
-  if (jump && !f.jumpHeld && !f.air && f.tired === 0 && f.land < 0.5) {
+  if (jump && !f.jumpHeld && !f.air && f.tired === 0 && f.land < 0.5 && !(f.roll > 0)) {
+    f.sneak = false;
     f.vy = FOOT.jumpV; f.air = true; f.stamina = Math.max(0, f.stamina - 0.6);
     // scavalcare (come in GTA): un muretto, una recinzione o una siepe alti fino a 2 m subito davanti
     // si superano con la spinta giusta; gli edifici (piu' alti) no
@@ -1059,9 +1079,24 @@ function loop(now) {
   if (G.police && G.police.freeze > 0 && !G.foot.on) { ctl.throttle = 0; ctl.brake = 0; ctl.steer = 0; ctl.handbrake = 1; }
   if (ctl.actions.has('pause')) { togglePause(true); return; }
   if (inp.consume('KeyC') || ctl.actions.has('camera')) { G.camMode = (G.camMode + 1) % 4; showToast(CAM_NAMES[G.camMode], 1000); }
-  if (inp.consume('KeyM') || ctl.actions.has('map')) { openMap('dest'); return; }
+  if (inp.consume('KeyM') || (ctl.actions.has('map') && !G.career.panel)) { openMap('dest'); return; }
   if (inp.consume('KeyN')) $('mini-wrap').classList.toggle('hidden');
-  if (inp.consume('KeyH') || ctl.actions.has('lights')) { G.lightsOn = !G.lightsOn; showToast(G.lightsOn ? 'Fari accesi' : 'Fari spenti', 900); }
+  // croce destra: vicino a un distributore, un'officina o un concessionario (fermi) entra, come in GTA V; altrimenti fari
+  const padNear = ctl.actions.has('lights') && G.career.near && (G.foot.on || Math.abs(G.vehicle.u) < 1);
+  if (padNear) G.career.interact();
+  else if (inp.consume('KeyH') || ctl.actions.has('lights')) { G.lightsOn = !G.lightsOn; showToast(G.lightsOn ? 'Fari accesi' : 'Fari spenti', 900); }
+  // pannelli di negozi e lavori con il gamepad: croce su/giu' scorre, A/croce sceglie, B/cerchio chiude
+  {
+    const N = G.padNav || (G.padNav = {}), edge = (k) => ctl[k] && !N[k];
+    if (G.career.panel) {
+      if (edge('dpadUp')) G.career.move(-1);
+      if (edge('dpadDown')) G.career.move(1);
+      if (edge('padA')) G.career.choose(G.career.sel || 0);
+      if (edge('padB')) G.career.close();
+    } else if (ctl.actions.has('jobs')) G.career.jobs();       // croce su: il "telefono" con i lavori
+    for (const k of ['dpadUp', 'dpadDown', 'padA', 'padB']) N[k] = ctl[k];
+    if (G.career.panel) { ctl.sprint = false; ctl.actions.delete('reload'); ctl.actions.delete('map'); }
+  }
   if (!G.foot.on && (inp.consume('KeyR') || ctl.actions.has('reset'))) { if (G.career.tow()) respawnOnRoad(); else respawnOnRoad(); }
   if (inp.consume('KeyJ')) G.career.jobs();
   if (inp.consume('KeyG')) G.career.interact();
@@ -1120,7 +1155,7 @@ function loop(now) {
   const W = G.weapons, armed = W.drawn && f.on;
   const shot = W.shotFlag; W.shotFlag = false;
   const sp3 = Math.hypot(f.u, f.us || 0) * (f.u < -0.1 ? -1 : 1);
-  if (G.playerModel.update(dt, { on: f.on, x: f.x, y: f.y, z: f.z, h: f.h, speed: sp3, air: f.air, vy: f.vy || 0, land: f.land || 0, tired: f.tired > 0, armed, aimPitch: armed ? W.aimPitch : 0, reloading: armed && !!W.reload, shot }))
+  if (G.playerModel.update(dt, { on: f.on, x: f.x, y: f.y, z: f.z, h: f.h, speed: sp3, air: f.air, vy: f.vy || 0, land: f.land || 0, tired: f.tired > 0, armed, aimPitch: armed ? W.aimPitch : 0, reloading: armed && !!W.reload, shot, sneak: !!f.sneak, roll: f.roll > 0 ? f.roll : 0, rollSide: f.rollSide || 0 }))
     G.peds.drawPlayer(false, f.x, f.y, f.z, f.h, f.gait, f.u, dt);     // figura semplice nascosta
   else G.peds.drawPlayer(f.on, f.x, f.y, f.z, f.h, f.gait, f.u, dt, { air: f.air ? 1 : 0, vy: f.vy || 0, tired: f.tired > 0 ? 1 : 0, land: Math.min(1, f.land || 0), still: Math.abs(f.u) < 0.4,
     aim: armed ? (W.reload ? 0.35 : 0.75 + 0.25 * W.ads) : 0, aimPitch: armed ? W.aimPitch * 0.9 : 0, twoHands: armed && W.w.def.id !== 'pistol' });
