@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { makeCarFleet, registerBody } from './vendor/city/car.js';
+import { makeCarFleet, registerBody, bodySpec } from './vendor/city/car.js';
 
 // Carrozzerie del traffico: oltre alle quattro di base, quelle delle auto guidabili (bds-*, registrate
 // in cars.js) e sei sagome in piu' solo per il traffico. Ogni posto della flotta ne ha una fissa.
@@ -9,12 +9,22 @@ registerBody('tr-mpv', 'wagon', { sz: 1.0, sy: 1.13, sx: 1.0, wheelR: 0.33 });
 registerBody('tr-coupe', 'car', { sz: 0.97, sy: 0.9, sx: 1.02 });
 registerBody('tr-limo', 'car', { sz: 1.1, sy: 1.02, sx: 1.03 });
 registerBody('tr-minivan', 'van', { sz: 0.88, sy: 0.86, sx: 0.95, wheelR: 0.32 });
-export const FLEET_VARIANTS = {
+// Con le auto vere (src/realcars.js, caricate all'avvio) il traffico usa i loro modelli: le berline e le
+// sportive al posto delle "auto", SUV, monovolume e citycar al posto delle "familiari" (le piu' comuni
+// ripetute). Se i modelli non ci sono restano le carrozzerie disegnate.
+const FLEET_DRAWN = {
   car: ['car', 'bds-sedan', 'bds-sport', 'tr-coupe', 'tr-limo'],
   wagon: ['wagon', 'bds-city', 'bds-compact', 'bds-suv', 'tr-hatch', 'tr-estate', 'tr-mpv'],
   van: ['van', 'bds-van', 'tr-minivan'],
   bus: ['bus'],
 };
+const FLEET_REAL = {
+  car: ['rc-accord', 'rc-accord', 'rc-model3', 'rc-model3', 'rc-camaro', 'rc-mustang', 'rc-c8', 'rc-miata'],
+  wagon: ['rc-crv', 'rc-crv', 'rc-mini', 'rc-mini', 'rc-odyssey', 'rc-grandcherokee', 'rc-tahoe'],
+  van: ['van', 'bds-van', 'tr-minivan', 'rc-f150'],
+  bus: ['bus'],
+};
+export const FLEET_VARIANTS = new Proxy({}, { get: (_, t) => { const r = (FLEET_REAL[t] || []).filter((n) => bodySpec(n)); return r.some((n) => n.startsWith('rc-')) ? r : FLEET_DRAWN[t]; } });
 // a quale veicolo guidabile corrisponde una carrozzeria (salendo su un'auto del traffico)
 export const BODY_SPEC = { car: 'sedan', wagon: 'compact', van: 'van', bus: 'bus', 'tr-hatch': 'city', 'tr-estate': 'compact', 'tr-mpv': 'suv', 'tr-coupe': 'sport', 'tr-limo': 'sedan', 'tr-minivan': 'van' };
 import { VEHICLE_BOX, fleetTypeFor } from './vendor/city/vehicles.js';
@@ -27,6 +37,12 @@ import { signalState } from './signs.js';
 // familiari, furgoni, autobus) sono la flotta istanziata del progetto "city".
 // Qui vivono anche le auto parcheggiate nei parcheggi reali e quelle lasciate dal giocatore.
 const SLOTS = 72, FAR = 1e6, PALETTE = 14;
+
+// ingombro: quello misurato sul modello vero, se la carrozzeria e' una delle auto vere
+const boxOf = (fleet, slot, type) => {
+  const b = fleet.bodyOf ? bodySpec(fleet.bodyOf(slot)) : null;
+  return b && b.real ? { halfL: b.real.meta.length / 2, halfW: b.real.meta.width * 0.45 } : VEHICLE_BOX[type];
+};
 
 export class Traffic {
   constructor(world) {
@@ -112,7 +128,7 @@ export class Traffic {
       const s = (dir > 0 ? nr.t : 1 - nr.t) * segLen;
       if (this.cars.some((c) => Math.hypot(c.x - nr.px, c.z - nr.pz) < 25)) continue;
       const slot = this.free.splice(si, 1)[0], type = fleetTypeFor(slot);
-      const car = { slot, type, box: VEHICLE_BOX[type], colour: Math.floor(Math.random() * PALETTE), wi: nr.wi, k: nr.k, dir, s,
+      const car = { slot, type, box: boxOf(this.fleet, slot, type), colour: Math.floor(Math.random() * PALETTE), wi: nr.wi, k: nr.k, dir, s,
         speed: Math.min(w.limit, 50) / 3.6 * 0.7, x: nr.px, z: nr.pz, y: 0, h: 0, slope: 0,
         mood: (type === 'bus' ? 0.74 : 0.86) + Math.random() * 0.2, next: null, yield: false, bumped: 0, stuck: 0 };
       this.chooseNext(car);

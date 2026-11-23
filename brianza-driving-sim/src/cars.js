@@ -3,6 +3,8 @@ import { makeCar, registerBody, bodySpec } from './vendor/city/car.js';
 import { PLANE_SPEC } from './plane.js';
 import { JET_SPEC } from './jet.js';
 import { BIKES } from './bike.js';
+import { REAL_IDS, buildRealCar, heroReady } from './realcars.js';
+import { REAL_INDEX } from './realcars-data.js';
 
 // Parco auto: dati tecnici indicativi. I modelli 3D sono quelli del progetto "city" di
 // donmutti (src/vendor/city/car.js), con carrozzerie derivate per le nostre sei auto.
@@ -18,11 +20,47 @@ export const CARS = [
   { id: 'bus', hidden: true, base: 'bus', sz: 1, sy: 1, sx: 1, name: 'Autobus di linea', desc: '', body: 'bus', L: 10.05, W: 2.5, H: 2.9, wb: 5.9, color: '#d9651c', mass: 11500, kw: 210, nm: 1100, rpmMax: 2400, gears: [6.3, 3.4, 2.0, 1.35, 1.0, 0.78], final: 5.2, drive: 'R', cda: 3.6, brake: 62000, steer: 0.72, grip: 0.85, wheelR: 0.48 },
 ];
 
+// Auto vere (modelli 3D di OSDS, CC BY 4.0: crediti nel menu e in src/realcars-data.js). Dati di guida
+// dalle schede tecniche di OSDS (prove su strada pubblicate); nomi generici, senza marchi.
+const REAL_NAMES = {
+  mini: { name: 'Citycar 2.0 Turbo', desc: 'Piccola, bassa e scattante: nata per i centri storici.', color: '#b8322a', base: 'wagon' },
+  miata: { name: 'Roadster 1.8', desc: 'Due posti scoperta, leggera e a trazione posteriore: pura guida.', color: '#1f4a36', base: 'car' },
+  accord: { name: 'Berlina 1.5 Turbo', desc: 'Grande berlina comoda e silenziosa (colore originale del modello).', color: '#e8e8e6', base: 'car', fixed: true,
+    spec: { mass: 1440, kw: 143, nm: 260, rpmMax: 6500, gears: [3.5, 2.1, 1.4, 1.0, 0.8, 0.65], final: 3.9, drive: 'F', cda: 0.66, mu: 0.95 } },
+  model3: { name: 'Berlina elettrica', desc: 'Silenziosa e prontissima: tutta la coppia subito.', color: '#8a1414', base: 'car',
+    spec: { rpmMax: 16000, gears: [1.0], final: 9.04 } },
+  crv: { name: 'SUV compatto 1.5 Turbo', desc: 'Il SUV da tutti i giorni: alto, spazioso, parsimonioso.', color: '#2f5c93', base: 'wagon' },
+  odyssey: { name: 'Monovolume 3.5 V6', desc: 'Otto posti e porte scorrevoli: la famiglia in viaggio.', color: '#4a4f57', base: 'wagon' },
+  grandcherokee: { name: 'SUV 4x4 6.4 V8', desc: 'Fuoristrada di lusso con un V8 da sportiva.', color: '#7a2f3a', base: 'wagon' },
+  tahoe: { name: 'SUV grande 5.3 V8', desc: 'Enorme e imponente: nelle vie strette ci si passa a fatica.', color: '#203f6b', base: 'wagon',
+    spec: { mass: 2500, kw: 265, nm: 519, rpmMax: 5600, gears: [4.03, 2.36, 1.53, 1.15, 0.85, 0.67], final: 3.08, drive: 'A', cda: 1.2, mu: 0.9 } },
+  f150: { name: 'Pick-up 3.5 V6 Biturbo', desc: 'Pick-up da deserto: sospensioni lunghe e gomme tassellate.', color: '#2f5d9a', base: 'van' },
+  mustang: { name: 'Cabriolet classica V8 (1965)', desc: "Muscle car d'epoca scoperta, colore originale del modello.", color: '#1b2a5a', base: 'car', fixed: true },
+  camaro: { name: 'Coupe anni 80 V8', desc: 'Lunga, bassa e a trazione posteriore: sovrasterzo garantito.', color: '#9e0c0e', base: 'car' },
+  c8: { name: 'Supercar V8 a motore centrale', desc: 'La piu\' veloce del parco: motore dietro i sedili, 8 marce.', color: '#a3140f', base: 'car' },
+};
+for (const id of REAL_IDS) {
+  const r = REAL_INDEX[id], n = REAL_NAMES[id] || { name: id, desc: '', color: '#888888', base: 'car' };
+  const s = { ...(r.spec || {}), ...(n.spec || {}) };
+  if (!s.mass) continue;
+  const W = Math.min(r.width * 0.9, 2.1);   // larghezza della scocca (il modello misura anche gli specchietti)
+  CARS.push({
+    id, real: id, base: n.base, name: n.name, desc: n.desc, color: n.color, fixedColor: !!n.fixed,
+    sz: r.length / 4.4, sy: r.height / 1.45, sx: W / 1.82, wheelR: r.tyreR,
+    L: r.length, W, H: r.height, wb: r.wheelbase,
+    mass: s.mass, kw: s.kw, nm: s.nm, rpmMax: s.rpmMax, gears: s.gears, final: s.final, drive: s.drive || 'F', cda: s.cda || 0.7,
+    brake: Math.round(s.mass * 8.8), steer: r.wheelbase > 3.2 ? 0.56 : 0.6, grip: Math.max(0.92, Math.min(1.2, (s.mu || 0.9) / 0.88)),
+  });
+}
+// le auto disegnate a mano restano nel codice (test, salire sulle auto del traffico) ma il menu
+// mostra quelle vere; furgone e autobus restano
+for (const c of CARS) if (['city', 'compact', 'sedan', 'suv', 'sport'].includes(c.id)) c.menuHidden = true;
+
 CARS.push(...BIKES);     // moto da corsa
 CARS.push(PLANE_SPEC);   // aereo da turismo: si sceglie dal menu come un'auto
 CARS.push(JET_SPEC);     // caccia a reazione per gli spostamenti veloci
 for (const c of CARS) if (c.base !== 'bus' && !c.kind) registerBody('bds-' + c.id, c.base, { sz: c.sz, sy: c.sy, sx: c.sx, wheelR: c.wheelR });
-const bodyName = (spec) => (spec.base === 'bus' ? 'bus' : 'bds-' + spec.id);
+const bodyName = (spec) => (spec.base === 'bus' ? 'bus' : spec.real && bodySpec('rc-' + spec.real) ? 'rc-' + spec.real : 'bds-' + spec.id);
 
 const darkMat = new THREE.MeshLambertMaterial({ color: 0x222426 });
 
@@ -45,6 +83,7 @@ export function buildCarModel(spec, opts = {}) {
   const root = new THREE.Group();
   // opts.body: carrozzeria precisa (l'auto del traffico su cui si e' saliti), altrimenti quella del modello
   const name = opts.body && bodySpec(opts.body) ? opts.body : bodyName(spec), B = bodySpec(name);
+  if (B.real) return buildRealModel(spec, B, opts);
   const ext = makeCar(new THREE.Color(opts.color || spec.color).getHex(), { body: name });
   // la scocca arretra di un soffio nel depth buffer: fanali e modanature a filo non sfarfallano
   const hullMat = ext.children[0] && ext.children[0].material;
@@ -157,3 +196,37 @@ export function drawCluster(canvas, tex, kmh, rpm, rpmMax, gear, limit) {
   if (limit) { c.fillStyle = '#fff'; c.font = 'bold 13px Arial'; c.fillText('Limite ' + limit, 200, 90); }
   tex.needsUpdate = true;
 }
+
+// Auto vera: il modello completo (o, finche' non e' caricato, quello del traffico). Nell'abitacolo si
+// vede l'interno del modello stesso: niente cruscotto disegnato, solo il punto di vista del guidatore.
+function buildRealModel(spec, B, opts) {
+  const root = new THREE.Group();
+  const M = B.real.meta;
+  const colour = new THREE.Color(opts.color || spec.color).getHex();
+  const { car, wheelPivots } = buildRealCar(B, colour, { police: opts.police });
+  root.add(car);
+  const wheels = wheelPivots.map((p, i) => ({ pivot: p, front: i < 2 }));
+  const interior = new THREE.Group();
+  interior.visible = false;
+  root.add(interior);
+  // occhio del guidatore (guida a sinistra = +X): a meta' altezza tra cintura e tetto, ~1,5 m
+  // dietro l'asse anteriore (piu' indietro sulle auto lunghe e basse)
+  const low = M.height < 1.35;
+  root.userData.eye = new THREE.Vector3(M.wheelX * 0.42, Math.max(1.0, M.height * (low ? 0.8 : 0.72)), M.wheelZ[0] - (low ? 1.45 : 1.2));
+  // meglio: dalla base del parabrezza (il vetro piu' avanti al centro dell'auto) e dall'altezza del tetto
+  const gp = B.real.geo.hi.glass && B.real.geo.hi.glass.attributes.position;
+  if (gp) {
+    let wsZ = -1e9, wsY = 0, roofY = 0;
+    for (let i = 0; i < gp.count; i++) {
+      const x = gp.getX(i), y = gp.getY(i), z = gp.getZ(i);
+      if (Math.abs(x) < 0.35 && y > 0.7 && z > wsZ) { wsZ = z; wsY = y; }
+      roofY = Math.max(roofY, y);
+    }
+    if (wsZ > M.wheelZ[1] && roofY > wsY) root.userData.eye.set(M.wheelX * 0.42, wsY + 0.5 * (roofY - wsY), Math.min(wsZ - 0.85, M.wheelZ[0] - 1.2));   // parabrezza molto avanzato (monovolume): non oltre 1,2 m dietro l'asse anteriore
+  }
+  root.userData.realId = B.real.id;
+  root.userData.full = car.userData.full;
+  // nell'abitacolo il modello resta visibile (exterior vuoto): e' lui l'interno
+  return { root, ext: car, wheels, headlight: car.userData.headlight, tailGlow: car.userData.tailGlow, lamps: car.userData.lamps, interior, steeringWheel: null, dashCanvas: null, dashTex: null, exterior: [], realId: B.real.id };
+}
+export { heroReady };

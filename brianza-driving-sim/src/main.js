@@ -5,6 +5,7 @@ import { RoadNetwork, CLS } from './roads.js';
 import { World } from './world.js';
 import { Sky } from './sky.js';
 import { CARS, buildCarModel, drawCluster, stripLights } from './cars.js';
+import { loadRealFleet, loadHero, realCredits } from './realcars.js';
 import { buildBikeModel } from './bike.js';
 import { Vehicle } from './vehicle.js';
 import { Plane, buildPlaneModel, drawPlaneCluster } from './plane.js';
@@ -108,6 +109,8 @@ async function boot() {
   G.net.addNav(netData);
   setLoad(0.9, 'Preparazione del navigatore'); await pause();
   G.router = new Router(G.net);
+  setLoad(0.92, 'Auto'); await pause();
+  await loadRealFleet((d, n) => setLoad(0.92 + d / n * 0.08, `Auto: ${d} di ${n} modelli`));
   setLoad(1, 'Pronto');
   clearInterval(BOOT.timer);
   $('loading').classList.add('hidden');
@@ -158,20 +161,26 @@ function setupMenu() {
     p.textContent = `Forme e altezze degli edifici${G.meta.height.step < 20 ? ' e altimetria di dettaglio' : ''}: DBGT – Database Geo-Topografico di Regione Lombardia (${G.meta.dbgt.join(', ')}).`;
     document.querySelector('#menu .credits').appendChild(p);
   }
+  if (!$('carcredit')) {
+    const p = document.createElement('div'); p.id = 'carcredit';
+    p.textContent = 'Modelli 3D delle auto (dal progetto OSDS, CC BY 4.0): ' + realCredits().join('; ') + '.';
+    document.querySelector('#menu .credits').appendChild(p);
+  }
   const carsEl = $('cars');
   carsEl.innerHTML = '';
+  if (CARS[G.carIdx].menuHidden || CARS[G.carIdx].hidden) G.carIdx = Math.max(0, CARS.findIndex((c) => c.id === 'mini'));
   CARS.forEach((c, i) => {
-    if (c.hidden) return;
+    if (c.hidden || c.menuHidden) return;
     const d = document.createElement('div');
     d.className = 'car panel' + (i === G.carIdx ? ' sel' : '');
     const spec = c.jet
       ? `<span>spinta ${c.thrustKN} kN</span><span>${c.mass} kg</span><span>fino a ~${Math.round(c.vNe * 0.75 * 3.6 / 50) * 50} km/h</span><span>decollo ~${Math.round(c.vRot * 3.6)} km/h</span>`
       : c.kind === 'plane'
       ? `<span>${Math.round(c.kw * 1.36)} CV</span><span>${c.mass} kg</span><span>apertura ${c.W} m</span><span>decollo ~${Math.round(c.vRot * 3.6)} km/h</span>`
-      : `<span>${Math.round(c.kw * 1.36)} CV</span><span>${c.mass} kg</span><span>${c.gears.length} marce aut.</span><span>${{ F: 'Anteriore', R: 'Posteriore', A: '4x4' }[c.drive]}</span>`;
+      : `<span>${Math.round(c.kw * 1.36)} CV</span><span>${c.mass} kg</span><span>${c.gears.length > 1 ? c.gears.length + ' marce aut.' : 'elettrica'}</span><span>${{ F: 'Anteriore', R: 'Posteriore', A: '4x4' }[c.drive]}</span>`;
     d.innerHTML = `<div class="sw" style="background:${c.kind === 'plane' ? c.stripe : c.color}"></div><b>${c.kind === 'plane' ? '✈ ' : c.kind === 'bike' ? '🏍 ' : ''}${c.name}</b><small>${c.desc}</small>
       <div class="spec">${spec}</div>`;
-    d.onclick = () => { G.carIdx = i; [...carsEl.children].forEach((e) => e.classList.toggle('sel', e === d)); };
+    d.onclick = () => { G.carIdx = i; [...carsEl.children].forEach((e) => e.classList.toggle('sel', e === d)); if (c.real) loadHero(c.real); };
     carsEl.appendChild(d);
   });
   const sel = $('start');
@@ -321,6 +330,19 @@ function makePlayer(spec = CARS[G.carIdx], color = null, body = null) {
   } else {
     G.vehicle = new Vehicle(spec, G.world);
     G.carModel = buildCarModel(spec, { interior: true, color, body });
+    // auto vera: finche' il modello completo (con le texture) non e' caricato si guida quello del
+    // traffico; appena arriva si sostituisce, senza toccare la fisica
+    const rid = G.carModel.realId;
+    if (rid && !G.carModel.root.userData.full) {
+      const veh = G.vehicle;
+      loadHero(rid).then((h) => {
+        if (!h || G.vehicle !== veh || !G.carModel || G.carModel.realId !== rid || G.carModel.root.userData.full) return;
+        const old = G.carModel, nm = buildCarModel(spec, { interior: true, color, body });
+        nm.headlight.intensity = old.headlight ? old.headlight.intensity : 0;
+        G.scene.remove(old.root); G.carModel = nm; G.scene.add(nm.root);
+        nm.root.position.copy(old.root.position); nm.root.quaternion.copy(old.root.quaternion);
+      });
+    }
   }
   // sempre un faro e un bagliore sul veicolo del giocatore (l'aereo li usa come luce di atterraggio):
   // il numero di luci in scena resta fisso e cambiando veicolo non si ricompilano gli shader
@@ -390,7 +412,7 @@ function enterCar() {
     const got = best === dCar ? T.take(car) : T.takeParked(spot);
     // si guida proprio la carrozzeria che si vedeva (con i dati tecnici del modello piu' vicino)
     const ids = TYPE_SPECS[got.type] || TYPE_SPECS.car;
-    const byBody = got.body && (got.body.startsWith('bds-') ? got.body.slice(4) : BODY_SPEC[got.body]);
+    const byBody = got.body && (got.body.startsWith('rc-') ? got.body.slice(3) : got.body.startsWith('bds-') ? got.body.slice(4) : BODY_SPEC[got.body]);
     const spec = CARS.find((c) => c.id === byBody) || CARS.find((c) => c.id === ids[got.colour % ids.length]);
     makePlayer(spec, '#' + fleetPalette[got.colour % fleetPalette.length].toString(16).padStart(6, '0'), got.body);
     G.vehicle.place(got.x, got.z, got.h);

@@ -657,8 +657,19 @@ export function makeCarFleet(count, opts = {}) {
   const meshes = {};              // type -> {sets: [vicino, lontano], spec}
   const route = new Array(count); // slot i -> {type, set (0 nessuno, 1 vicino, 2 lontano), local}
   const viewer = {x: 0, z: 0};
+  const empty = () => { const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.Float32BufferAttribute([], 3)); return g; };
   const mkSet = (spec, n, lo) => {
-    const s = {
+    // carrozzerie vere (src/realcars.js): le geometrie arrivano gia' pronte dal modello importato
+    const RG = spec.real && spec.real.geo[lo ? 'lo' : 'hi'];
+    const s = RG ? {
+      body: new THREE.InstancedMesh(RG.paint || empty(), paint, n),
+      trim: RG.trim ? new THREE.InstancedMesh(RG.trim, trimM, n) : null,
+      glass: new THREE.InstancedMesh(RG.glass || empty(), glassM, n),
+      lamps: new THREE.InstancedMesh(RG.lamps || empty(), lampM, n),
+      wheels: new THREE.InstancedMesh(RG.wheel || empty(), wheelM, n * 4),
+      shadow: new THREE.InstancedMesh(shadowGeo, shadowM, n),
+      n: 0, slotAt: new Int32Array(n),
+    } : {
       body: new THREE.InstancedMesh(fleetBodyGeometry(spec, lo), paint, n),
       trim: lo ? null : new THREE.InstancedMesh(fleetTrimGeometry(spec), trimM, n),
       glass: new THREE.InstancedMesh(fleetGlassGeometry(spec), glassM, n),
@@ -668,6 +679,7 @@ export function makeCarFleet(count, opts = {}) {
       n: 0, slotAt: new Int32Array(n),
     };
     s.body.castShadow = !lo;
+    if (RG && s.trim) s.trim.castShadow = !lo;
     s.list = [s.body, s.trim, s.glass, s.lamps, s.shadow].filter(Boolean);
     for (const m of [...s.list, s.wheels]) { m.frustumCulled = false; m.count = 0; m.visible = false; group.add(m); }
     s.shadow.renderOrder = 1;
@@ -677,7 +689,7 @@ export function makeCarFleet(count, opts = {}) {
     const n = slotsOf[t].length;
     if (n === 0) continue;
     const spec = BODIES[t];
-    const an = anchors(spec);
+    const an = spec.real ? spec.real.meta : anchors(spec);
     meshes[t] = {sets: [null, mkSet(spec, n, false), mkSet(spec, n, true)], spec,
       shadowM: new THREE.Matrix4().compose(new THREE.Vector3(0, 0.035, (an.noseZ + an.tailZ) / 2), new THREE.Quaternion(), new THREE.Vector3(an.halfW * 2 + 0.6, 1, an.noseZ - an.tailZ + 0.7))};
     slotsOf[t].forEach((slot) => { route[slot] = {type: t, set: 0, local: -1}; });
@@ -715,6 +727,7 @@ export function makeCarFleet(count, opts = {}) {
   const c = new THREE.Color();
   const up = new THREE.Vector3(0, 1, 0), normal = new THREE.Vector3(), tilt = new THREE.Quaternion();
   const slope = new THREE.Matrix4();
+  const flipY = new THREE.Matrix4().makeRotationY(Math.PI);
 
   const setAt = (i, x, z, rotY, colourIndex = 0, elevation = groundHeight(x, z)) => {
     const r = route[i]; if (!r) return;
@@ -760,6 +773,7 @@ export function makeCarFleet(count, opts = {}) {
     for (let k = 0; k < 4; k++) {
       const front = k < 2, sx = (k % 2) ? -wx : wx;
       mL.makeRotationX(spinA[i]);
+      if (spec.real && sx < 0) mL.multiply(flipY);    // ruota vera: quella destra e' la sinistra girata
       if (front && steerA[i]) { mS.makeRotationY(steerA[i]); mL.premultiply(mS); }
       mL.setPosition(sx, wy, front ? zf : zr);
       mOut.multiplyMatrices(mW, mL);
@@ -1144,4 +1158,10 @@ export function registerBody(name, base, {sz = 1, sy = 1, sx = 1, wheelR} = {}) 
   return s;
 }
 export function bodySpec(name) { return BODIES[name]; }
+// carrozzeria da un modello vero importato (src/realcars.js): geometrie del traffico e misure
+export function registerRealBody(name, real) {
+  const m = real.meta;
+  BODIES[name] = { real, wheelZ: m.wheelZ, wheelX: m.wheelX, wheelR: m.wheelR };
+  return BODIES[name];
+}
 export const fleetPalette = FLEET_PALETTE;

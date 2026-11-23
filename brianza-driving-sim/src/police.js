@@ -15,9 +15,9 @@ import { CLS } from './roads.js';
 //  - Arresto: fermo (o chiuso tra due volanti) vicino alla polizia per qualche secondo; poi i
 //    comandi restano bloccati un attimo e le volanti tornano in servizio normale. Fuga: nessuna volante ti vede per
 //    abbastanza tempo (piu' stelle, piu' tempo).
-const SPEC = { ...CARS.find((c) => c.id === 'sedan'), name: 'Volante', kw: 200, nm: 430, grip: 1.12, brake: 15500, color: '#1d3d7a' };
+const SPEC = { ...(CARS.find((c) => c.id === 'crv') || CARS.find((c) => c.id === 'sedan')), fixedColor: false, name: 'Volante', kw: 200, nm: 430, grip: 1.12, brake: 15500, color: '#1d3d7a' };
 // auto in fuga (missione di inseguimento): una compatta veloce
-const RUNNER = { ...CARS.find((c) => c.id === 'compact'), name: 'Fuggitivo', kw: 150, color: '#c9c9c4' };
+const RUNNER = { ...(CARS.find((c) => c.id === 'accord') || CARS.find((c) => c.id === 'compact')), name: 'Fuggitivo', kw: 150, color: '#c9c9c4' };
 
 // distanza a cui una volante si accorge di un'infrazione (rosso, velocita', speronamento): prima 140 m
 const WITNESS_R = 50;

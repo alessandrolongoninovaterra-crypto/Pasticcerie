@@ -198,8 +198,55 @@ liberty3d, di cui non si usa codice), sui luoghi reali della mappa:
   cartelli, paline e pensiline cilindrici, lampioni e pali più tondi, colonne dei portici rotonde
   con plinto, echino e abaco, statue e cavalli fatti di forme tonde, chiome degli alberi
   ombreggiate come sfere (stessi triangoli di prima), siepi con il dorso arrotondato.
-- Nessuna auto riproduce un modello o un marchio reale: sono auto "di segmento" (city car,
-  compatta, berlina, SUV, sportiva, furgone).
+- Le auto disegnate a mano restano per furgone, autobus e come riserva; quelle del menu e del
+  traffico ora sono i modelli 3D veri descritti sotto.
+
+## Auto vere (dal progetto OSDS)
+
+Dodici modelli 3D di auto reali presi dal progetto open source
+[OSDS – Open Source Driving Simulator](https://github.com/simcruisegame/osds) (Unreal Engine 5,
+codice MIT). I modelli sono di autori di Sketchfab e del simulatore CARLA, tutti sotto licenza
+**CC BY 4.0** (uso libero citando l'autore): i crediti sono nel menu del gioco e in
+`data/cars/index.json`.
+
+| Nel gioco | Modello 3D (autore) |
+|---|---|
+| Citycar 2.0 Turbo | "MINI Cooper" del simulatore CARLA (CARLA Team) |
+| Roadster 1.8 | "Mazda MX-5 (NB) convertible HQ interior" (Nieve5677) |
+| Berlina 1.5 Turbo | "2018 Honda Accord" (roflowhale) |
+| Berlina elettrica | "Tesla M3 model" (wintrez) |
+| SUV compatto 1.5 Turbo | "2025 Honda CR-V 1.5 VTEC Turbo CVT" (Palma123 JAAT) |
+| Monovolume 3.5 V6 | "Honda Odessey" (MattDoesBlender) |
+| SUV 4x4 6.4 V8 | "2013 Jeep Grand Cherokee SRT8" (Galaxy Car Showroom) |
+| SUV grande 5.3 V8 | "Chevrolet Tahoe Suv" (maznalamri80) |
+| Pick-up 3.5 V6 Biturbo | "2018 Ford F-150 Raptor" (Galaxy Car Showroom) |
+| Cabriolet classica V8 (1965) | "1965 Ford Mustang Convertible" (Kristian LaGrange) |
+| Coupe anni 80 V8 | "1985 Chevrolet Camaro IROC-Z" (Tony) |
+| Supercar V8 a motore centrale | "2019 Chevrolet Corvette C8 Stingray" (Hari Prasath R) |
+
+- **Conversione** (`tools/import-cars.mjs`, da lanciare sulla cartella di OSDS): ogni modello viene
+  raddrizzato nel sistema del gioco e portato alla lunghezza vera; le quattro ruote si trovano dalle
+  zone d'appoggio a terra e si staccano dalla scocca con il perno al mozzo (girano e sterzano);
+  vernice, vetri, fanali e pneumatici si riconoscono dai nomi dei materiali (ruoli presi dal file
+  `CarPresentation.json` di OSDS più regole nostre); targhe e loghi si tolgono dove i materiali li
+  separano. Triangoli ridotti con meshoptimizer (al massimo ~75.000 per l'auto guidata, da oltre
+  un milione nel modello originale della roadster) e texture ridotte a 1024 px.
+- **Due versioni per auto**: quella completa con le texture (`data/cars/<id>.js`, 1–5 MB, si carica
+  solo quando la si guida: nel frattempo si guida la versione del traffico) e quella compatta per
+  traffico e parcheggi (`<id>_fleet.js`, circa 0,35 MB: ~8.000 triangoli da vicino, ~1.300 oltre i
+  60 m, colori dei materiali e delle texture riportati nei vertici, vernice colorata per istanza).
+  Le chiamate di disegno restano quelle di prima (una per parte e per modello, istanziate).
+- **Dati di guida** dalle schede tecniche di OSDS (massa, coppia, potenza, rapporti, trazione,
+  resistenza aerodinamica, aderenza delle gomme, ricavati da prove su strada pubblicate); misure e
+  passo dal modello. Nomi generici, senza marchi.
+- **Traffico e parcheggi**: berline, elettrica e sportive al posto delle "auto", SUV, monovolume e
+  citycar al posto delle "familiari", il pick-up tra i furgoni; le più comuni compaiono più spesso.
+  Ingombri per gli urti misurati sul modello.
+- **Polizia**: volanti sul SUV compatto blu con fascia e barra luminosa, fuggitivi sulla berlina.
+- **Abitacolo**: si vede l'interno vero del modello (volante, strumenti, schermi: completo nella
+  supercar, nella roadster, nella citycar e nel pick-up; i modelli di SUV e monovolume hanno interni
+  appena abbozzati) con i vetri trasparenti; l'occhio del guidatore si ricava dalla base del
+  parabrezza di ogni modello.
 
 ## Stile open world
 
