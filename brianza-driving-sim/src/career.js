@@ -14,7 +14,7 @@ const fmt = (n) => Math.round(n).toLocaleString('it');
 export class Career {
   constructor(G) {
     this.G = G;
-    this.money = 1500; this.fuel = 1; this.damage = 0;
+    this.money = 1500; this.fuel = 1;
     this.owned = ['city', 'mini']; this.up = { engine: 0, tyres: 0, brakes: 0 };
     this.stats = { deliveries: 0, chases: 0, escapes: 0, earned: 0 };
     this.mission = null; this.offers = null; this.panel = null; this.near = null;
@@ -22,15 +22,15 @@ export class Career {
     this.saveT = 0;
   }
 
-  load() { try { const s = JSON.parse(localStorage.getItem('bds-career') || 'null'); if (s) Object.assign(this, { money: s.money, fuel: s.fuel, damage: s.damage, owned: [...new Set([...(s.owned || ['city']), 'mini'])], up: s.up || this.up, stats: s.stats || this.stats }); } catch (e) { /* niente salvataggi */ } }
-  save() { try { localStorage.setItem('bds-career', JSON.stringify({ money: this.money, fuel: this.fuel, damage: this.damage, owned: this.owned, up: this.up, stats: this.stats })); } catch (e) { /* privato */ } }
+  load() { try { const s = JSON.parse(localStorage.getItem('bds-career') || 'null'); if (s) Object.assign(this, { money: s.money, fuel: s.fuel, owned: [...new Set([...(s.owned || ['city']), 'mini'])], up: s.up || this.up, stats: s.stats || this.stats }); } catch (e) { /* niente salvataggi */ } }
+  save() { try { localStorage.setItem('bds-career', JSON.stringify({ money: this.money, fuel: this.fuel, owned: this.owned, up: this.up, stats: this.stats })); } catch (e) { /* privato */ } }
 
   earn(eur, why) { this.money += eur; this.stats.earned += eur; this.G.toast(`💶 +€ ${fmt(eur)} — ${why}`, 2600); this.save(); }
   pay(eur) { this.money -= eur; this.save(); }
 
   // effetti sul veicolo: potenza (motore, danni, carburante), aderenza e freni (elaborazioni)
   apply(v) {
-    v.powerMul = (1 + 0.12 * this.up.engine) * (this.damage > 0.95 ? 0.15 : this.damage > 0.6 ? 0.65 : 1) * (this.fuel <= 0 ? 0 : 1);
+    v.powerMul = (1 + 0.12 * this.up.engine) * (this.fuel <= 0 ? 0 : 1);
     v.gripBonus = 1 + 0.07 * this.up.tyres;
     v.brakeMul = 1 + 0.18 * this.up.brakes;
   }
@@ -40,11 +40,8 @@ export class Career {
     if (!onFoot && !v.isPlane) {
       const dist = Math.abs(v.u) * dt;
       this.fuel = Math.max(0, this.fuel - dist / 650000 * (0.55 + 0.9 * (v.throttle || 0)));
-      if (v.impact > 0.18) this.damage = Math.min(1, this.damage + v.impact * 0.08);
       if (this.fuel <= 0 && !this.fuelWarn) { this.fuelWarn = true; G.toast('⛽ Benzina finita! R = carro attrezzi al distributore più vicino (€ 120)', 4500); }
       if (this.fuel > 0) this.fuelWarn = false;
-      if (this.damage > 0.95 && !this.dmgWarn) { this.dmgWarn = true; G.toast('🔧 Auto in panne: serve un\'officina (R = carro attrezzi, € 150)', 4500); }
-      if (this.damage < 0.9) this.dmgWarn = false;
     }
     this.apply(v);
     this.findNear(v, onFoot);
@@ -103,8 +100,6 @@ export class Career {
       if (W) items.push({ t: `🔫 Munizioni per tutte le armi — € ${AMMO_EUR}`, ok: low && this.money >= AMMO_EUR, go: () => { this.pay(AMMO_EUR); W.refill(); G.toast('🔫 Munizioni rifornite', 1500); } });
       if (G.say) G.say('benzinaio');
     } else if (this.near.kind === 'garage') {
-      const rep = Math.round(this.damage * 1800);
-      items.push({ t: `Riparazione carrozzeria e meccanica (danni ${Math.round(this.damage * 100)}%) — € ${fmt(rep)}`, ok: this.damage > 0.02 && this.money >= rep, go: () => { this.pay(rep); this.damage = 0; G.toast('🔧 Auto come nuova', 1800); } });
       const ups = [['engine', 'Centralina e scarico (+12% potenza)', [2200, 4800, 9000]], ['tyres', 'Gomme sportive (+7% aderenza)', [900, 1900]], ['brakes', 'Impianto frenante maggiorato (+18%)', [700, 1600]]];
       for (const [k, name, cost] of ups) {
         const lv = this.up[k];
@@ -203,20 +198,19 @@ export class Career {
   // eventi della polizia che interessano le missioni
   onPolice(e) { if (this.mission && this.mission.onPolice) this.mission.onPolice(e); }
 
-  // carro attrezzi: fuori benzina o in panne
+  // carro attrezzi: fuori benzina
   tow() {
-    const cost = this.fuel <= 0 ? 120 : this.damage > 0.95 ? 150 : 0;
+    const cost = this.fuel <= 0 ? 120 : 0;
     if (!cost) return false;
     this.pay(cost);
-    if (this.fuel <= 0) this.fuel = 0.25;
-    if (this.damage > 0.95) this.damage = 0.5;
+    this.fuel = 0.25;
     this.G.toast(`🚛 Carro attrezzi: € ${cost}`, 2500);
     return true;
   }
 
   status() {
-    const f = Math.round(this.fuel * 100), d = Math.round(this.damage * 100);
-    return `💶 € ${fmt(this.money)} · <span style="color:${f < 15 ? '#ff7b6b' : 'inherit'}">⛽ ${f}%</span>` + (d > 3 ? ` · <span style="color:${d > 60 ? '#ff7b6b' : 'inherit'}">🔧 ${d}%</span>` : '');
+    const f = Math.round(this.fuel * 100);
+    return `💶 € ${fmt(this.money)} · <span style="color:${f < 15 ? '#ff7b6b' : 'inherit'}">⛽ ${f}%</span>`;
   }
 }
 

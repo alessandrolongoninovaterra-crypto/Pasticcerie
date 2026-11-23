@@ -121,7 +121,7 @@ l'aereo e il navigatore indica la destinazione in linea d'aria.
 | T, + / - | velocità del tempo, cambia ora |
 | K | nomi dei punti di riferimento |
 | J | lavori: consegne, inseguimenti, evasioni (e abbandono del lavoro in corso) |
-| G | da fermo: distributore (pieno), officina (riparazioni, elaborazioni), concessionario (auto) |
+| G | da fermo: distributore (pieno, munizioni), officina (elaborazioni), concessionario (auto) |
 | 1-9 | scelta nei pannelli di lavori e negozi |
 | Esc | pausa: traffico, tempo, voce, audio, **configurazione volante** |
 | Tab (a piedi) | estrai / rinfodera l'arma (il mouse passa alla mira) |
@@ -129,7 +129,29 @@ l'aereo e il navigatore indica la destinazione in linea d'aria.
 | R (a piedi, arma in mano) | ricarica |
 | 1-4 / rotellina (a piedi) | pistola, mitraglietta, fucile d'assalto, fucile a pompa |
 
-Gamepad: grilletti RT/LT, stick sinistro, A freno a mano, Y visuale.
+**Gamepad, come in GTA V** (tra parentesi PlayStation):
+
+| Tasto | In auto | A piedi |
+|---|---|---|
+| stick sinistro | sterzo (in aereo anche cabra/picchia) | cammina e gira (con l'arma: passo laterale) |
+| stick destro | telecamera attorno al veicolo | telecamera; con l'arma in mano mira |
+| RT (R2) | accelera | spara |
+| LT (L2) | frena / retromarcia | mira (zoom sopra la spalla) |
+| RB (R1) | freno a mano | — |
+| Y (triangolo) | scendi | sali sul veicolo più vicino |
+| A (croce) | — | scatto |
+| X (quadrato) | — | salto / scavalcamento |
+| B (cerchio) | — | ricarica |
+| LB (L1) | — | estrai l'arma, poi cambiala; dopo l'ultima la rinfoderi |
+| L3 / R3 | clacson / guarda indietro | — / guarda indietro |
+| View (Share) | cambia visuale | cambia visuale |
+| croce: destra / giù / sinistra | fari / mappa / rimetti in strada | |
+| Menu (Options) | pausa | pausa |
+
+I gamepad senza mappatura standard (DualShock e compatibili Xbox su alcuni sistemi) usano la stessa
+disposizione dove il browser la riconosce; in pausa c'è la configurazione guidata, che ora chiede
+anche lo stick destro e i comandi a piedi (le configurazioni salvate prima prendono questi comandi
+nella posizione predefinita).
 Volanti e pedaliere (Logitech, Thrustmaster, Fanatec…) via Gamepad API: in pausa
 scegli gli assi di sterzo/acceleratore/freno (vengono mostrati in tempo reale).
 
@@ -162,15 +184,16 @@ liberty3d, di cui non si usa codice), sui luoghi reali della mappa:
   speronarti; da 3★ fanno posti di blocco davanti. **Arresto**: fermo vicino a una volante (alla stessa
   quota: non dal cavalcavia sopra) per 3 secondi, oppure chiuso tra due volanti anche se provi a
   ripartire piano; un attimo di movimento non azzera il conteggio (scende piano). Poi il veicolo
-  resta bloccato per qualche secondo, multa di 400 € per stella e punti patente, e le volanti
+  resta bloccato per qualche secondo e le volanti
   tornano in servizio normale nel traffico. **Fuga**: nessuna volante ti vede (entro 100 m e con la linea di
   vista libera da edifici, muri, siepi e recinzioni oltre 1,5 m) per 10 s + 5 s per stella, dopo che ti sei allontanato dall'ultimo
   avvistamento. Sirena bitonale, lampeggianti (luce vera di notte), volanti sulla minimappa.
-- **Economia** (salvata nel browser): soldi, carburante (circa 650 km con un pieno), danni (gli urti
-  consumano l'auto: oltre il 60% perde potenza, al 100% è in panne). Da fermo, con **G**: ai
-  **distributori** reali il pieno (1,85 €/l), nelle **officine** reali (OSM `shop=car_repair`)
-  riparazione ed elaborazioni (motore, gomme, freni), dai **concessionari** reali (`shop=car`) le
-  auto del gioco. Le multe si pagano dal conto. R con il serbatoio vuoto o in panne: carro attrezzi.
+- **Economia** (salvata nel browser): soldi e carburante (circa 650 km con un pieno). Niente multe,
+  punti patente o danni in percentuale (come in GTA: rosso, eccesso di velocità e pedoni investiti
+  contano solo per la polizia). Da fermo, con **G**: ai **distributori** reali il pieno (1,85 €/l) e
+  le munizioni, nelle **officine** reali (OSM `shop=car_repair`) le elaborazioni (motore, gomme,
+  freni), dai **concessionari** reali (`shop=car`) le auto del gioco. R con il serbatoio vuoto:
+  carro attrezzi.
 - **Missioni** (tasto **J**, tre offerte vicino a te):
   - *consegna*: ritiro in un negozio vero (pasticcerie, panetterie, fiorai, gastronomie, pizzerie
     e ristoranti di OSM) e consegna a tempo in una via vera a 1-3,5 km; il carico teme gli urti e
@@ -325,7 +348,7 @@ tiene il suo colore; finestre, persiane e vetrine non le prendono; il dettaglio 
 
 - **Pedoni** sui marciapiedi delle strade reali e nelle vie pedonali: svoltano agli incroci,
   attraversano sulle strisce quando non arrivano auto, si scansano se un'auto punta verso di loro
-  o se suoni il clacson. Se li urti cadono e poi si rialzano (e scatta la multa).
+  o se suoni il clacson. Se li urti cadono e poi si rialzano (e la polizia lo viene a sapere).
 - **A piedi** (alla GTA): `F` per scendere dall'auto. `W/S` avanti/indietro, `A/D` gira,
   **`Shift` scatta** (6,9 m/s) con il fiato contato: 15 s di scatto, poi **5 s di fiatone** in cui si
   cammina piano piegati in avanti (barra del fiato sopra la velocità: verde, rossa durante il recupero);
@@ -349,8 +372,6 @@ tiene il suo colore; finestre, persiane e vetrine non le prendono; il dettaglio 
   grado di riempimento (55–95%).
 - **Traffico**: auto, familiari, furgoni e autobus; danno la precedenza in rotatoria e nelle
   immissioni, si fermano per i pedoni e per il giocatore a piedi.
-- **Patente a punti**: autovelox reali (nodi `highway=speed_camera`), semafori rossi e pedoni
-  urtati costano multe e punti; a zero punti la patente viene sospesa e si riparte da 20.
 - **Arredo urbano reale**: panchine, cestini, paletti, idranti, rastrelliere e fontanelle dove
   OSM li mappa.
 - **Telecamera**: trascina con il mouse per ruotarla attorno all'auto o al personaggio.

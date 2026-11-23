@@ -59,7 +59,7 @@ const QUALITY = {
 const G = { started: false, paused: false, mapOpen: false, camMode: 0, route: null, dest: null, voice: true, carIdx: 0,
   foot: { on: false, x: 0, z: 0, y: 0, h: 0, u: 0, gait: 0 },       // giocatore a piedi
   orbit: { yaw: 0, pitch: 0, idle: 9 },                              // telecamera orbitale (mouse)
-  licence: 20, fines: 0, cool: {} };                                 // patente a punti e multe
+  cool: {} };                                                        // attese tra una segnalazione e l'altra
 // posizione "viva" del giocatore: l'auto oppure la persona a piedi
 const focus = () => (G.foot.on ? G.foot : G.vehicle);
 window.BDS = G; // utile per il debug dalla console
@@ -230,7 +230,7 @@ function ensureGame() {
   G.peds = new Pedestrians(G.world);
   G.weapons = new Weapons(G);
   G.peds.setTarget(q.peds);
-  G.peds.onHit = (p, speed, t) => { if (t.player) fine('ped', speed); };
+  G.peds.onHit = (p, speed, t) => { if (t.player) infraction('ped'); };
   scene.add(G.peds.group);
   if (q.bloom) {
     // alone delle luci di notte (lampioni, fari, finestre)
@@ -440,8 +440,9 @@ function updateFoot(dt, ctl) {
   const trig = !(G.weapons && G.weapons.drawn);
   let fwd = (k.has('KeyW') || k.has('ArrowUp') || (trig && ctl.throttle > 0.3) ? 1 : 0) - (k.has('KeyS') || k.has('ArrowDown') || (trig && ctl.brake > 0.3) ? 1 : 0);
   if (!fwd && stickF) fwd = Math.sign(stickF);
-  const wantSprint = (k.has('ShiftLeft') || k.has('ShiftRight') || (trig && (ctl.padThr || 0) > 0.85)) && fwd > 0;
-  const jump = ctl.handbrake > 0 || k.has('Space');
+  // gamepad come in GTA: A/croce scatta, X/quadrato salta
+  const wantSprint = (k.has('ShiftLeft') || k.has('ShiftRight') || ctl.sprint) && fwd > 0;
+  const jump = ctl.jump || k.has('Space');
   // fiato: si consuma scattando, si ricarica camminando; finito il fiato, 5 s di recupero
   if (f.tired > 0) { f.tired = Math.max(0, f.tired - dt); if (f.tired === 0) f.stamina = FOOT.staminaMax; }
   const sprinting = wantSprint && f.tired === 0 && !f.air && f.stamina > 0 && !(G.weapons && G.weapons.drawn && (G.weapons.ads > 0.3 || G.weapons.fireHeld));
@@ -517,28 +518,15 @@ function updateFoot(dt, ctl) {
   }
 }
 
-// ------------------------------------------------------------------ patente a punti
-function fine(kind, value, key = kind) {
+// ------------------------------------------------------------------ infrazioni
+// Niente multe, punti patente o danni: rosso e pedoni investiti contano solo per la polizia
+// (livello di ricerca), come in GTA.
+function infraction(kind, key = kind) {
   const now = performance.now();
-  if (G.cool[key] && now - G.cool[key] < (kind === 'camera' ? 20000 : 5000)) return;
+  if (G.cool[key] && now - G.cool[key] < 5000) return;
   G.cool[key] = now;
-  let euro = 0, pts = 0, msg = '';
-  if (kind === 'ped') { euro = 870; pts = 8; msg = 'Hai urtato un pedone!'; }
-  else if (kind === 'red') { euro = 167; pts = 6; msg = 'Passaggio con il rosso'; }
-  else if (kind === 'camera') {
-    const over = value;
-    if (over <= 10) { euro = 42; pts = 0; } else if (over <= 40) { euro = 173; pts = 3; } else if (over <= 60) { euro = 543; pts = 6; } else { euro = 845; pts = 10; }
-    msg = `Autovelox: +${Math.round(over)} km/h oltre il limite`;
-    const fl = $('flash'); fl.classList.remove('go'); void fl.offsetWidth; fl.classList.add('go');
-  }
-  if (kind === 'red' || kind === 'ped') G.police.crime(kind, G.vehicle.x, G.vehicle.z);
-  if (kind === 'arrest') { euro = value.euro; pts = value.pts; msg = value.msg; }
-  G.fines += euro; G.licence -= pts;
-  if (G.career) G.career.pay(euro);          // le multe si pagano dal conto
-  showToast(`🚨 ${msg} — multa € ${euro}${pts ? `, −${pts} punti` : ''}`, 3200);
-  if (G.licence <= 0) { G.licence = 20; setTimeout(() => showToast('🪪 Patente sospesa! Corso di recupero: riparti da 20 punti', 4000), 3300); }
-  $('licence').textContent = `🪪 ${G.licence} punti · multe € ${G.fines.toLocaleString('it')}`;
-  if (G.career) $('money').innerHTML = G.career.status();
+  if (kind === 'ped') showToast('Hai investito un pedone!', 1800);
+  G.police.crime(kind, G.vehicle.x, G.vehicle.z);
 }
 
 // battute dei personaggi per gli eventi del gioco
@@ -569,7 +557,7 @@ function policeEvents() {
     else if (e.type === 'escape') { showToast(`😮‍💨 Hai seminato la polizia (${'★'.repeat(Math.max(1, e.stars))})`, 3000); if (G.say) G.say('escape'); if (G.onEscape) G.onEscape(e.stars); }
     else if (e.type === 'arrest') {
       const st = Math.max(1, e.stars);
-      fine('arrest', { euro: 400 * st, pts: Math.min(10, 2 * st), msg: `Arrestato! (${'★'.repeat(st)})` }, 'arrest' + performance.now());
+      showToast(`🚔 Arrestato! (${'★'.repeat(st)})`, 3000);
       G.vehicle.u = G.vehicle.v = G.vehicle.w = 0;
       if (G.say) G.say('arrest');
       if (G.onArrest) G.onArrest(st);
@@ -593,14 +581,12 @@ function checkInfractions(v, kmh, now) {
   if (v.u > 3) for (const nd of [w.nodes[rd.k], w.nodes[rd.k + 1]]) {
     if (R.ntag[nd] !== NT.SIGNALS || Math.hypot(R.nx[nd] - v.x, R.nz[nd] - v.z) > 4.5) continue;
     const fx = Math.sin(v.h), fz = Math.cos(v.h);
-    if (signalState(Math.abs(fx) > Math.abs(fz) ? 1 : 0, now / 1000) === 'R') fine('red', 0, 'red' + nd);
+    if (signalState(Math.abs(fx) > Math.abs(fz) ? 1 : 0, now / 1000) === 'R') infraction('red', 'red' + nd);
   }
   // velocita' folle sotto gli occhi della polizia
   if (kmh > w.limit + 35) G.police.crime('speed', v.x, v.z);
   // incidente con il traffico
   if (v.impact > 0.45 && G.traffic.nearestCar(v.x, v.z, 6, 1e9)) G.police.crime('crash', v.x, v.z);
-  // autovelox
-  if (kmh > w.limit + 5) for (const c of G.world.cameras) if (Math.hypot(c.x - v.x, c.z - v.z) < 16) fine('camera', kmh - w.limit, 'cam' + Math.round(c.x) + '_' + Math.round(c.z));
 }
 
 function startGame() {
@@ -1188,7 +1174,11 @@ function loop(now) {
   G.world.buildings.setNight(G.sky.night);
   G.world.signage.update(now / 1000, G.sky.night);
   G.traffic.setNight(G.sky.night);
-  updateCamera(dt, inp.keys.has('KeyV'));
+  // stick destro: telecamera attorno al veicolo o al personaggio (con l'arma in mano mira, src/weapons.js)
+  if (!(G.foot.on && G.weapons.drawn) && (ctl.camX || ctl.camY)) {
+    G.orbit.yaw -= ctl.camX * dt * 2.4; G.orbit.pitch = Math.max(-0.25, Math.min(1.1, G.orbit.pitch - ctl.camY * dt * 1.3)); G.orbit.idle = 0;
+  }
+  updateCamera(dt, inp.keys.has('KeyV') || ctl.lookBack);
   G.weapons.updateFx(dt);
   G.world.updateLabels(G.camera, flying());
   updateHUD(dt);

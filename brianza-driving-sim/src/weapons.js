@@ -159,7 +159,7 @@ export class Weapons {
       this.aimYaw = G.foot.h; this.aimPitch = 0.05; this.camInit = true; this.drawT = 0.35;
       this.G.audio && this.G.audio.gunMech && this.G.audio.gunMech('draw');
       const cv = G.renderer.domElement; cv.requestPointerLock && cv.requestPointerLock();
-      G.toast && G.toast(`🔫 ${this.w.def.name} — clic sinistro spara, destro mira, R ricarica, 1-4 o rotellina cambia arma, Tab rinfodera`, 3200);
+      G.toast && G.toast(`🔫 ${this.w.def.name} — clic sinistro spara, destro mira, R ricarica, 1-4 o rotellina cambia arma, Tab rinfodera (gamepad: LT mira, RT spara, B ricarica, LB cambia arma)`, 3200);
     } else this.holster();
   }
   holster() {
@@ -191,8 +191,22 @@ export class Weapons {
     if (!f.on) { if (this.drawn) this.holster(); return; }
     // tastiera: 1-4 armi, R ricarica (pannelli dei negozi aperti: i numeri sono loro)
     if (!(G.career && G.career.panel)) for (let i = 0; i < this.inv.length; i++) if (inp.consume('Digit' + (i + 1))) { if (!this.drawn) this.toggle(); this.select(i); }
+    // LB/L1 come in GTA: estrae l'arma, poi la cambia; dopo l'ultima la rinfodera
+    if (ctl && ctl.actions && ctl.actions.has('weapon')) {
+      if (!this.drawn) this.toggle();
+      else if (this.cur < this.inv.length - 1) this.select(this.cur + 1);
+      else { this.holster(); this.cur = 0; }
+    }
     if (!this.drawn) return;
-    if (inp.consume('KeyR')) this.startReload();
+    if (inp.consume('KeyR') || (ctl && ctl.actions && ctl.actions.has('reload'))) this.startReload();
+    // stick destro: mira (curva morbida al centro, piu' lenta mirando)
+    if (ctl && (ctl.camX || ctl.camY)) {
+      const zoom = lerp(1, this.w.def.adsFov * 0.8, this.ads), cx = ctl.camX * Math.abs(ctl.camX), cy = ctl.camY * Math.abs(ctl.camY);
+      this.aimYaw -= cx * dt * 2.6 * zoom;
+      const dp = cy * dt * 1.7 * zoom;
+      this.aimPitch = clamp(this.aimPitch + dp, -1.0, 1.2);
+      if (dp < 0 && this.recPend > 0) this.recPend = Math.max(0, this.recPend + dp);
+    }
     // gamepad: grilletto sinistro mira, destro spara (a piedi con l'arma si cammina con lo stick)
     const padAim = ctl && ctl.padBrk > 0.3, padFire = ctl && ctl.padThr > 0.5;
     if (padFire && !this.padFireHeld) this.firePressed = true;
