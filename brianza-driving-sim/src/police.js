@@ -222,9 +222,9 @@ export class Police {
   follow(c, tx, tz, dt) {
     const v = c.v;
     c.routeT -= dt;
-    if (!c.route || c.routeT <= 0 || !c.routeTo || Math.hypot(c.routeTo[0] - tx, c.routeTo[1] - tz) > 40) {
+    if (!c.route || c.route !== c.followRoute || c.routeT <= 0 || !c.routeTo || Math.hypot(c.routeTo[0] - tx, c.routeTo[1] - tz) > 40) {
       c.route = this.G.router.route(v.x, v.z, v.h, tx, tz, c.mode === 'runner' ? null : { free: true });
-      c.routeTo = [tx, tz]; c.routeT = 2.5 + Math.random(); c.ri = 0;
+      c.routeTo = [tx, tz]; c.routeT = 2.5 + Math.random(); c.ri = 0; c.followRoute = c.route;
       // il pilota addestrato (src/agent) guida lungo il percorso
       if (!c.ag) c.ag = new AgentDriver(this.G, v, { pursuit: true });
       c.ag.setRoute(c.route);
@@ -264,8 +264,10 @@ export class Police {
   rail(c, tx, tz, maxKmh, dt) {
     const v = c.v, G = this.G;
     c.routeT -= dt;
-    if (!c.route || c.routeT <= 0 || !c.routeTo || Math.hypot(c.routeTo[0] - tx, c.routeTo[1] - tz) > 40) {
-      c.route = G.router.route(v.x, v.z, v.h, tx, tz, c.mode === 'runner' ? null : { free: true }); c.routeTo = [tx, tz]; c.routeT = 3 + Math.random(); c.rs = 0;
+    // percorso proprio del binario (quello del navigatore della guida vicina non ha la posizione
+    // lungo il percorso: riusarlo dava coordinate non valide e la volante spariva)
+    if (!c.route || c.route !== c.railRoute || c.routeT <= 0 || !c.routeTo || Math.hypot(c.routeTo[0] - tx, c.routeTo[1] - tz) > 40) {
+      c.route = G.router.route(v.x, v.z, v.h, tx, tz, c.mode === 'runner' ? null : { free: true }); c.routeTo = [tx, tz]; c.routeT = 3 + Math.random(); c.rs = 0; c.railRoute = c.route;
     }
     const r = c.route;
     if (!r || r.pts.length < 2) { this.drive(c, tx, tz, maxKmh, dt); return; }
@@ -296,7 +298,8 @@ export class Police {
     if (nr) {
       const sl = Math.hypot(nr.dx, nr.dz) || 1, dir = (nr.dx * Math.sin(h) + nr.dz * Math.cos(h)) >= 0 ? 1 : -1;
       const off = G.roads.laneCenter(G.roads.ways[nr.wi], dir), fx = nr.dx / sl * dir, fz = nr.dz / sl * dir;
-      x = nr.px - fz * off; z = nr.pz + fx * off;
+      const lx = nr.px - fz * off, lz = nr.pz + fx * off;
+      if (Number.isFinite(lx + lz)) { x = lx; z = lz; }
     }
     let dh = h - v.h; while (dh > Math.PI) dh -= 2 * Math.PI; while (dh < -Math.PI) dh += 2 * Math.PI;
     v.x = x; v.z = z; v.h += dh * Math.min(1, dt * 6); v.u = sp; v.v = 0; v.w = 0;
@@ -320,7 +323,8 @@ export class Police {
     // all'inseguimento (sirena) i semafori non contano e la velocita' e' quella dell'inseguimento
     const via = c.viaRoute; c.viaRoute = false;
     if (via && c.ag && c.ag.ready && maxKmh > 5 && !this.G.agentOff) {
-      const cmd = c.ag.control(dt, { maxKmh, ignoreSignals: c.mode === 'pursuit' || c.mode === 'runner', pursuit: c.mode === 'pursuit' });
+      const G = this.G, gs = c.mode === 'pursuit' && this.seen && !G.foot.on ? Math.max(0, G.vehicle.u) : 0;
+      const cmd = c.ag.control(dt, { maxKmh, ignoreSignals: c.mode === 'pursuit' || c.mode === 'runner', pursuit: c.mode === 'pursuit', goalSpeed: gs });
       if (cmd) { c.agentT = (c.agentT || 0) + dt; v.update(dt, cmd); return; }
     }
     let want = maxKmh * Math.max(0.3, 1 - Math.min(0.75, Math.abs(err) * 0.85));
@@ -458,13 +462,18 @@ export class Police {
         let tx, tz;
         // a vista ma ancora lontano (oltre 35 m): ci si arriva lungo la strada, guida il pilota addestrato
         c.branch = 'follow';
-        if (this.seen && d < 75 && d > 35 && !this.G.agentOff && c.ag && c.ag.ready && this.los(v, px, pz)) [tx, tz] = this.follow(c, px, pz, dt);
+        if (this.seen && d < 75 && d > 35 && !this.G.agentOff && c.ag && c.ag.ready && this.los(v, px, pz)) {
+          // il percorso punta un po' piu' avanti del giocatore (dove sara' tra ~3 s): se finisse su di
+          // lui, la rete frenerebbe per "arrivare" mentre lui scappa
+          const ahead = G.foot.on ? 0 : Math.max(0, Math.min(110, pv.u * 3));
+          [tx, tz] = this.follow(c, px + Math.sin(pv.h) * ahead, pz + Math.cos(pv.h) * ahead, dt);
+        }
         else if (this.seen && d < 75 && this.los(v, px, pz)) {
           c.branch = 'intercept';
           // vicino: punta dove il giocatore sara' tra poco (intercetta / speronamento)
           const lead = Math.min(1.2, d / 25);
           tx = px + Math.sin(pv.h) * pv.u * lead; tz = pz + Math.cos(pv.h) * pv.u * lead;
-        } else if ((d > 110 || c.railT > 0) && this.lastSeen) { c.branch = 'rail'; c.railT = (c.railT || 0) - dt; this.rail(c, this.lastSeen[0], this.lastSeen[1], Math.min(80 + this.stars * 12, this.chaseKmh), dt); this.place(c, now); continue; }
+        } else if ((d > 110 || c.railT > 0) && this.lastSeen) { c.branch = 'rail'; c.railT = (c.railT || 0) - dt; this.rail(c, this.lastSeen[0], this.lastSeen[1], Math.min(70 + this.stars * 22 + Math.min(40, d * 0.15), this.chaseKmh), dt); this.place(c, now); continue; }
         else if (this.lastSeen) [tx, tz] = this.follow(c, this.lastSeen[0], this.lastSeen[1], dt);
         else [tx, tz] = [px, pz];
         const fast = Math.min(70 + this.stars * 22 + Math.min(40, d * 0.15), this.chaseKmh);

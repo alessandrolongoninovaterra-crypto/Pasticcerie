@@ -39,7 +39,8 @@ export class AgentDriver {
 
   // comandi per questo fotogramma. opts.maxKmh: velocita' voluta (sostituisce il limite della via,
   // per le volanti all'inseguimento); opts.ignoreSignals: i semafori non contano (sirena accesa);
-  // opts.pursuit: rete dell'inseguimento (rallenta ai rossi ma non si ferma)
+  // opts.pursuit: rete dell'inseguimento (rallenta ai rossi ma non si ferma); opts.goalSpeed: velocita'
+  // (m/s) del bersaglio in fondo al percorso, se si muove
   control(dt, opts = {}) {
     const E = this.env, pnet = opts.pursuit && opts.maxKmh && !this.G.agentNoPursuit ? nets.pursuit : null, net = pnet || nets.driver;
     if (!net || !E.path) return null;
@@ -49,6 +50,10 @@ export class AgentDriver {
       E.t = performance.now() / 1000;                // stesso orologio dei semafori del gioco
       E.pursuit = !!pnet; E.vmax = Math.max(30, Math.min(160, opts.maxKmh || 50));
       const o = E.observe();
+      // l'arrivo si muove (il giocatore inseguito): la rete frena per arrivare in fondo al percorso,
+      // quindi le si da' una distanza dall'arrivo piu' lunga, tale che la frenata la porti alla
+      // velocita' del bersaglio quando lo raggiunge (non ferma dietro di lui)
+      if (opts.goalSpeed > 0.5) { const rem = Math.max(0, E.path.total - E.s); o[40] = Math.min(1, (opts.goalSpeed + Math.sqrt(10 * rem)) ** 2 / 10 / 500); }
       if (pnet) { net.act(o, this.a); E.shield(this.a, { ignoreSignals: true }); return this.cmd(); }
       if (opts.maxKmh) { o[27] = Math.min(90, opts.maxKmh) / 130; o[28] = Math.min(o[28] * 130, Math.min(90, opts.maxKmh)) / 130; }
       if (opts.ignoreSignals) { o[31] = 1; o[32] = 0; }

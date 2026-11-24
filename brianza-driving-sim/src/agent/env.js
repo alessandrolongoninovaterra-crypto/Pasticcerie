@@ -27,7 +27,7 @@ import { NT, CLS } from '../roads.js';
 export const OBS_N = 41;
 const LOOK = [3, 6, 10, 15, 20, 30, 40, 55, 70, 90];
 // inseguimento: accelerazione laterale nelle curve (in g) e frenata prima delle curve (m/s^2)
-const PUR_G = 0.55, PUR_DEC = 6;
+const PUR_G = 0.62, PUR_DEC = 6.5;
 const RAYS = [-60, -30, -12, 0, 12, 30, 60].map((d) => d * Math.PI / 180);
 const STEP = 2;            // passo della polilinea del percorso (m)
 const DT = 1 / 30, SUB = 3; // fisica a 30 Hz, decisione a 10 Hz
