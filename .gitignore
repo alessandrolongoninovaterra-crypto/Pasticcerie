@@ -1,3 +1,4 @@
 __pycache__/
 *.pyc
 scripts/out/
+brianza-driving-sim/tools/carpreview/preview.bundle.js

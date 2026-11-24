@@ -1,0 +1,409 @@
+{
+ "cars": {
+  "odyssey": {
+   "title": "Honda Odessey",
+   "author": "MattDoesBlender",
+   "author_url": "https://sketchfab.com/MattDoesBlender",
+   "source_url": "https://sketchfab.com/3d-models/honda-odessey-175ce6fbbb11469ab068965ce4854554",
+   "licence": "CC BY 4.0",
+   "spec": {
+    "name": "Honda Odyssey EX-L",
+    "mass": 2036,
+    "kw": 209,
+    "nm": 355,
+    "rpmMax": 6800,
+    "gears": [
+     4.7,
+     2.84,
+     1.91,
+     1.38,
+     1,
+     0.81,
+     0.7,
+     0.58,
+     0.48
+    ],
+    "final": 3.86,
+    "drive": "F",
+    "cda": 1,
+    "wb": 3,
+    "mu": 0.8477,
+    "transmission": "automatic",
+    "tyre": {
+     "width": 0.235,
+     "aspect": 0.6,
+     "rim": 18
+    }
+   },
+   "tyreR": 0.37,
+   "wheelbase": 3.059,
+   "length": 5.21,
+   "width": 2.422,
+   "height": 1.785
+  },
+  "grandcherokee": {
+   "title": "2013 Jeep Grand Cherokee SRT8",
+   "author": "Galaxy Car Showroom",
+   "author_url": "https://sketchfab.com/adrianaflak09",
+   "source_url": "https://sketchfab.com/3d-models/2013-jeep-grand-cherokee-srt8-74686a75e26146a19337724a7e1d458a",
+   "licence": "CC BY 4.0",
+   "spec": {
+    "name": "Jeep Grand Cherokee SRT8",
+    "mass": 2386,
+    "kw": 350,
+    "nm": 630,
+    "rpmMax": 6400,
+    "gears": [
+     3.59,
+     2.19,
+     1.41,
+     1,
+     0.83
+    ],
+    "final": 3.7,
+    "drive": "A",
+    "cda": 1.1,
+    "wb": 2.915,
+    "mu": 1.0067,
+    "transmission": "automatic",
+    "tyre": {
+     "width": 0.295,
+     "aspect": 0.45,
+     "rim": 20
+    }
+   },
+   "tyreR": 0.387,
+   "wheelbase": 2.895,
+   "length": 4.82,
+   "width": 2.146,
+   "height": 1.894
+  },
+  "camaro": {
+   "title": "1985 Chevrolet Camaro IROC-Z",
+   "author": "Tony (tonyferello)",
+   "author_url": "https://sketchfab.com/tonyferello",
+   "source_url": "https://sketchfab.com/3d-models/1985-chevrolet-camaro-iroc-z-c6d20cc339f64cbfbde07f66f36ca8d0",
+   "licence": "CC BY 4.0",
+   "spec": {
+    "name": "Chevrolet Camaro IROC-Z 5.7",
+    "mass": 1583,
+    "kw": 164,
+    "nm": 434,
+    "rpmMax": 5500,
+    "gears": [
+     3.06,
+     1.63,
+     1,
+     0.7
+    ],
+    "final": 3.27,
+    "drive": "R",
+    "cda": 0.66,
+    "wb": 2.565,
+    "mu": 1,
+    "transmission": "automatic",
+    "tyre": {
+     "width": 0.245,
+     "aspect": 0.5,
+     "rim": 16
+    }
+   },
+   "tyreR": 0.326,
+   "wheelbase": 2.58,
+   "length": 4.877,
+   "width": 2.001,
+   "height": 1.28
+  },
+  "f150": {
+   "title": "2018 Ford F-150 Raptor",
+   "author": "Galaxy Car Showroom",
+   "author_url": "https://sketchfab.com/adrianaflak09",
+   "source_url": "https://sketchfab.com/3d-models/2018-ford-f-150-raptor-096aa1ba46984eeeb196b75f4d213a0a",
+   "licence": "CC BY 4.0",
+   "spec": {
+    "name": "Ford F-150 Raptor SuperCab",
+    "mass": 2584,
+    "kw": 336,
+    "nm": 691,
+    "rpmMax": 6000,
+    "gears": [
+     4.696,
+     2.985,
+     2.146,
+     1.769,
+     1.52,
+     1.275,
+     1,
+     0.854,
+     0.689,
+     0.636
+    ],
+    "final": 4.1,
+    "drive": "A",
+    "cda": 1.95,
+    "wb": 3.393,
+    "mu": 0.8464,
+    "transmission": "automatic",
+    "tyre": {
+     "width": 0.315,
+     "aspect": 0.7,
+     "rim": 17
+    }
+   },
+   "tyreR": 0.436,
+   "wheelbase": 3.552,
+   "length": 5.89,
+   "width": 2.602,
+   "height": 2.056
+  },
+  "crv": {
+   "title": "2025 Honda CR-V 1.5 VTEC Turbo CVT",
+   "author": "Palma123 JAAT",
+   "author_url": "https://sketchfab.com/palma123.jaat",
+   "source_url": "https://sketchfab.com/3d-models/2025-honda-cr-v-15-vtec-turbo-cvt-91c6673859444597bf006a0ef8570005",
+   "licence": "CC BY 4.0",
+   "spec": {
+    "name": "Honda CR-V EX",
+    "mass": 1583,
+    "kw": 142,
+    "nm": 243,
+    "rpmMax": 6500,
+    "gears": [
+     2.53,
+     1.8,
+     1.36,
+     1.07,
+     0.86,
+     0.68,
+     0.54
+    ],
+    "final": 5.25,
+    "drive": "F",
+    "cda": 0.85,
+    "wb": 2.7,
+    "mu": 0.9563,
+    "transmission": "automatic",
+    "tyre": {
+     "width": 0.235,
+     "aspect": 0.6,
+     "rim": 18
+    }
+   },
+   "tyreR": 0.37,
+   "wheelbase": 2.734,
+   "length": 4.689,
+   "width": 2.063,
+   "height": 1.698
+  },
+  "tahoe": {
+   "title": "Chevrolet Tahoe Suv",
+   "author": "maznalamri80",
+   "author_url": "https://sketchfab.com/maznalamri80",
+   "source_url": "https://sketchfab.com/3d-models/chevrolet-tahoe-suv-39b86984238941b0b6a46da6a8c31907",
+   "licence": "CC BY 4.0",
+   "spec": null,
+   "tyreR": 0.405,
+   "wheelbase": 3.078,
+   "length": 5.18,
+   "width": 1.913,
+   "height": 1.696
+  },
+  "model3": {
+   "title": "Tesla M3 model",
+   "author": "wintrez",
+   "author_url": "https://sketchfab.com/wintrez",
+   "source_url": "https://sketchfab.com/3d-models/tesla-m3-model-3a602469d7874d1397efa67182198705",
+   "licence": "CC BY 4.0",
+   "spec": {
+    "name": "Tesla Model 3 Rear-Wheel Drive",
+    "mass": 1645,
+    "kw": 185,
+    "nm": 415,
+    "rpmMax": 6500,
+    "gears": [
+     1
+    ],
+    "final": 9.04,
+    "drive": "R",
+    "cda": 0.51,
+    "wb": 2.875,
+    "mu": 0.9578,
+    "transmission": "single-speed",
+    "tyre": {
+     "width": 0.235,
+     "aspect": 0.45,
+     "rim": 18
+    }
+   },
+   "tyreR": 0.334,
+   "wheelbase": 2.952,
+   "length": 4.69,
+   "width": 2.094,
+   "height": 1.455
+  },
+  "mustang": {
+   "title": "1965 Ford Mustang Convertible",
+   "author": "Kristian LaGrange",
+   "author_url": "https://sketchfab.com/kristian123",
+   "source_url": "https://sketchfab.com/3d-models/1965-ford-mustang-convertible-05f2a294087541ab82f681136d134344",
+   "licence": "CC BY 4.0",
+   "spec": {
+    "name": "Ford 1965 Mustang 289",
+    "mass": 1310,
+    "kw": 157,
+    "nm": 407,
+    "rpmMax": 5000,
+    "gears": [
+     2.78,
+     1.93,
+     1.36,
+     1
+    ],
+    "final": 3,
+    "drive": "R",
+    "cda": 0.85,
+    "wb": 2.743,
+    "mu": 0.856,
+    "transmission": "manual",
+    "tyre": {
+     "width": 0.165,
+     "aspect": 0.92,
+     "rim": 14
+    }
+   },
+   "tyreR": 0.33,
+   "wheelbase": 2.721,
+   "length": 4.613,
+   "width": 1.814,
+   "height": 1.229
+  },
+  "accord": {
+   "title": "2018 Honda Accord",
+   "author": "roflowhale",
+   "author_url": "https://sketchfab.com/roflowhale",
+   "source_url": "https://sketchfab.com/3d-models/2018-honda-accord-54c227442c4b42dfbaa25e474ad9d736",
+   "licence": "CC BY 4.0",
+   "spec": null,
+   "tyreR": 0.335,
+   "wheelbase": 2.829,
+   "length": 4.88,
+   "width": 2.128,
+   "height": 1.43
+  },
+  "c8": {
+   "title": "2019 Chevrolet Corvette C8 Stingray",
+   "author": "Hari Prasath R",
+   "author_url": "https://sketchfab.com/Haris3D",
+   "source_url": "https://sketchfab.com/3d-models/2019-chevrolet-corvette-c8-stingray-790c40ccff6843eab0b7b4bd18421ff8",
+   "licence": "CC BY 4.0",
+   "spec": {
+    "name": "Chevrolet Corvette Stingray Z51 (C8)",
+    "mass": 1654,
+    "kw": 377,
+    "nm": 637,
+    "rpmMax": 6600,
+    "gears": [
+     2.91,
+     1.76,
+     1.22,
+     0.88,
+     0.65,
+     0.51,
+     0.4,
+     0.33
+    ],
+    "final": 5.17,
+    "drive": "R",
+    "cda": 0.65,
+    "wb": 2.723,
+    "mu": 1.1353,
+    "transmission": "dct",
+    "tyre": {
+     "width": 0.305,
+     "aspect": 0.3,
+     "rim": 20
+    }
+   },
+   "tyreR": 0.346,
+   "wheelbase": 2.717,
+   "length": 4.63,
+   "width": 2.143,
+   "height": 1.187
+  },
+  "mini": {
+   "title": "Mini Cooper (CARLA)",
+   "author": "CARLA Team",
+   "author_url": "https://carla.org",
+   "source_url": "https://bitbucket.org/carla-simulator/carla-content (Static/Car/4Wheeled/MiniCooper)",
+   "licence": "CC BY 4.0",
+   "spec": {
+    "name": "MINI Cooper S",
+    "mass": 1263,
+    "kw": 141,
+    "nm": 280,
+    "rpmMax": 6600,
+    "gears": [
+     3.923,
+     2.136,
+     1.393,
+     1.088,
+     0.892,
+     0.756
+    ],
+    "final": 3.588,
+    "drive": "F",
+    "cda": 0.65,
+    "wb": 2.495,
+    "mu": 1.07,
+    "transmission": "manual",
+    "tyre": {
+     "width": 0.195,
+     "aspect": 0.55,
+     "rim": 16
+    }
+   },
+   "tyreR": 0.31,
+   "wheelbase": 2.534,
+   "length": 3.85,
+   "width": 1.912,
+   "height": 1.499
+  },
+  "miata": {
+   "title": "Mazda MX-5 (NB) convertible HQ interior",
+   "author": "Nieve5677",
+   "author_url": "https://sketchfab.com/iori308408",
+   "source_url": "https://sketchfab.com/3d-models/mazda-mx-5-nb-convertible-hq-interior-5d103c567bee4c61ad66f04562049933",
+   "licence": "CC BY 4.0",
+   "spec": {
+    "name": "2001 Roadster",
+    "mass": 1083,
+    "kw": 109,
+    "nm": 169,
+    "rpmMax": 7250,
+    "gears": [
+     3.136,
+     1.888,
+     1.33,
+     1,
+     0.814
+    ],
+    "final": 4.3,
+    "drive": "R",
+    "cda": 0.65,
+    "wb": 2.266,
+    "mu": 1.0452,
+    "transmission": "manual",
+    "tyre": {
+     "width": 0.195,
+     "aspect": 0.5,
+     "rim": 15
+    }
+   },
+   "tyreR": 0.288,
+   "wheelbase": 2.285,
+   "length": 3.941,
+   "width": 1.891,
+   "height": 1.232
+  }
+ }
+}
