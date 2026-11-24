@@ -876,9 +876,13 @@ guida "da A a B nel traffico, rispettando corsie e semafori". Nel gioco:
   destinazione del navigatore; toccando sterzo, gas o freno si riprendono i comandi. Prova nel gioco
   (Seregno, traffico 35): 3 destinazioni su 3 raggiunte (da 1 a 1,9 km), nessun urto, 35-41 km/h.
 - **Volanti**: quando seguono il navigatore lungo le strade (e quando ti vedono ma sono ancora oltre
-  35 m) guida la rete, con la velocità dell'inseguimento e i semafori ignorati a sirena accesa;
-  speronamento e intercetto da vicino restano quelli di prima. Prova con il giocatore fermo, 3 volanti
-  per 3 volte: arrivate 5 su 9 (prima 1 su 9), retromarce per incastro 8 (prima 11).
+  35 m) guida la rete; a sirena accesa una seconda rete allenata apposta per gli **inseguimenti
+  veloci** (vedi sotto). Speronamento e intercetto da vicino restano quelli di prima.
+- **Avvicinamento da lontano**: in inseguimento la volante nasce sulla strada che porta davvero a te
+  (fra 6 punti si sceglie quello con il percorso più diretto, non uno a 1 km di giri); lontano
+  (oltre 110 m) scorre lungo il percorso alla velocità permessa dalle curve, agganciata alla corsia
+  vera, alla stessa velocità della guida vicina; se resta incastrata più volte, qualche secondo di
+  scorrimento la sblocca. Con il giocatore fermo le volanti arrivano in circa 25 s (prima circa 80).
 
 **Come è fatta** (`src/agent/`, `tools/agent/`):
 
@@ -912,6 +916,35 @@ guida "da A a B nel traffico, rispettando corsie e semafori". Nel gioco:
 La rete arriva più spesso del maestro (che resta bloccato più volte); i rossi che restano con il
 livello di sicurezza sono gialli diventati rossi mentre l'auto era già troppo vicina per fermarsi.
 Pesi in `data/agent/driver.json`, registro dell'allenamento in `data/agent/train.log`.
+
+**Rete degli inseguimenti** (`node tools/agent/train.mjs dagger|refine|eval --pursuit`, pesi in
+`data/agent/pursuit.json`): stesso ambiente in modalità inseguimento, sulla volante vera (200 kW,
+gomme e freni della polizia). Niente limiti: la velocità voluta (60-160 km/h, a caso per ogni
+percorso) prende il posto del limite; al posto del "limite più basso nei prossimi 100 m" la rete
+riceve la velocità che le curve dei prossimi 250 m permettono (i punti del percorso arrivano a 90 m,
+troppo pochi a 150 km/h). Il maestro prende le curve a 0,62 g e frena a 6,5 m/s²; il rosso si passa
+ma rallentando a 50 km/h (chi attraversa non si centra). Si parte dalla rete di guida (corsie,
+curve e traffico li sa già): DAgger e affinamento, circa 25 minuti.
+Nel gioco: il percorso della volante punta dove sarai tra ~3 s e la rete sa che "l'arrivo" si
+muove alla tua velocità (prima frenava per arrivare in fondo al percorso mentre scappavi).
+
+| prova | arrivi | urti/km | km/h medi (voluti 110) |
+|---|---|---|---|
+| maestro all'inseguimento | 78% | 0,13 | 64 |
+| rete dell'inseguimento (circa 100 km) | 82% | 0,08 | 61 |
+
+Inseguimento nel gioco (5 stelle, tu a 110 km/h con curve a 0,6 g, 2 volanti partite 40 e 80 m
+dietro, 4 fughe per zona):
+
+| | entro 75 m | distanza media | urti delle volanti |
+|---|---|---|---|
+| Seregno, rete dell'inseguimento | 53% del tempo | 230 m | 2 |
+| Seregno, guida di prima | 37% | 297 m | 7 |
+| Monza, rete dell'inseguimento | 27% | 344 m | 1 |
+| Monza, guida di prima | 18% | 418 m | 4 |
+
+In rettilineo si scappa ancora (le volanti hanno la potenza commisurata alla tua auto): in curva e
+nel traffico ora ti restano attaccate, e senza finire contro i muri.
 
 ## Fluidità: niente blocchi al tramonto e durante il caricamento
 

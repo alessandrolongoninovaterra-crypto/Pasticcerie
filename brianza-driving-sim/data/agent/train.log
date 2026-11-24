@@ -67,3 +67,65 @@
 [09:41:13] DAgger 2: beta 0.05, dati 135000, errore 0.0343 | raccolta {"episodi":43,"arrivi":"95%","km":47.2,"urtiKm":0.04,"uscite":0,"fermi":0,"rossiKm":0.28,"sfregKm":0.15,"scarto":0.13,"kmh":41} | rete {"episodi":20,"arrivi":"90%","km":24.3,"urtiKm":0.04,"uscite":1,"fermi":0,"rossiKm":0.21,"sfregKm":0.04,"scarto":0.13,"kmh":41.8} | 70 s
 [09:42:33] DAgger 3: beta 0.03, dati 180000, errore 0.0329 | raccolta {"episodi":47,"arrivi":"85%","km":51.4,"urtiKm":0.12,"uscite":0,"fermi":1,"rossiKm":0.25,"sfregKm":0.35,"scarto":0.21,"kmh":41.7} | rete {"episodi":25,"arrivi":"80%","km":25.5,"urtiKm":0.08,"uscite":1,"fermi":2,"rossiKm":0.12,"sfregKm":0.24,"scarto":0.15,"kmh":40.9} | 80 s
 [09:44:05] DAgger 4: beta 0.01, dati 225000, errore 0.0321 | raccolta {"episodi":50,"arrivi":"88%","km":48.1,"urtiKm":0.04,"uscite":0,"fermi":4,"rossiKm":0.31,"sfregKm":0.42,"scarto":0.13,"kmh":39.8} | rete {"episodi":24,"arrivi":"79%","km":21.2,"urtiKm":0.09,"uscite":0,"fermi":3,"rossiKm":0.24,"sfregKm":0.61,"scarto":0.17,"kmh":34.4} | 92 s
+[10:40:01] Monza: zona pronta (45.5836, 9.2737): 17 tessere
+[10:40:02] Giussano: zona pronta (45.6941, 9.2129): 16 tessere
+[10:40:05] Seregno: zona pronta (45.6505, 9.2046): 15 tessere
+[10:40:17] misura rete: {"episodi":13,"arrivi":"46%","km":15.2,"urtiKm":0.13,"uscite":2,"fermi":3,"rossiKm":0,"sfregKm":0.39,"scarto":0.23,"kmh":51.4,"voluta":101}
+[10:40:17] misura maestro: {"episodi":17,"arrivi":"47%","km":19.7,"urtiKm":0.3,"uscite":0,"fermi":3,"rossiKm":0,"sfregKm":0.25,"scarto":0.24,"kmh":63,"voluta":113}
+[10:43:49] Giussano: zona pronta (45.6941, 9.2129): 16 tessere
+[10:43:50] Monza: zona pronta (45.5836, 9.2737): 17 tessere
+[10:43:53] Seregno: zona pronta (45.6505, 9.2046): 15 tessere
+[10:44:51] DAgger 0: beta 1.00, dati 36000, errore 0.0259 | raccolta {"episodi":47,"arrivi":"79%","km":58.3,"urtiKm":0.05,"uscite":5,"fermi":2,"rossiKm":0,"sfregKm":0.26,"scarto":0.18,"kmh":60,"voluta":106} | rete {"episodi":32,"arrivi":"66%","km":37.1,"urtiKm":0.24,"uscite":2,"fermi":0,"rossiKm":0,"sfregKm":0.43,"scarto":0.22,"kmh":58.3,"voluta":104} | 58 s
+[10:44:51]   salvata (punteggio 76.4)
+[10:45:49] DAgger 1: beta 0.50, dati 72000, errore 0.0262 | raccolta {"episodi":45,"arrivi":"87%","km":58.2,"urtiKm":0.07,"uscite":1,"fermi":1,"rossiKm":0,"sfregKm":0.34,"scarto":0.2,"kmh":60.5,"voluta":104} | rete {"episodi":35,"arrivi":"60%","km":34.3,"urtiKm":0.23,"uscite":4,"fermi":2,"rossiKm":0,"sfregKm":0.38,"scarto":0.23,"kmh":55,"voluta":100} | 58 s
+[10:46:56] DAgger 2: beta 0.25, dati 108000, errore 0.0200 | raccolta {"episodi":45,"arrivi":"87%","km":55.2,"urtiKm":0.07,"uscite":0,"fermi":2,"rossiKm":0,"sfregKm":0.25,"scarto":0.25,"kmh":57,"voluta":104} | rete {"episodi":33,"arrivi":"82%","km":35.4,"urtiKm":0.11,"uscite":0,"fermi":2,"rossiKm":0,"sfregKm":0.31,"scarto":0.23,"kmh":56.7,"voluta":111} | 68 s
+[10:46:56]   salvata (punteggio 95.6)
+[10:48:13] DAgger 3: beta 0.13, dati 144000, errore 0.0136 | raccolta {"episodi":46,"arrivi":"74%","km":54.9,"urtiKm":0.13,"uscite":3,"fermi":2,"rossiKm":0,"sfregKm":0.27,"scarto":0.18,"kmh":58.4,"voluta":98} | rete {"episodi":33,"arrivi":"82%","km":39.5,"urtiKm":0.08,"uscite":1,"fermi":2,"rossiKm":0,"sfregKm":0.43,"scarto":0.19,"kmh":62.2,"voluta":101} | 76 s
+[10:48:13]   salvata (punteggio 97.7)
+[10:49:42] DAgger 4: beta 0.06, dati 180000, errore 0.0099 | raccolta {"episodi":45,"arrivi":"80%","km":58.8,"urtiKm":0.08,"uscite":2,"fermi":2,"rossiKm":0,"sfregKm":0.34,"scarto":0.18,"kmh":60.3,"voluta":108} | rete {"episodi":26,"arrivi":"81%","km":36.4,"urtiKm":0.08,"uscite":1,"fermi":1,"rossiKm":0,"sfregKm":0.16,"scarto":0.21,"kmh":64.4,"voluta":114} | 90 s
+[10:49:42]   salvata (punteggio 97.9)
+[10:51:22] DAgger 5: beta 0.03, dati 216000, errore 0.0079 | raccolta {"episodi":48,"arrivi":"79%","km":58.3,"urtiKm":0.14,"uscite":2,"fermi":0,"rossiKm":0,"sfregKm":0.41,"scarto":0.18,"kmh":61.1,"voluta":105} | rete {"episodi":24,"arrivi":"83%","km":34.6,"urtiKm":0.06,"uscite":1,"fermi":1,"rossiKm":0,"sfregKm":0.43,"scarto":0.17,"kmh":58,"voluta":109} | 99 s
+[10:51:22]   salvata (punteggio 97.9)
+[10:53:12] DAgger 6: beta 0.02, dati 252000, errore 0.0064 | raccolta {"episodi":48,"arrivi":"73%","km":55.7,"urtiKm":0.22,"uscite":0,"fermi":1,"rossiKm":0,"sfregKm":0.23,"scarto":0.17,"kmh":58.5,"voluta":101} | rete {"episodi":28,"arrivi":"86%","km":36.6,"urtiKm":0,"uscite":2,"fermi":2,"rossiKm":0,"sfregKm":0.25,"scarto":0.18,"kmh":58.9,"voluta":107} | 110 s
+[10:53:12]   salvata (punteggio 102.9)
+[10:54:02] Giussano: zona pronta (45.6941, 9.2129): 16 tessere
+[10:54:04] Seregno: zona pronta (45.6505, 9.2046): 15 tessere
+[10:54:05] Monza: zona pronta (45.5836, 9.2737): 17 tessere
+[10:55:08] misura rete: {"episodi":76,"arrivi":"76%","km":98,"urtiKm":0.12,"uscite":2,"fermi":4,"rossiKm":0,"sfregKm":0.34,"scarto":0.22,"kmh":60.3,"voluta":109}
+[10:55:08] misura maestro: {"episodi":78,"arrivi":"85%","km":99,"urtiKm":0.09,"uscite":1,"fermi":2,"rossiKm":0,"sfregKm":0.31,"scarto":0.17,"kmh":61.4,"voluta":113}
+[10:55:48] Giussano: zona pronta (45.6941, 9.2129): 16 tessere
+[10:55:49] Monza: zona pronta (45.5836, 9.2737): 17 tessere
+[10:55:51] Seregno: zona pronta (45.6505, 9.2046): 15 tessere
+[10:56:04] affinamento, partenza: {"episodi":33,"arrivi":"73%","km":38.1,"urtiKm":0.13,"uscite":0,"fermi":4,"rossiKm":0,"sfregKm":0.42,"scarto":0.22,"kmh":60.1,"voluta":109} (punteggio 86.9)
+[10:56:52] DAgger 0: beta 0.20, dati 45000, errore 0.0057 | raccolta {"episodi":59,"arrivi":"85%","km":74.5,"urtiKm":0.09,"uscite":0,"fermi":2,"rossiKm":0,"sfregKm":0.27,"scarto":0.18,"kmh":60.5,"voluta":115} | rete {"episodi":26,"arrivi":"85%","km":33.6,"urtiKm":0.03,"uscite":2,"fermi":1,"rossiKm":0,"sfregKm":0.39,"scarto":0.18,"kmh":53,"voluta":107} | 48 s
+[10:56:52]   salvata (punteggio 99.1)
+[10:57:51] DAgger 1: beta 0.10, dati 90000, errore 0.0056 | raccolta {"episodi":59,"arrivi":"85%","km":76.5,"urtiKm":0.08,"uscite":2,"fermi":1,"rossiKm":0,"sfregKm":0.16,"scarto":0.16,"kmh":63.1,"voluta":112} | rete {"episodi":30,"arrivi":"77%","km":37.8,"urtiKm":0.13,"uscite":1,"fermi":1,"rossiKm":0,"sfregKm":0.37,"scarto":0.17,"kmh":62.5,"voluta":107} | 59 s
+[10:59:01] DAgger 2: beta 0.05, dati 135000, errore 0.0056 | raccolta {"episodi":48,"arrivi":"88%","km":72.3,"urtiKm":0.04,"uscite":0,"fermi":3,"rossiKm":0,"sfregKm":0.26,"scarto":0.17,"kmh":59.2,"voluta":110} | rete {"episodi":28,"arrivi":"89%","km":35.6,"urtiKm":0.03,"uscite":0,"fermi":2,"rossiKm":0,"sfregKm":0.39,"scarto":0.19,"kmh":61,"voluta":116} | 71 s
+[10:59:01]   salvata (punteggio 105.8)
+[11:00:25] DAgger 3: beta 0.03, dati 180000, errore 0.0055 | raccolta {"episodi":56,"arrivi":"88%","km":76.2,"urtiKm":0.07,"uscite":0,"fermi":2,"rossiKm":0,"sfregKm":0.22,"scarto":0.19,"kmh":62.1,"voluta":107} | rete {"episodi":26,"arrivi":"77%","km":34.7,"urtiKm":0.12,"uscite":1,"fermi":1,"rossiKm":0,"sfregKm":0.29,"scarto":0.17,"kmh":58.4,"voluta":120} | 84 s
+[11:01:56] DAgger 4: beta 0.01, dati 225000, errore 0.0052 | raccolta {"episodi":61,"arrivi":"79%","km":70.3,"urtiKm":0.11,"uscite":1,"fermi":4,"rossiKm":0,"sfregKm":0.34,"scarto":0.18,"kmh":57.6,"voluta":106} | rete {"episodi":30,"arrivi":"77%","km":38.8,"urtiKm":0.13,"uscite":1,"fermi":1,"rossiKm":0,"sfregKm":0.26,"scarto":0.18,"kmh":64.1,"voluta":114} | 91 s
+[11:03:37] DAgger 5: beta 0.01, dati 270000, errore 0.0049 | raccolta {"episodi":62,"arrivi":"79%","km":74.6,"urtiKm":0.09,"uscite":4,"fermi":2,"rossiKm":0,"sfregKm":0.31,"scarto":0.16,"kmh":61.2,"voluta":101} | rete {"episodi":33,"arrivi":"88%","km":39.1,"urtiKm":0.05,"uscite":0,"fermi":2,"rossiKm":0,"sfregKm":0.23,"scarto":0.17,"kmh":60.8,"voluta":101} | 101 s
+[11:04:12] Giussano: zona pronta (45.6941, 9.2129): 16 tessere
+[11:04:14] Monza: zona pronta (45.5836, 9.2737): 17 tessere
+[11:04:15] Seregno: zona pronta (45.6505, 9.2046): 15 tessere
+[11:05:21] misura rete: {"episodi":75,"arrivi":"80%","km":99.3,"urtiKm":0.08,"uscite":4,"fermi":3,"rossiKm":0,"sfregKm":0.33,"scarto":0.19,"kmh":61,"voluta":109}
+[11:05:21] misura maestro: {"episodi":85,"arrivi":"76%","km":98.8,"urtiKm":0.17,"uscite":0,"fermi":3,"rossiKm":0,"sfregKm":0.37,"scarto":0.16,"kmh":62.4,"voluta":113}
+[11:18:02] Monza: zona pronta (45.5836, 9.2737): 17 tessere
+[11:18:03] Seregno: zona pronta (45.6505, 9.2046): 15 tessere
+[11:18:04] Giussano: zona pronta (45.6941, 9.2129): 16 tessere
+[11:18:19] affinamento, partenza: {"episodi":31,"arrivi":"77%","km":37.8,"urtiKm":0.05,"uscite":1,"fermi":4,"rossiKm":0,"sfregKm":0.45,"scarto":0.22,"kmh":60.8,"voluta":109} (punteggio 93.0)
+[11:19:10] DAgger 0: beta 0.20, dati 45000, errore 0.0047 | raccolta {"episodi":64,"arrivi":"88%","km":77,"urtiKm":0.08,"uscite":2,"fermi":0,"rossiKm":0,"sfregKm":0.27,"scarto":0.2,"kmh":63.3,"voluta":116} | rete {"episodi":30,"arrivi":"77%","km":38.4,"urtiKm":0.13,"uscite":1,"fermi":1,"rossiKm":0,"sfregKm":0.34,"scarto":0.17,"kmh":61.6,"voluta":102} | 52 s
+[11:20:15] DAgger 1: beta 0.10, dati 90000, errore 0.0049 | raccolta {"episodi":63,"arrivi":"79%","km":75.8,"urtiKm":0.13,"uscite":2,"fermi":1,"rossiKm":0,"sfregKm":0.21,"scarto":0.18,"kmh":63.5,"voluta":114} | rete {"episodi":27,"arrivi":"78%","km":38.1,"urtiKm":0.08,"uscite":2,"fermi":1,"rossiKm":0,"sfregKm":0.18,"scarto":0.17,"kmh":62.5,"voluta":103} | 65 s
+[11:20:15]   salvata (punteggio 94.1)
+[11:21:29] DAgger 2: beta 0.05, dati 135000, errore 0.0052 | raccolta {"episodi":57,"arrivi":"81%","km":75,"urtiKm":0.12,"uscite":0,"fermi":2,"rossiKm":0,"sfregKm":0.2,"scarto":0.19,"kmh":62,"voluta":111} | rete {"episodi":29,"arrivi":"69%","km":41.8,"urtiKm":0.19,"uscite":0,"fermi":1,"rossiKm":0,"sfregKm":0.26,"scarto":0.19,"kmh":65.1,"voluta":126} | 74 s
+[11:22:53] DAgger 3: beta 0.03, dati 180000, errore 0.0052 | raccolta {"episodi":54,"arrivi":"74%","km":66.9,"urtiKm":0.09,"uscite":3,"fermi":5,"rossiKm":0,"sfregKm":0.48,"scarto":0.26,"kmh":57,"voluta":106} | rete {"episodi":34,"arrivi":"71%","km":38.3,"urtiKm":0.13,"uscite":3,"fermi":2,"rossiKm":0,"sfregKm":0.26,"scarto":0.2,"kmh":60.5,"voluta":117} | 84 s
+[11:24:22] DAgger 4: beta 0.01, dati 225000, errore 0.0050 | raccolta {"episodi":51,"arrivi":"88%","km":65.4,"urtiKm":0.06,"uscite":0,"fermi":2,"rossiKm":0,"sfregKm":0.32,"scarto":0.21,"kmh":57.1,"voluta":112} | rete {"episodi":28,"arrivi":"82%","km":36.9,"urtiKm":0,"uscite":2,"fermi":3,"rossiKm":0,"sfregKm":0.43,"scarto":0.16,"kmh":59.4,"voluta":101} | 89 s
+[11:24:22]   salvata (punteggio 98.7)
+[11:26:05] DAgger 5: beta 0.01, dati 270000, errore 0.0048 | raccolta {"episodi":62,"arrivi":"77%","km":71.2,"urtiKm":0.14,"uscite":2,"fermi":2,"rossiKm":0,"sfregKm":0.22,"scarto":0.17,"kmh":61.7,"voluta":107} | rete {"episodi":33,"arrivi":"85%","km":38.3,"urtiKm":0.08,"uscite":0,"fermi":2,"rossiKm":0,"sfregKm":0.34,"scarto":0.19,"kmh":60.7,"voluta":97} | 103 s
+[11:26:05]   salvata (punteggio 100.5)
+[11:27:56] DAgger 6: beta 0.00, dati 315000, errore 0.0045 | raccolta {"episodi":63,"arrivi":"79%","km":73.8,"urtiKm":0.15,"uscite":2,"fermi":0,"rossiKm":0,"sfregKm":0.23,"scarto":0.17,"kmh":61.5,"voluta":105} | rete {"episodi":30,"arrivi":"83%","km":39.2,"urtiKm":0.05,"uscite":3,"fermi":0,"rossiKm":0,"sfregKm":0.38,"scarto":0.18,"kmh":61,"voluta":120} | 111 s
+[11:28:33] Monza: zona pronta (45.5836, 9.2737): 17 tessere
+[11:28:35] Giussano: zona pronta (45.6941, 9.2129): 16 tessere
+[11:28:36] Seregno: zona pronta (45.6505, 9.2046): 15 tessere
+[11:29:40] misura rete: {"episodi":73,"arrivi":"82%","km":100.3,"urtiKm":0.08,"uscite":4,"fermi":1,"rossiKm":0,"sfregKm":0.3,"scarto":0.18,"kmh":61.3,"voluta":110}
+[11:29:40] misura maestro: {"episodi":86,"arrivi":"78%","km":104.8,"urtiKm":0.13,"uscite":3,"fermi":2,"rossiKm":0,"sfregKm":0.3,"scarto":0.17,"kmh":64.1,"voluta":112}
