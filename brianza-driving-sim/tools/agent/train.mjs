@@ -4,6 +4,8 @@
 //   node tools/agent/train.mjs ppo [iterazioni] [passi per zona]      rinforzo (PPO) partendo dalla rete imitata
 //   node tools/agent/train.mjs refine [iterazioni] [passi per zona]   affinamento con il maestro (semafori pesati di piu')
 //   node tools/agent/train.mjs eval [passi per zona]                  misura la rete salvata e il maestro
+// Con --pursuit si allena la rete delle volanti all'inseguimento (niente semafori, 60-160 km/h,
+// curve al limite): parte dalla rete di guida e si salva in data/agent/pursuit.json/.js.
 // Pesi: data/agent/driver.json (e data/agent/driver.js per il gioco). Registro: data/agent/train.log
 import fs from 'node:fs';
 import path from 'node:path';
@@ -24,13 +26,17 @@ const ZONES = [
   { name: 'Giussano', lat: 45.6941, lon: 9.2129 },
 ];
 const N = 41, HID = [96, 96];
-const [mode = 'dagger', a1, a2] = process.argv.slice(2);
+const PURSUIT = process.argv.includes('--pursuit');
+const NAME = PURSUIT ? 'pursuit' : 'driver';
+const [mode = 'dagger', a1, a2] = process.argv.slice(2).filter((a) => !a.startsWith('--'));
+// rete di partenza: quella salvata (all'inseguimento, se non c'e' ancora, quella di guida)
+const savedNet = () => JSON.parse(fs.readFileSync(path.join(OUT, fs.existsSync(path.join(OUT, NAME + '.json')) ? NAME + '.json' : 'driver.json'), 'utf8'));
 
 function saveNet(net, extra) {
   const j = net.toJSON({ logStd: extra.logStd || [-1.2, -1.2], obs: N, note: extra.note || '' });
-  fs.writeFileSync(path.join(OUT, 'driver.json'), JSON.stringify(j));
+  fs.writeFileSync(path.join(OUT, NAME + '.json'), JSON.stringify(j));
   const gz = zlib.gzipSync(Buffer.from(JSON.stringify(j)), { level: 9 });
-  fs.writeFileSync(path.join(OUT, 'driver.js'), `BDS_DATA('agent_driver','json','${gz.toString('base64')}');\n`);
+  fs.writeFileSync(path.join(OUT, NAME + '.js'), `BDS_DATA('agent_${NAME}','json','${gz.toString('base64')}');\n`);
 }
 
 function summary(eps) {
@@ -42,12 +48,14 @@ function summary(eps) {
     urtiKm: +(by('urto') / km).toFixed(2), uscite: by('fuori strada'), fermi: by('fermo') + by('tempo'),
     rossiKm: +(eps.reduce((a, e) => a + e.reds, 0) / km).toFixed(2), sfregKm: +(eps.reduce((a, e) => a + (e.scrapes || 0), 0) / km).toFixed(2),
     scarto: +(eps.reduce((a, e) => a + e.lat * e.steps, 0) / Math.max(1, steps)).toFixed(2), kmh: +(km * 1000 / Math.max(1, steps * 0.1) * 3.6).toFixed(1),
+    ...(PURSUIT ? { voluta: +(eps.reduce((a, e) => a + e.vmax * e.steps, 0) / Math.max(1, steps)).toFixed(0) } : {}),
   };
 }
-const score = (s) => parseFloat(s.arrivi) - 25 * s.urtiKm - 15 * s.rossiKm - 2 * s.sfregKm;
+// all'inseguimento conta anche andare forte (la velocita' media pesa poco rispetto agli urti)
+const score = (s) => parseFloat(s.arrivi) - 25 * s.urtiKm - 15 * s.rossiKm - 2 * s.sfregKm - 5 * s.uscite / Math.max(1, s.km) + (PURSUIT ? 0.3 * s.kmh : 0);
 
 async function workers(seed) {
-  return Promise.all(ZONES.map((z, i) => startWorker({ ...z, traffic: 35, seed: seed + i * 101, log: (s) => log(`${z.name}: ${s}`) })));
+  return Promise.all(ZONES.map((z, i) => startWorker({ ...z, traffic: PURSUIT ? 25 : 35, pursuit: PURSUIT, seed: seed + i * 101, log: (s) => log(`${z.name}: ${s}`) })));
 }
 
 // ------------------------------------------------------------------ imitazione (DAgger)
@@ -78,7 +86,8 @@ function trainBC(net, X, Y, n, epochs, lr = 1e-3) {
 async function dagger(iters = 6, steps = 15000, refine = false) {
   const W = await workers(refine ? 31 : 11);
   // refine: si riparte dalla rete salvata (beta basso: guida soprattutto lei, il maestro corregge)
-  let net = refine ? MLP.from(JSON.parse(fs.readFileSync(path.join(OUT, 'driver.json'), 'utf8')), 'tanh') : new MLP([N, ...HID, 2], 'tanh', 3);
+  // all'inseguimento si parte dalla rete di guida (corsie, curve, traffico le sa gia')
+  let net = refine || PURSUIT ? MLP.from(savedNet(), 'tanh') : new MLP([N, ...HID, 2], 'tanh', 3);
   let cap = 2e6, X = new Float32Array(cap * N), Y = new Float32Array(cap * 2), n = 0;
   const add = (r) => {
     const m = r.tea.length / 2;
@@ -108,7 +117,7 @@ async function dagger(iters = 6, steps = 15000, refine = false) {
 
 // ------------------------------------------------------------------ rinforzo (PPO)
 async function ppo(iters = 30, steps = 6000) {
-  const j = JSON.parse(fs.readFileSync(path.join(OUT, 'driver.json'), 'utf8'));
+  const j = savedNet();
   const actor = MLP.from(j, 'tanh'), critic = new MLP([N, ...HID, 1], 'linear', 9);
   let logStd = [-1.9, -1.9];          // esplorazione piccola: la rete imitata guida gia' bene
   const gamma = 0.99, lam = 0.95, clipE = 0.2, B = 512;
@@ -192,7 +201,7 @@ async function ppo(iters = 30, steps = 6000) {
 }
 
 async function evaluate(steps = 15000) {
-  const j = JSON.parse(fs.readFileSync(path.join(OUT, 'driver.json'), 'utf8'));
+  const j = savedNet();
   const W = await workers(4242);
   const ev = await Promise.all(W.map((w) => w.run({ kind: 'student', net: j, maxSteps: steps })));
   const et = await Promise.all(W.map((w) => w.run({ kind: 'teacher', maxSteps: steps })));

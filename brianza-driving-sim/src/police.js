@@ -16,7 +16,7 @@ import { CLS } from './roads.js';
 //  - Arresto: fermo (o chiuso tra due volanti) vicino alla polizia per qualche secondo; poi i
 //    comandi restano bloccati un attimo e le volanti tornano in servizio normale. Fuga: nessuna volante ti vede per
 //    abbastanza tempo (piu' stelle, piu' tempo).
-const SPEC = { ...(CARS.find((c) => c.id === 'crv') || CARS.find((c) => c.id === 'sedan')), fixedColor: false, name: 'Volante', kw: 200, nm: 430, grip: 1.12, brake: 15500, color: '#1d3d7a' };
+export const SPEC = { ...(CARS.find((c) => c.id === 'crv') || CARS.find((c) => c.id === 'sedan')), fixedColor: false, name: 'Volante', kw: 200, nm: 430, grip: 1.12, brake: 15500, color: '#1d3d7a' };
 // auto in fuga (missione di inseguimento): una compatta veloce
 const RUNNER = { ...(CARS.find((c) => c.id === 'accord') || CARS.find((c) => c.id === 'compact')), name: 'Fuggitivo', kw: 150, color: '#c9c9c4' };
 
@@ -226,7 +226,7 @@ export class Police {
       c.route = this.G.router.route(v.x, v.z, v.h, tx, tz, c.mode === 'runner' ? null : { free: true });
       c.routeTo = [tx, tz]; c.routeT = 2.5 + Math.random(); c.ri = 0;
       // il pilota addestrato (src/agent) guida lungo il percorso
-      if (!c.ag) c.ag = new AgentDriver(this.G, v);
+      if (!c.ag) c.ag = new AgentDriver(this.G, v, { pursuit: true });
       c.ag.setRoute(c.route);
     }
     const r = c.route;
@@ -320,7 +320,7 @@ export class Police {
     // all'inseguimento (sirena) i semafori non contano e la velocita' e' quella dell'inseguimento
     const via = c.viaRoute; c.viaRoute = false;
     if (via && c.ag && c.ag.ready && maxKmh > 5 && !this.G.agentOff) {
-      const cmd = c.ag.control(dt, { maxKmh, ignoreSignals: c.mode === 'pursuit' || c.mode === 'runner' });
+      const cmd = c.ag.control(dt, { maxKmh, ignoreSignals: c.mode === 'pursuit' || c.mode === 'runner', pursuit: c.mode === 'pursuit' });
       if (cmd) { c.agentT = (c.agentT || 0) + dt; v.update(dt, cmd); return; }
     }
     let want = maxKmh * Math.max(0.3, 1 - Math.min(0.75, Math.abs(err) * 0.85));

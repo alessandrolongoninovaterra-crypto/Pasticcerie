@@ -8,7 +8,7 @@ import path from 'node:path';
 
 const ROOT = path.resolve(path.dirname(new URL(import.meta.url).pathname), '..', '..');
 
-export async function startWorker({ lat, lon, traffic = 35, seed = 1, log = () => {} }) {
+export async function startWorker({ lat, lon, traffic = 35, seed = 1, pursuit = false, log = () => {} }) {
   const b = await chromium.launch({ args: ['--enable-unsafe-swiftshader', '--use-angle=swiftshader'] });
   const p = await b.newPage({ viewport: { width: 160, height: 120 } });
   p.on('pageerror', (e) => log('ERRORE pagina: ' + e.message));
@@ -18,7 +18,7 @@ export async function startWorker({ lat, lon, traffic = 35, seed = 1, log = () =
   await p.click('#go');
   for (let i = 0; i < 600; i++) { const l = await p.evaluate(() => window.BDS.loadingWorld); if (!l) break; await p.waitForTimeout(300); }
   // tutte le tessere della zona, con collisioni e strade
-  await p.evaluate(async ([traffic, seed]) => {
+  await p.evaluate(async ([traffic, seed, pursuit]) => {
     const G = window.BDS, W = G.world, v = G.vehicle;
     G.paused = true; G.police.enabled = false; G.police.clear(); if (G.peds) G.peds.setTarget(0);
     const cx = v.x, cz = v.z;
@@ -33,8 +33,8 @@ export async function startWorker({ lat, lon, traffic = 35, seed = 1, log = () =
     // generatore pseudo-casuale riproducibile per l'ambiente
     let s = seed >>> 0 || 1;
     const rand = () => { s ^= s << 13; s >>>= 0; s ^= s >>> 17; s ^= s << 5; s >>>= 0; return s / 4294967296; };
-    window.AG = { env: G.agent.make({ traffic, rand }), cx, cz, Policy: G.agent.Policy };
-  }, [traffic, seed]);
+    window.AG = { env: G.agent.make({ traffic, rand, pursuit }), cx, cz, Policy: G.agent.Policy };
+  }, [traffic, seed, pursuit]);
   const info = await p.evaluate(() => ({ cx: window.AG.cx, cz: window.AG.cz, tiles: window.BDS.world.tiles.size }));
   log(`zona pronta (${lat}, ${lon}): ${info.tiles} tessere`);
 
@@ -63,7 +63,7 @@ export async function startWorker({ lat, lon, traffic = 35, seed = 1, log = () =
       const r = env.step(a);
       rew.push(r.r); done.push(r.done ? 1 : 0); steps++;
       o = r.done ? null : env.obs;
-      if (r.done) { const S = env.stats; eps.push({ why: r.why, dist: Math.round(S.dist), total: Math.round(env.path.total), reds: S.reds, lat: +(S.lat / Math.max(1, S.n)).toFixed(2), speeding: S.speeding, steps: S.n, scrapes: S.scrapes || 0, hit: S.hit, off: S.off, end: S.end }); }
+      if (r.done) { const S = env.stats; eps.push({ why: r.why, dist: Math.round(S.dist), total: Math.round(env.path.total), reds: S.reds, lat: +(S.lat / Math.max(1, S.n)).toFixed(2), speeding: S.speeding, steps: S.n, vmax: env.pursuit ? Math.round(env.vmax) : 0, scrapes: S.scrapes || 0, hit: S.hit, off: S.off, end: S.end }); }
     }
     // l'ultimo episodio interrotto: chiuso senza segnare la fine (serve il valore per il rinforzo)
     const lastObs = o ? Array.from(o) : null;

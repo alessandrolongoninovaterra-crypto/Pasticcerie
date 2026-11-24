@@ -26,6 +26,8 @@ import { NT, CLS } from '../roads.js';
 
 export const OBS_N = 41;
 const LOOK = [3, 6, 10, 15, 20, 30, 40, 55, 70, 90];
+// inseguimento: accelerazione laterale nelle curve (in g) e frenata prima delle curve (m/s^2)
+const PUR_G = 0.55, PUR_DEC = 6;
 const RAYS = [-60, -30, -12, 0, 12, 30, 60].map((d) => d * Math.PI / 180);
 const STEP = 2;            // passo della polilinea del percorso (m)
 const DT = 1 / 30, SUB = 3; // fisica a 30 Hz, decisione a 10 Hz
@@ -42,6 +44,23 @@ export class DriveEnv {
     this.obs = new Float32Array(OBS_N);
     this.t = 0;
     this.rand = opts.rand || Math.random;
+    // inseguimento (volanti con la sirena): niente semafori, niente limiti; la velocita' voluta
+    // (vmax, km/h) prende il posto del limite e le curve si fanno al limite dell'aderenza
+    this.pursuit = !!opts.pursuit; this.vmax = 50;
+  }
+
+  // velocita' massima (m/s) per le curve dei prossimi `ahead` metri: in ogni curva quella da
+  // aderenza laterale (g * latG * raggio), prima della curva quanto basta a frenare in tempo (dec)
+  curveCap(ahead, latG, dec, from = 4) {
+    const P = this.path;
+    let vT = 1e9;
+    for (let i = Math.max(2, this.i - 2); i < P.x.length - 3 && P.cum[i] < this.s + ahead; i += 2) {
+      const a1 = Math.atan2(P.x[i] - P.x[i - 2], P.z[i] - P.z[i - 2]), a2 = Math.atan2(P.x[i + 2] - P.x[i], P.z[i + 2] - P.z[i]);
+      const da = Math.abs(wrap(a2 - a1)), rad = (P.cum[i + 2] - P.cum[i - 2]) / Math.max(1e-3, da);
+      const vc = Math.max(2.5, Math.sqrt(latG * 9.81 * rad));
+      vT = Math.min(vT, Math.sqrt(vc * vc + 2 * dec * Math.max(0, P.cum[i] - this.s - from)));
+    }
+    return vT;
   }
 
   // ------------------------------------------------------------------ percorso
@@ -109,12 +128,12 @@ export class DriveEnv {
     for (let tries = 0; tries < 40 && !path; tries++) {
       const a = rnd() * Math.PI * 2, d = Math.sqrt(rnd()) * r * 0.7;
       const sx = cx + Math.cos(a) * d, sz = cz + Math.sin(a) * d;
-      const st = R.nearest(sx, sz, 80, (w) => w.drivable && w.cls >= CLS.PRIMARY && w.cls <= CLS.RESIDENTIAL && !(w.flags & 8));
+      const st = R.nearest(sx, sz, 80, (w) => w.drivable && w.cls >= (this.pursuit ? CLS.TRUNK : CLS.PRIMARY) && w.cls <= CLS.RESIDENTIAL && !(w.flags & 8));
       if (!st) continue;
       const w = R.ways[st.wi], sl = Math.hypot(st.dx, st.dz) || 1;
       let h = Math.atan2(st.dx / sl, st.dz / sl);
       if (!w.oneway && rnd() < 0.5) h += Math.PI;
-      const b = rnd() * Math.PI * 2, dd = 300 + rnd() * 900;
+      const b = rnd() * Math.PI * 2, dd = this.pursuit ? 400 + rnd() * 1000 : 300 + rnd() * 900;
       let tx = st.px + Math.cos(b) * dd, tz = st.pz + Math.sin(b) * dd;
       if (Math.hypot(tx - cx, tz - cz) > r) { tx = cx + (tx - cx) * r / Math.hypot(tx - cx, tz - cz); tz = cz + (tz - cz) * r / Math.hypot(tx - cx, tz - cz); }
       const route = G.router.route(st.px, st.pz, h, tx, tz);
@@ -128,7 +147,8 @@ export class DriveEnv {
     const car = this.car;
     const h0 = Math.atan2(path.x[3] - path.x[0], path.z[3] - path.z[0]);
     car.place(path.x[0], path.z[0], h0);
-    car.u = rnd() < 0.5 ? 0 : 6 + rnd() * 6; car.impact = 0;
+    if (this.pursuit) this.vmax = 60 + rnd() * 100;   // 60-160 km/h
+    car.u = rnd() < 0.5 ? 0 : this.pursuit ? 6 + rnd() * 8 : 6 + rnd() * 6; car.impact = 0;
     this.i = 0; this.s = 0; this.steps = 0; this.stuck = 0; this.prevSteer = 0;
     this.t = rnd() * 60;                              // fase dei semafori a caso
     this.sigPassed = 0;
@@ -249,9 +269,12 @@ export class DriveEnv {
       o[k++] = clamp((px * lx + pz * lz) / 15, -2, 2); o[k++] = clamp((px * fx + pz * fz) / 90, -1, 1.2);
     }
     // limiti
-    const lim0 = P.lim[this.i] || 50;
-    let limMin = lim0;
-    for (let i = this.i; i < P.x.length && P.cum[i] < this.s + 100; i++) limMin = Math.min(limMin, P.lim[i] || 50);
+    let lim0 = P.lim[this.i] || 50, limMin = lim0;
+    if (this.pursuit) {
+      // all'inseguimento: la velocita' voluta e, al posto del limite piu' basso, quella che le curve
+      // dei prossimi 250 m permettono (i punti del percorso arrivano solo a 90 m: troppo poco a 150 km/h)
+      lim0 = this.vmax; limMin = Math.min(this.vmax, this.curveCap(250, PUR_G, PUR_DEC) * 3.6);
+    } else for (let i = this.i; i < P.x.length && P.cum[i] < this.s + 100; i++) limMin = Math.min(limMin, P.lim[i] || 50);
     o[k++] = lim0 / 130; o[k++] = limMin / 130;
     // veicolo davanti
     const ld = this.leadAhead(); this._lead = ld;
@@ -277,21 +300,22 @@ export class DriveEnv {
     const al = wrap(Math.atan2(tx - c.x, tz - c.z) - c.h);
     out[0] = clamp(Math.atan(2 * c.L * Math.sin(al) / Ld) / sp.steer, -1, 1);
     // velocita' voluta: limite, curve dei prossimi 70 m, veicolo davanti, semaforo, arrivo
-    let vT = Math.min(P.lim[this.i] || 50, 90) / 3.6 * 0.95;
-    // curvatura su tratti di ~8 m, a partire da poco dietro l'auto (anche la curva in cui si e')
-    for (let i = Math.max(2, this.i - 2); i < P.x.length - 3 && P.cum[i] < this.s + 70; i += 2) {
-      const a1 = Math.atan2(P.x[i] - P.x[i - 2], P.z[i] - P.z[i - 2]), a2 = Math.atan2(P.x[i + 2] - P.x[i], P.z[i + 2] - P.z[i]);
-      const da = Math.abs(wrap(a2 - a1)), rad = (P.cum[i + 2] - P.cum[i - 2]) / Math.max(1e-3, da);
-      const vc = Math.max(2.5, Math.sqrt(0.38 * 9.81 * rad));
-      vT = Math.min(vT, Math.sqrt(vc * vc + 2 * 3 * Math.max(0, P.cum[i] - this.s - 4)));
-      vT = Math.min(vT, (P.lim[i] || 50) / 3.6 * 0.95 + Math.sqrt(2 * 3 * Math.max(0, P.cum[i] - this.s)));
+    let vT;
+    if (this.pursuit) vT = Math.min(this.vmax / 3.6, this.curveCap(250, PUR_G, PUR_DEC));
+    else {
+      vT = Math.min(P.lim[this.i] || 50, 90) / 3.6 * 0.95;
+      // curvatura su tratti di ~8 m, a partire da poco dietro l'auto (anche la curva in cui si e')
+      vT = Math.min(vT, this.curveCap(70, 0.38, 3));
+      for (let i = this.i; i < P.x.length && P.cum[i] < this.s + 70; i += 2) vT = Math.min(vT, (P.lim[i] || 50) / 3.6 * 0.95 + Math.sqrt(2 * 3 * Math.max(0, P.cum[i] - this.s)));
     }
     const ld = this._lead;
     if (ld) { const want = 5 + c.u * 1.1; vT = Math.min(vT, Math.max(0, ld.v + (ld.gap - want) * 0.5)); if (ld.gap < 4) vT = 0; }
     const sg = this._sig;
-    if (sg && (sg.state === 'R' || (sg.state === 'Y' && sg.d > c.u * 1.6))) vT = Math.min(vT, Math.sqrt(2 * 3.2 * Math.max(0, sg.d - 1)));
+    // all'inseguimento il rosso si passa, ma rallentando (50 km/h) per non centrare chi attraversa
+    if (sg && this.pursuit) { if (sg.state !== 'G' && sg.d > -2) vT = Math.min(vT, Math.sqrt(13.9 * 13.9 + 2 * PUR_DEC * Math.max(0, sg.d - 2))); }
+    else if (sg && (sg.state === 'R' || (sg.state === 'Y' && sg.d > c.u * 1.6))) vT = Math.min(vT, Math.sqrt(2 * 3.2 * Math.max(0, sg.d - 1)));
     const rem = P.total - this.s;
-    vT = Math.min(vT, Math.sqrt(2 * 2.5 * Math.max(0, rem - 2)) + 1);
+    vT = Math.min(vT, Math.sqrt(2 * (this.pursuit ? 5 : 2.5) * Math.max(0, rem - 2)) + 1);
     let a = clamp((vT - c.u) * 0.6, -1, 1);
     if (vT < 0.3 && c.u < 0.6) a = -0.4;
     out[1] = a;
@@ -335,9 +359,9 @@ export class DriveEnv {
     let r = 0.05 * (this.s - s0), done = false, why = '';
     r -= 0.02 * this.lat * this.lat;
     r -= 0.05 * Math.abs(steer - this.prevSteer); this.prevSteer = steer;
-    const lim = (P.lim[this.i] || 50) / 3.6;
+    const lim = (this.pursuit ? this.vmax : P.lim[this.i] || 50) / 3.6;
     if (c.u > lim + 2) { r -= 0.03 * (c.u - lim - 2); this.stats.speeding++; }
-    if (sgBefore && sgBefore.state === 'R' && s0 <= sgBefore.sig.stop + 0.5 && this.s > sgBefore.sig.stop + 0.5 && c.u > 1.5) { r -= 5; this.stats.reds++; }
+    if (!this.pursuit && sgBefore && sgBefore.state === 'R' && s0 <= sgBefore.sig.stop + 0.5 && this.s > sgBefore.sig.stop + 0.5 && c.u > 1.5) { r -= 5; this.stats.reds++; }
     // sfregamento (muro sfiorato nelle vie strette): penalita' piccola, si continua
     if (hit > 0.15 && hit < 0.5) { r -= 1; this.stats.scrapes = (this.stats.scrapes || 0) + 1; }
     if (hit >= 0.5) {

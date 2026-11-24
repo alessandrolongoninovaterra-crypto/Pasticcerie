@@ -10,7 +10,7 @@ import { Weapons } from './weapons.js';
 import { PlayerModel } from './player3d.js';
 import { DriveEnv, OBS_N } from './agent/env.js';
 import { Policy } from './agent/policy.js';
-import { AgentDriver, loadDriver } from './agent/driver.js';
+import { AgentDriver, loadDriver, loadPursuit } from './agent/driver.js';
 import { buildBikeModel } from './bike.js';
 import { Vehicle } from './vehicle.js';
 import { Plane, buildPlaneModel, drawPlaneCluster } from './plane.js';
@@ -31,7 +31,7 @@ import { OutputPass } from 'three/examples/jsm/postprocessing/OutputPass.js';
 import { ShaderPass } from 'three/examples/jsm/postprocessing/ShaderPass.js';
 import { DriveFX } from './effects.js';
 import { Weather, WEATHER } from './weather.js';
-import { Police } from './police.js';
+import { Police, SPEC as POLICE_SPEC } from './police.js';
 import { Career } from './career.js';
 import { EnvMap } from './envmap.js';
 import { Dialogue } from './dialogue.js';
@@ -68,7 +68,7 @@ const G = { started: false, paused: false, mapOpen: false, camMode: 0, route: nu
 const focus = () => (G.foot.on ? G.foot : G.vehicle);
 window.BDS = G; // utile per il debug dalla console
 // pilota addestrato (tools/agent/train.mjs): ambiente di allenamento e rete
-G.agent = { DriveEnv, Policy, OBS_N, AgentDriver, loadDriver, make: (opts = {}) => new DriveEnv(G, CARS.find((c) => c.id === (opts.car || 'crv')) || CARS[0], opts) };
+G.agent = { DriveEnv, Policy, OBS_N, AgentDriver, loadDriver, loadPursuit, make: (opts = {}) => new DriveEnv(G, opts.pursuit ? POLICE_SPEC : CARS.find((c) => c.id === (opts.car || 'crv')) || CARS[0], opts) };
 G.THREE = THREE;
 window.BDS_LOAD = loadData;
 if (new URLSearchParams(location.search).get('auto') === '0') G.autoOff = true;
