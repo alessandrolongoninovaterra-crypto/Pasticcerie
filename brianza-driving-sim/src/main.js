@@ -8,6 +8,9 @@ import { CARS, buildCarModel, drawCluster, stripLights } from './cars.js';
 import { loadRealFleet, loadHero, realCredits } from './realcars.js';
 import { Weapons } from './weapons.js';
 import { PlayerModel } from './player3d.js';
+import { DriveEnv, OBS_N } from './agent/env.js';
+import { Policy } from './agent/policy.js';
+import { AgentDriver, loadDriver } from './agent/driver.js';
 import { buildBikeModel } from './bike.js';
 import { Vehicle } from './vehicle.js';
 import { Plane, buildPlaneModel, drawPlaneCluster } from './plane.js';
@@ -64,6 +67,8 @@ const G = { started: false, paused: false, mapOpen: false, camMode: 0, route: nu
 // posizione "viva" del giocatore: l'auto oppure la persona a piedi
 const focus = () => (G.foot.on ? G.foot : G.vehicle);
 window.BDS = G; // utile per il debug dalla console
+// pilota addestrato (tools/agent/train.mjs): ambiente di allenamento e rete
+G.agent = { DriveEnv, Policy, OBS_N, AgentDriver, loadDriver, make: (opts = {}) => new DriveEnv(G, CARS.find((c) => c.id === (opts.car || 'crv')) || CARS[0], opts) };
 G.THREE = THREE;
 window.BDS_LOAD = loadData;
 if (new URLSearchParams(location.search).get('auto') === '0') G.autoOff = true;
@@ -1101,6 +1106,13 @@ function loop(now) {
   if (inp.consume('KeyJ')) G.career.jobs();
   if (inp.consume('KeyG')) G.career.interact();
   if (G.career.panel) for (let i = 1; i <= 9; i++) if (inp.consume('Digit' + i) || inp.consume('Numpad' + i)) G.career.choose(i - 1);
+  // pilota automatico: il pilota addestrato guida fino alla destinazione del navigatore (P)
+  if (inp.consume('KeyP')) {
+    if (G.autopilot) { G.autopilot = false; showToast('Pilota automatico spento', 1200); }
+    else if (G.foot.on || v.isPlane || v.isBike) showToast('Il pilota automatico guida solo le auto', 1500);
+    else if (!G.route) showToast('Pilota automatico: prima scegli una destinazione sulla mappa (M)', 2200);
+    else { G.autopilot = true; loadDriver(); showToast('🤖 Pilota automatico: guida la rete addestrata. Sterzo, gas o freno per riprendere i comandi', 3000); }
+  }
   if (inp.consume('KeyK')) { G.world.labelsOn = !G.world.labelsOn; showToast(G.world.labelsOn ? 'Nomi dei luoghi visibili' : 'Nomi dei luoghi nascosti', 1000); }
   if (inp.consume('KeyT')) { const sp = [30, 300, 0, 1]; G.sky.speed = sp[(sp.indexOf(G.sky.speed) + 1) % sp.length]; showToast('Velocità del tempo: ' + (G.sky.speed ? G.sky.speed + '×' : 'ferma'), 1000); }
   if (inp.consume('Equal') || inp.consume('NumpadAdd')) G.sky.hours = (G.sky.hours + 1) % 24;
@@ -1129,6 +1141,19 @@ function loop(now) {
   if (!G.loadingWorld) {
     if (f.on) { v.update(dt, { throttle: 0, brake: 1, steer: 0, handbrake: 1, pitch: 0 }); G.weapons.update(dt, ctl); updateFoot(dt, ctl); }
     else if (G.weapons.drawn) G.weapons.holster();
+    else if (G.autopilot) {
+      // si riprende il volante toccando sterzo, gas o freno
+      if (Math.abs(ctl.steer) > 0.25 || ctl.throttle > 0.2 || ctl.brake > 0.2 || !G.route || v.isPlane) {
+        G.autopilot = false; showToast(G.route ? 'Pilota automatico spento: guidi tu' : '🏁 Pilota automatico: arrivati', 1800);
+        v.update(dt, ctl);
+      } else {
+        const D = G.autoDriver || (G.autoDriver = new AgentDriver(G, v));
+        if (D.v !== v) { D.v = v; D.env.car = v; D.env.spec = v.spec; D.route = null; }
+        if (D.route !== G.route) D.setRoute(G.route);
+        const c = D.control(dt);
+        v.update(dt, c || { throttle: 0, brake: 1, steer: 0, handbrake: 0, pitch: 0 });
+      }
+    }
     else v.update(dt, v.isPlane ? planeInput(ctl) : ctl);
   }
   if (v.isPlane) {

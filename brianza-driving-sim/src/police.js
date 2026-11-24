@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { Vehicle } from './vehicle.js';
 import { CARS, buildCarModel, stripLights } from './cars.js';
+import { AgentDriver } from './agent/driver.js';
 import { CLS } from './roads.js';
 
 // Polizia con livello di ricerca (stelle 1-5), senza armi.
@@ -205,9 +206,13 @@ export class Police {
     if (!c.route || c.routeT <= 0 || !c.routeTo || Math.hypot(c.routeTo[0] - tx, c.routeTo[1] - tz) > 40) {
       c.route = this.G.router.route(v.x, v.z, v.h, tx, tz, c.mode === 'runner' ? null : { free: true });
       c.routeTo = [tx, tz]; c.routeT = 2.5 + Math.random(); c.ri = 0;
+      // il pilota addestrato (src/agent) guida lungo il percorso
+      if (!c.ag) c.ag = new AgentDriver(this.G, v);
+      c.ag.setRoute(c.route);
     }
     const r = c.route;
     if (!r || r.pts.length < 2) return [tx, tz];
+    c.viaRoute = true;
     // avanzamento lungo il percorso (solo in avanti: dove il percorso ripassa vicino a se'
     // stesso il punto piu' vicino in assoluto farebbe tornare indietro)
     let best = c.ri || 0, bd = 1e9;
@@ -274,8 +279,15 @@ export class Police {
     while (err > Math.PI) err -= 2 * Math.PI; while (err < -Math.PI) err += 2 * Math.PI;
     const kmh = v.u * 3.6;
     // bloccata contro qualcosa: retromarcia sterzando al contrario
-    if (c.rev > 0) { c.rev -= dt; v.update(dt, { throttle: 0, brake: 1, steer: -Math.sign(err), handbrake: 0, pitch: 0 }); return; }
+    if (c.rev > 0) { c.rev -= dt; c.viaRoute = false; v.update(dt, { throttle: 0, brake: 1, steer: -Math.sign(err), handbrake: 0, pitch: 0 }); return; }
     if (Math.abs(kmh) < 3 && maxKmh > 10) { c.stuck += dt; if (c.stuck > 1.6) { c.stuck = 0; c.rev = 1.2; c.stuckN = (c.stuckN || 0) + 1; } } else { c.stuck = 0; if (kmh > 20) c.stuckN = 0; }
+    // lungo il percorso del navigatore guida il pilota addestrato: corsia, curve, traffico davanti;
+    // all'inseguimento (sirena) i semafori non contano e la velocita' e' quella dell'inseguimento
+    const via = c.viaRoute; c.viaRoute = false;
+    if (via && c.ag && c.ag.ready && maxKmh > 5 && !this.G.agentOff) {
+      const cmd = c.ag.control(dt, { maxKmh, ignoreSignals: c.mode === 'pursuit' || c.mode === 'runner' });
+      if (cmd) { c.agentT = (c.agentT || 0) + dt; v.update(dt, cmd); return; }
+    }
     let want = maxKmh * Math.max(0.3, 1 - Math.min(0.75, Math.abs(err) * 0.85));
     const tr = c.turn || 0;
     if (tr > 0.35) want = Math.min(want, tr > 1.2 ? 24 : tr > 0.7 ? 38 : 58);
@@ -409,7 +421,9 @@ export class Police {
         c.mode = 'pursuit';
         v.powerMul = this.chasePower;
         let tx, tz;
-        if (this.seen && d < 75 && this.los(v, px, pz)) {
+        // a vista ma ancora lontano (oltre 35 m): ci si arriva lungo la strada, guida il pilota addestrato
+        if (this.seen && d < 75 && d > 35 && !this.G.agentOff && c.ag && c.ag.ready && this.los(v, px, pz)) [tx, tz] = this.follow(c, px, pz, dt);
+        else if (this.seen && d < 75 && this.los(v, px, pz)) {
           // vicino: punta dove il giocatore sara' tra poco (intercetta / speronamento)
           const lead = Math.min(1.2, d / 25);
           tx = px + Math.sin(pv.h) * pv.u * lead; tz = pz + Math.cos(pv.h) * pv.u * lead;

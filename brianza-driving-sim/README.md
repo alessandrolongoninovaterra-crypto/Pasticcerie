@@ -120,6 +120,7 @@ l'aereo e il navigatore indica la destinazione in linea d'aria.
 | R | rimetti l'auto sulla strada più vicina |
 | T, + / - | velocità del tempo, cambia ora |
 | K | nomi dei punti di riferimento |
+| P | pilota automatico fino alla destinazione del navigatore (rete addestrata) |
 | J | lavori: consegne, inseguimenti, evasioni (e abbandono del lavoro in corso) |
 | G | da fermo: distributore (pieno, munizioni), officina (elaborazioni), concessionario (auto) |
 | 1-9 | scelta nei pannelli di lavori e negozi |
@@ -865,6 +866,52 @@ Correzioni nate dal collaudo:
 
 Gli urti rimasti sono quasi tutti strisciate nei vicoli dei centri storici, dove i muri sono
 davvero al bordo della strada.
+
+## Pilota addestrato (agente che impara a guidare)
+
+Una rete neurale piccola (41 ingressi, due strati da 96, 2 uscite: sterzo e gas/freno; 64 kB) che
+guida "da A a B nel traffico, rispettando corsie e semafori". Nel gioco:
+
+- **Pilota automatico** (`P`, con una destinazione scelta sulla mappa): guida la rete fino alla
+  destinazione del navigatore; toccando sterzo, gas o freno si riprendono i comandi. Prova nel gioco
+  (Seregno, traffico 35): 3 destinazioni su 3 raggiunte (da 1 a 1,9 km), nessun urto, 35-41 km/h.
+- **Volanti**: quando seguono il navigatore lungo le strade (e quando ti vedono ma sono ancora oltre
+  35 m) guida la rete, con la velocità dell'inseguimento e i semafori ignorati a sirena accesa;
+  speronamento e intercetto da vicino restano quelli di prima. Prova con il giocatore fermo, 3 volanti
+  per 3 volte: arrivate 5 su 9 (prima 1 su 9), retromarce per incastro 8 (prima 11).
+
+**Come è fatta** (`src/agent/`, `tools/agent/`):
+
+1. **Ambiente** (`src/agent/env.js`): stessa fisica, strade, traffico e semafori del gioco, senza
+   disegnare (circa 1.100 passi al secondo per processo, oltre 100 volte il tempo reale). Partenza su
+   una via vera, destinazione a 300-1.200 m, percorso del navigatore appoggiato sulla corsia di
+   destra delle vie dettagliate con i semafori lungo il percorso. Osservazioni: velocità, scarto dalla
+   corsia, 10 punti del percorso fino a 90 m, limiti, veicolo davanti, prossimo semaforo, 7 raggi
+   contro edifici e veicoli, distanza dall'arrivo. Ricompensa: metri percorsi; penalità per scarto,
+   sterzate brusche, eccesso di velocità, sfregamenti, rossi, urti e uscite di strada.
+2. **Imitazione** (DAgger, `node tools/agent/train.mjs dagger`): la rete impara dal pilota scritto a
+   mano (il "maestro": inseguimento del percorso, velocità per le curve, distanza dal veicolo davanti,
+   arresto al rosso), guidando sempre più da sola mentre il maestro corregge. 7 giri, 315.000 esempi
+   su Monza, Seregno e Giussano (3 processi in parallelo), circa 12 minuti.
+3. **Rinforzo** (PPO, `node tools/agent/train.mjs ppo`): la rete guida da sola e impara da
+   ricompense e penalità, restando vicina al maestro. Stabile, ma su una prova lunga non è migliore
+   della sola imitazione: nel gioco c'è la rete imitata.
+4. **Livello di sicurezza** (`DriveEnv.shield`): sopra la rete, come nei sistemi di guida veri; se c'è
+   un rosso (o un giallo a cui si fa in tempo a fermarsi) e la frenata non basta, frena quanto
+   serve; frenata d'emergenza se il veicolo davanti è troppo vicino.
+
+**Prova lunga** (stesse partenze e destinazioni, circa 85 percorsi e 90 km ciascuno):
+
+| | arrivi | urti/km | rossi/km | velocità media |
+|---|---|---|---|---|
+| maestro (scritto a mano) | 77% | 0,06 | 0 | 37 km/h |
+| rete imitata | 85% | 0,05 | 0,15 | 39 km/h |
+| rete con rinforzo | 85% | 0,05 | 0,17 | 41 km/h |
+| **rete imitata + sicurezza (nel gioco)** | **82%** | **0,08** | **0,06** | **38 km/h** |
+
+La rete arriva più spesso del maestro (che resta bloccato più volte); i rossi che restano con il
+livello di sicurezza sono gialli diventati rossi mentre l'auto era già troppo vicina per fermarsi.
+Pesi in `data/agent/driver.json`, registro dell'allenamento in `data/agent/train.log`.
 
 ## Fluidità: niente blocchi al tramonto e durante il caricamento
 
