@@ -145,8 +145,27 @@ export class Police {
   clear() { for (const c of [...this.cars]) this.remove(c); this.heat = 0; this.bust = 0; this.lastSeen = null; }
 
   // punto su una strada a distanza d dal giocatore (preferibilmente alle sue spalle e fuori vista)
-  spawnPoint(p, d, behind = true) {
+  spawnPoint(p, d, behind = true, byRoad = false) {
     const R = this.G.roads;
+    // all'inseguimento: tra alcuni punti a quella distanza si sceglie quello col percorso stradale piu'
+    // corto verso il giocatore (prima una volante a 200 m in linea d'aria poteva averne 1.200 da fare,
+    // al di la' di una ferrovia o di un fiume), e la si mette gia' girata nel verso del percorso
+    if (byRoad) {
+      let best = null;
+      for (let t = 0; t < 6; t++) {
+        const sp = this.spawnPoint(p, d, behind && t < 3, false);
+        if (!sp) continue;
+        const r = this.G.router.route(sp.x, sp.z, sp.h, p.x, p.z, { free: true });
+        if (!r || r.pts.length < 2) continue;
+        const ratio = r.length / Math.max(50, Math.hypot(sp.x - p.x, sp.z - p.z));
+        if (!best || ratio < best.ratio) {
+          const h = Math.atan2(r.pts[1][0] - r.pts[0][0], r.pts[1][1] - r.pts[0][1]);
+          best = { ...sp, h: Number.isFinite(h) ? h : sp.h, ratio, route: r };
+        }
+        if (best.ratio < 1.35) break;
+      }
+      if (best && best.ratio < 2.5) return best;
+    }
     for (let t = 0; t < 10; t++) {
       const a = (behind ? p.h + Math.PI : p.h) + (Math.random() - 0.5) * (behind ? 2.2 : 0.6);
       const x = p.x + Math.sin(a) * d, z = p.z + Math.cos(a) * d;
@@ -250,21 +269,35 @@ export class Police {
     }
     const r = c.route;
     if (!r || r.pts.length < 2) { this.drive(c, tx, tz, maxKmh, dt); return; }
-    // curva nei prossimi 40 m -> velocita'
+    // velocita' dal raggio delle curve dei prossimi 80 m (stimato su tratti di almeno 12 m: i
+    // vertici ravvicinati del percorso semplificato non sono curve strette), con frenata a 6 m/s2
     let k = 0; while (k < r.cum.length - 2 && r.cum[k + 1] < c.rs) k++;
-    let turn = 0;
-    for (let i = k; i < r.pts.length - 2 && r.cum[i] < c.rs + 40; i++) {
-      const a1 = Math.atan2(r.pts[i + 1][0] - r.pts[i][0], r.pts[i + 1][1] - r.pts[i][1]), a2 = Math.atan2(r.pts[i + 2][0] - r.pts[i + 1][0], r.pts[i + 2][1] - r.pts[i + 1][1]);
-      let d = a2 - a1; while (d > Math.PI) d -= 2 * Math.PI; while (d < -Math.PI) d += 2 * Math.PI; turn = Math.max(turn, Math.abs(d));
+    let want = maxKmh / 3.6;
+    for (let i = k + 1; i < r.pts.length - 1 && r.cum[i] < c.rs + 80; i++) {
+      let i0 = i - 1; while (i0 > 0 && r.cum[i] - r.cum[i0] < 12) i0--;
+      let i1 = i + 1; while (i1 < r.pts.length - 1 && r.cum[i1] - r.cum[i] < 12) i1++;
+      const a1 = Math.atan2(r.pts[i][0] - r.pts[i0][0], r.pts[i][1] - r.pts[i0][1]), a2 = Math.atan2(r.pts[i1][0] - r.pts[i][0], r.pts[i1][1] - r.pts[i][1]);
+      let da = a2 - a1; while (da > Math.PI) da -= 2 * Math.PI; while (da < -Math.PI) da += 2 * Math.PI;
+      const rad = Math.min(r.cum[i] - r.cum[i0], r.cum[i1] - r.cum[i]) / Math.max(0.02, Math.abs(da)) * 1.2;
+      const vc = Math.max(7, Math.sqrt(0.75 * 9.81 * rad));
+      want = Math.min(want, Math.sqrt(vc * vc + 2 * 6 * Math.max(0, r.cum[i] - c.rs - 3)));
     }
-    const want = Math.min(maxKmh, turn > 1.2 ? 30 : turn > 0.6 ? 45 : turn > 0.3 ? 65 : maxKmh) / 3.6;
     const sp = Math.max(0, v.u) + Math.max(-6 * dt, Math.min(4 * dt, want - Math.max(0, v.u)));
     c.rs = Math.min(r.length, c.rs + sp * dt);
     if (c.rs >= r.length - 1) c.goal = null;          // in fondo al percorso: nuova meta (pattuglie, fuggitivi)
     while (k < r.cum.length - 2 && r.cum[k + 1] < c.rs) k++;
     const L = r.cum[k + 1] - r.cum[k] || 1, t = (c.rs - r.cum[k]) / L;
-    const x = r.pts[k][0] + (r.pts[k + 1][0] - r.pts[k][0]) * t, z = r.pts[k][1] + (r.pts[k + 1][1] - r.pts[k][1]) * t;
+    let x = r.pts[k][0] + (r.pts[k + 1][0] - r.pts[k][0]) * t, z = r.pts[k][1] + (r.pts[k + 1][1] - r.pts[k][1]) * t;
     const h = Math.atan2(r.pts[k + 1][0] - r.pts[k][0], r.pts[k + 1][1] - r.pts[k][1]);
+    // agganciata alla corsia vera (il percorso del navigatore e' semplificato: i suoi punti possono
+    // cadere fuori dalla carreggiata, contro un muro, e quando si passa alla fisica la volante restava
+    // incastrata)
+    const nr = G.roads.nearest(x, z, 12, (w) => w.drivable);
+    if (nr) {
+      const sl = Math.hypot(nr.dx, nr.dz) || 1, dir = (nr.dx * Math.sin(h) + nr.dz * Math.cos(h)) >= 0 ? 1 : -1;
+      const off = G.roads.laneCenter(G.roads.ways[nr.wi], dir), fx = nr.dx / sl * dir, fz = nr.dz / sl * dir;
+      x = nr.px - fz * off; z = nr.pz + fx * off;
+    }
     let dh = h - v.h; while (dh > Math.PI) dh -= 2 * Math.PI; while (dh < -Math.PI) dh += 2 * Math.PI;
     v.x = x; v.z = z; v.h += dh * Math.min(1, dt * 6); v.u = sp; v.v = 0; v.w = 0;
     const sf = G.roads.surfaceAt(x, z, v.y + 1, v.surface && v.surface.road ? v.surface.road.wi : -1);
@@ -281,6 +314,8 @@ export class Police {
     // bloccata contro qualcosa: retromarcia sterzando al contrario
     if (c.rev > 0) { c.rev -= dt; c.viaRoute = false; v.update(dt, { throttle: 0, brake: 1, steer: -Math.sign(err), handbrake: 0, pitch: 0 }); return; }
     if (Math.abs(kmh) < 3 && maxKmh > 10) { c.stuck += dt; if (c.stuck > 1.6) { c.stuck = 0; c.rev = 1.2; c.stuckN = (c.stuckN || 0) + 1; } } else { c.stuck = 0; if (kmh > 20) c.stuckN = 0; }
+    // incastrata piu' volte: qualche secondo di scorrimento lungo il percorso (fuori vista) la sblocca
+    if ((c.stuckN || 0) >= 3 && c.mode === 'pursuit') { c.stuckN = 0; c.rev = 0; c.railT = 4; c.route = null; }
     // lungo il percorso del navigatore guida il pilota addestrato: corsia, curve, traffico davanti;
     // all'inseguimento (sirena) i semafori non contano e la velocita' e' quella dell'inseguimento
     const via = c.viaRoute; c.viaRoute = false;
@@ -337,7 +372,7 @@ export class Police {
     const active = this.cars.filter((c) => c.mode !== 'block' && c.mode !== 'runner' && c.mode !== 'caught');
     this.spawnT -= dt;
     if (this.enabled && active.length < want && this.spawnT <= 0) {
-      const sp = this.spawnPoint(p, pursuit ? 170 + Math.random() * 110 : 300 + Math.random() * 200, true);
+      const sp = this.spawnPoint(p, pursuit ? 170 + Math.random() * 110 : 300 + Math.random() * 200, true, pursuit);
       if (sp) { const c = this.makeCar(sp.x, sp.z, sp.h); c.mode = pursuit ? 'pursuit' : 'patrol'; if (!pursuit && !this.toLane(c, 1e9)) this.remove(c); }
       this.spawnT = pursuit ? 3 : 6;
     }
@@ -422,12 +457,14 @@ export class Police {
         v.powerMul = this.chasePower;
         let tx, tz;
         // a vista ma ancora lontano (oltre 35 m): ci si arriva lungo la strada, guida il pilota addestrato
+        c.branch = 'follow';
         if (this.seen && d < 75 && d > 35 && !this.G.agentOff && c.ag && c.ag.ready && this.los(v, px, pz)) [tx, tz] = this.follow(c, px, pz, dt);
         else if (this.seen && d < 75 && this.los(v, px, pz)) {
+          c.branch = 'intercept';
           // vicino: punta dove il giocatore sara' tra poco (intercetta / speronamento)
           const lead = Math.min(1.2, d / 25);
           tx = px + Math.sin(pv.h) * pv.u * lead; tz = pz + Math.cos(pv.h) * pv.u * lead;
-        } else if (d > 110 && this.lastSeen) { this.rail(c, this.lastSeen[0], this.lastSeen[1], Math.min(80 + this.stars * 12, this.chaseKmh), dt); this.place(c, now); continue; }
+        } else if ((d > 110 || c.railT > 0) && this.lastSeen) { c.branch = 'rail'; c.railT = (c.railT || 0) - dt; this.rail(c, this.lastSeen[0], this.lastSeen[1], Math.min(80 + this.stars * 12, this.chaseKmh), dt); this.place(c, now); continue; }
         else if (this.lastSeen) [tx, tz] = this.follow(c, this.lastSeen[0], this.lastSeen[1], dt);
         else [tx, tz] = [px, pz];
         const fast = Math.min(70 + this.stars * 22 + Math.min(40, d * 0.15), this.chaseKmh);
@@ -435,7 +472,7 @@ export class Police {
         // e si avvicina piano: velocita' proporzionale alla distanza (arriva senza tamponarlo)
         const still = G.foot.on || Math.abs(pv.u) < 5;
         // a ridosso di un'auto lenta (sotto i 36 km/h) non la spinge: frena; sperona solo chi va forte
-        if ((still && d < (G.foot.on ? 9 : 12)) || (d < 10 && Math.abs(pv.u) < 10)) v.update(dt, { throttle: 0, brake: 1, steer: 0, handbrake: Math.abs(v.u) < 1 ? 1 : 0, pitch: 0 });
+        if ((still && d < (G.foot.on ? 9 : 12)) || (d < 10 && Math.abs(pv.u) < 10)) { c.branch = 'stop'; v.update(dt, { throttle: 0, brake: 1, steer: 0, handbrake: Math.abs(v.u) < 1 ? 1 : 0, pitch: 0 }); }
         else this.drive(c, tx, tz, still ? Math.max(12, Math.min(fast, d * 1.6)) : fast, dt);
       } else {
         // calma: la volante circola come il traffico (corsia, limiti, semafori, precedenze)
