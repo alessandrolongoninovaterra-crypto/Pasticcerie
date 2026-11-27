@@ -27,6 +27,8 @@ import { fleetPalette } from './vendor/city/car.js';
 import { Post } from './post.js';
 import { updateFog } from './fog.js';
 import { ROAD_WET } from './roads.js';
+import { STYLES, applyStyleShaders, stylizeLook, stylizeSky } from './style.js';
+import { PHOTO } from './buildings.js';
 import { DriveFX } from './effects.js';
 import { Weather, WEATHER } from './weather.js';
 import { Police, SPEC as POLICE_SPEC } from './police.js';
@@ -187,13 +189,18 @@ function ensureGame() {
   if (G.renderer) return;
   const canvas = $('game');
   const q = QUALITY[$('quality').value] || QUALITY.mid;
+  // stile grafico (src/style.js): cambia gli shader della luce prima che si compili qualunque materiale
+  G.style = STYLES[$('gstyle').value] ? $('gstyle').value : 'real';
+  const ST = STYLES[G.style];
+  applyStyleShaders(G.style);
+  if (ST.photo === false) PHOTO.on = false;
   G.settings = { ...q };
-  G.roads.pbr = !!q.bloom;           // strade con materiali fisici (qualita' media e alta)
+  G.roads.pbr = !!q.bloom && ST.photo !== false;   // strade con materiali fisici (qualita' media e alta, stile realistico)
   const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: 'high-performance' });
   renderer.setPixelRatio(Math.min(devicePixelRatio, q.pixelRatio));
   renderer.setSize(innerWidth, innerHeight);
   renderer.shadowMap.enabled = q.shadows;
-  renderer.shadowMap.type = q.softShadows ? THREE.PCFSoftShadowMap : THREE.PCFShadowMap;
+  renderer.shadowMap.type = q.softShadows && G.style !== 'toon' ? THREE.PCFSoftShadowMap : THREE.PCFShadowMap;   // cartoon: ombre nette
   renderer.toneMapping = THREE.ACESFilmicToneMapping;
   renderer.toneMappingExposure = 1.2;
   G.renderer = renderer;
@@ -231,6 +238,8 @@ function ensureGame() {
     // si disegna su un'immagine intermedia a 4 campioni per pixel (bordi lisci come senza effetti)
     G.post = new Post(renderer, scene, G.camera, q);
     G.post.setPixelRatio(renderer.getPixelRatio()); G.post.setSize(innerWidth, innerHeight);
+    G.post.outline = ST.outline ? 1.9 * Math.max(1, innerHeight * renderer.getPixelRatio() / 900) : 0;
+    G.post.bloomExtra = ST.bloom || 0;
     G.composer = G.post;
   }
   // telecamera orbitale: trascina con il mouse
@@ -1073,7 +1082,7 @@ function sceneLook(dt) {
   LOOK.lift.set(0.004, 0.007, 0.014).multiplyScalar(1 + night * 1.2);
   LOOK.vignette = 0.2 + tk * 0.12 + night * 0.06;
   LOOK.ao = 1 - 0.45 * night - 0.3 * tk;
-  return LOOK;
+  return stylizeLook(LOOK, G.style, night);
 }
 
 // ------------------------------------------------------------------ ciclo
@@ -1245,6 +1254,7 @@ function loop(now) {
   G.tunnelK = (G.tunnelK || 0) + (inT - (G.tunnelK || 0)) * Math.min(1, dt * 2.5);
   // meteo: dopo il giorno/notte, prima della galleria (in galleria non piove)
   G.weather.update(dt, G.sky, G.camera.position, G.tunnelK, G.audio);
+  stylizeSky(G.sky, G.style);
   // riflessi: mappa d'ambiente dal cielo (ora e meteo); in galleria quasi spenta
   const envT = G.envMap.update(dt, G.sky, G.weather);
   if (envT) G.scene.environment = envT;

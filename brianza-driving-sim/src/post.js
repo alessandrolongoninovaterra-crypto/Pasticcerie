@@ -30,11 +30,14 @@ class AOPass extends GTAOPass {
 const VERT = 'varying vec2 vUv; void main() { vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }';
 
 const CombineShader = {
-  uniforms: { tDiffuse: { value: null }, tAO: { value: null }, tDepth: { value: null }, aoK: { value: 0 }, cameraNear: { value: 0.5 }, cameraFar: { value: 5000 }, aoFar: { value: 320 } },
+  uniforms: { tDiffuse: { value: null }, tAO: { value: null }, tDepth: { value: null }, aoK: { value: 0 }, cameraNear: { value: 0.5 }, cameraFar: { value: 5000 }, aoFar: { value: 320 }, outline: { value: 0 }, resolution: { value: new THREE.Vector2(1, 1) } },
   vertexShader: VERT,
   fragmentShader: `#include <packing>
     uniform sampler2D tDiffuse; uniform sampler2D tAO; uniform sampler2D tDepth;
-    uniform float aoK; uniform float cameraNear; uniform float cameraFar; uniform float aoFar; varying vec2 vUv;
+    uniform float aoK; uniform float cameraNear; uniform float cameraFar; uniform float aoFar; uniform float outline; uniform vec2 resolution; varying vec2 vUv;
+    // inverso della distanza: varia in modo lineare sullo schermo lungo un piano, quindi la sua
+    // derivata seconda e' zero sulle superfici piane e grande sui bordi degli oggetti e sugli spigoli
+    float invZ(vec2 uv) { float d = texture2D(tDepth, uv).x; return d >= 1.0 ? 0.0 : -1.0 / perspectiveDepthToViewZ(d, cameraNear, cameraFar); }
     void main() {
       vec4 c = texture2D(tDiffuse, vUv);
       if (any(isnan(c)) || any(isinf(c)) || !(c.r >= 0.0 && c.g >= 0.0 && c.b >= 0.0 && c.r < 1e5 && c.g < 1e5 && c.b < 1e5)) c = vec4(0.0, 0.0, 0.0, 1.0);
@@ -47,6 +50,18 @@ const CombineShader = {
           float fade = 1.0 - smoothstep(aoFar * 0.35, aoFar, dist);
           float ao = pow(clamp(texture2D(tAO, vUv).r, 0.0, 1.0), 1.8);
           col *= mix(1.0, ao, aoK * fade);
+        }
+      }
+      // contorni (stile cartoon): sagome e spigoli, piu' sottili e chiari in lontananza
+      if (outline > 0.0) {
+        float wc = invZ(vUv);
+        if (wc > 0.0) {
+          vec2 px = outline / resolution;
+          float wl = invZ(vUv - vec2(px.x, 0.0)), wr = invZ(vUv + vec2(px.x, 0.0)), wu = invZ(vUv + vec2(0.0, px.y)), wd = invZ(vUv - vec2(0.0, px.y));
+          float lap = abs(wl + wr + wu + wd - 4.0 * wc) / wc;
+          float dist = 1.0 / wc;
+          float e = smoothstep(0.018, 0.05, lap) * (1.0 - smoothstep(250.0, 900.0, dist) * 0.8);
+          col = mix(col, col * 0.12 + vec3(0.004, 0.004, 0.008), e);
         }
       }
       gl_FragColor = vec4(col, 1.0);
@@ -132,11 +147,13 @@ export class Post {
     // il bagliore lavora prima dell'esposizione: la soglia segue l'esposizione (stessa luminosita' a schermo)
     const ex = Math.max(0.3, look.exposure);
     this.bloom.threshold = (0.95 - 0.25 * n) / ex * 1.2;
-    this.bloom.strength = 0.1 + 0.45 * n;
+    this.bloom.strength = 0.1 + 0.45 * n + (this.bloomExtra || 0) * (1 - n);
     this.bloom.radius = 0.5 + 0.15 * n;
     const C = this.combine.uniforms, rb = this.composer.readBuffer;
     C.tDepth.value = rb.depthTexture;
     C.cameraNear.value = this.camera.near; C.cameraFar.value = this.camera.far;
+    C.outline.value = this.outline || 0;
+    C.resolution.value.set(rb.width, rb.height);
     C.aoK.value = this.debugAO ? -1 : this.aoOn ? this.aoK * look.ao : 0;
     if (this.ao) {
       this.ao.enabled = this.aoOn && look.ao > 0.02;

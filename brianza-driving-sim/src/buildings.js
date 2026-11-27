@@ -12,6 +12,8 @@ const DETAIL = {
   stone: { scale: 3.0, amt: 0.75 },       // blocchi di arenaria (large_sandstone_blocks_01)
   weathered: { scale: 1.6, amt: 0.6 },    // intonaco vissuto (grey_plaster_02)
 };
+// stile cartoon/stilizzato: niente grana fotografica (src/style.js)
+export const PHOTO = { on: true };
 const DETAIL_OF = { res: 'plaster', villa: 'plaster', pal: 'plaster', condo: 'plaster', shop: 'plaster', modern: 'concrete', ind: 'concrete', glass: 'concrete', church: 'stone', plain: 'weathered' };
 function detailTextures() {
   const out = {};
@@ -364,7 +366,7 @@ export class BuildingFactory {
       roof: new THREE.MeshLambertMaterial({ vertexColors: true, side: THREE.DoubleSide }),
     };
     const det = detailTextures();
-    for (const [k, d] of Object.entries(DETAIL_OF)) addDetail(this.mats[k], det[d], DETAIL[d]);
+    if (PHOTO.on) for (const [k, d] of Object.entries(DETAIL_OF)) addDetail(this.mats[k], det[d], DETAIL[d]);
     // tetti a falde: file di coppi (bande lungo le linee di livello della falda), da vicino
     this.mats.roof.onBeforeCompile = (sh) => {
       sh.vertexShader = sh.vertexShader.replace('#include <common>', '#include <common>\nvarying vec3 vRW;\nvarying float vRUp;')
