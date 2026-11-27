@@ -1,0 +1,4 @@
+Ultimate Nature Pack by Quaternius - https://quaternius.com/packs/ultimatenature.html
+License: CC0 1.0 Universal (Public Domain Dedication) - https://creativecommons.org/publicdomain/zero/1.0/
+Obtained from the public copy in https://github.com/ladybug-tools/3d-models (quaternius/ultimate-nature-pack).
+Models: CommonTree_1, CommonTree_2, CommonTree_3, CommonTree_4, CommonTree_5, CommonTree_Autumn_1, CommonTree_Autumn_3, BirchTree_1, BirchTree_2, BirchTree_3, PineTree_1, PineTree_2, PineTree_3

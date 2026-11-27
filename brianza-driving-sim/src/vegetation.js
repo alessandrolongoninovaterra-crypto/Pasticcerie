@@ -1,9 +1,32 @@
 import * as THREE from 'three';
 import { hash } from './geo.js';
+import { loadData } from './data.js';
+
+// Alberi vicini (entro ~110-160 m dalla telecamera): modelli veri di Quaternius (CC0, latifoglie,
+// betulle per i filari, pini per le conifere, qualche albero autunnale; tools/import-trees.mjs).
+// Piu' in la' restano le chiome semplici (molto piu' leggere: migliaia di alberi per km2). Il cambio
+// e' esatto: le chiome semplici entro il raggio attorno al centro NEAR spariscono nello shader (anche
+// nelle ombre) e al loro posto ci sono i modelli, scelti sulla CPU con lo stesso centro e raggio.
+export const NEAR = { c: { value: new THREE.Vector3(1e9, 0, 1e9) }, r: { value: 0 } };
+function hideNear(mat, key) {
+  mat.onBeforeCompile = (sh) => {
+    sh.uniforms.uNearC = NEAR.c; sh.uniforms.uNearR = NEAR.r;
+    sh.vertexShader = sh.vertexShader.replace('#include <common>', '#include <common>\nuniform vec3 uNearC;\nuniform float uNearR;')
+      .replace('#include <project_vertex>', `#include <project_vertex>
+        #ifdef USE_INSTANCING
+          vec4 nearO = modelMatrix * instanceMatrix * vec4(0.0, 0.0, 0.0, 1.0);
+          if (uNearR > 0.0 && distance(nearO.xz, uNearC.xz) < uNearR) gl_Position = vec4(2.0, 2.0, 2.0, 1.0);
+        #endif`);
+  };
+  mat.customProgramCacheKey = () => 'veg-near-' + key;
+  return mat;
+}
 
 // Alberi: punti OSM (natural=tree), filari (tree_row) e boschi/parchi/giardini
 // ricavati dalla copertura del suolo reale.
 const DENSITY = { bank: 0.07, shore: 0.03, island: 0.02, flowerbed: 0.02, forest: 0.85, wood: 0.85, scrub: 0.35, park: 0.18, garden: 0.12, cemetery: 0.08, residential: 0.035, grass: 0.03, meadow: 0.012, farmland: 0.004, default: 0.02, recreation_ground: 0.04, village_green: 0.05, orchard: 0.3, wetland: 0.2 };
+
+const TS = 10;   // dati per albero: x, y, z, altezza, raggio della chioma, tipo, autunno, tinta, rotazione, caso
 
 // mescola l'ordine delle istanze (matrici e colori) con un generatore ripetibile
 function shuffleInstances(m, seed) {
@@ -51,8 +74,80 @@ export class Vegetation {
     this.crownLoGeo = lo;
     this.coneGeo = new THREE.ConeGeometry(1, 1, 10); this.coneGeo.translate(0, 0.15, 0);
     this.trunkGeo = new THREE.CylinderGeometry(0.12, 0.18, 1, 7);
-    this.crownMat = new THREE.MeshLambertMaterial({ color: 0xffffff });
-    this.trunkMat = new THREE.MeshLambertMaterial({ color: 0x5b4632 });
+    this.crownMat = hideNear(new THREE.MeshLambertMaterial({ color: 0xffffff }), 'c');
+    this.trunkMat = hideNear(new THREE.MeshLambertMaterial({ color: 0x5b4632 }), 't');
+    this.depthMat = hideNear(new THREE.MeshDepthMaterial({ depthPacking: THREE.RGBADepthPacking }), 'd');
+    this.near = null; this.NEAR = NEAR;
+  }
+
+  // modelli vicini (qualita' media e alta): radius in metri, cap = alberi al massimo
+  enableNear(scene, radius, cap) {
+    this.near = { scene, radius, cap, meshes: [], groups: {}, ready: false, last: null, t: 0 };
+    loadData('veg_trees', 'data/veg/trees.js').then((parts) => {
+      const H = parts[0], N = this.near, mat = new THREE.MeshLambertMaterial({ vertexColors: true });
+      H.models.forEach((m, k) => {
+        const g = new THREE.BufferGeometry();
+        g.setAttribute('position', new THREE.BufferAttribute(new Float32Array(parts[1 + k * 3]), 3));
+        g.setAttribute('normal', new THREE.BufferAttribute(new Float32Array(parts[2 + k * 3]), 3));
+        g.setAttribute('color', new THREE.BufferAttribute(new Float32Array(parts[3 + k * 3]), 3));
+        const im = new THREE.InstancedMesh(g, mat, cap);
+        im.count = 0; im.castShadow = true; im.frustumCulled = false;
+        im.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(cap * 3), 3);
+        im.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+        im.userData.model = m;
+        scene.add(im);
+        N.meshes.push(im);
+        (N.groups[m.group] = N.groups[m.group] || []).push(im);
+      });
+      N.ready = true;
+    }).catch((e) => console.warn('alberi vicini non disponibili', e));
+  }
+
+  // a ogni fotogramma: ricostruisce gli alberi vicini quando la telecamera si e' spostata
+  updateNear(dt, cam, tiles) {
+    const N = this.near;
+    if (!N || !N.ready) return;
+    N.t -= dt;
+    // si rifa' quando la telecamera si e' spostata, quando sono arrivati alberi nuovi (tessere appena
+    // costruite) e comunque ogni tanto
+    if (N.last && N.t > 0 && N.gen === this.gen && Math.hypot(cam.x - N.last.x, cam.z - N.last.z) < 12) return;
+    N.t = 1.5; N.last = { x: cam.x, z: cam.z }; N.gen = this.gen;
+    const R = this.roads, size = R.tileSize, rad = N.radius, cand = [];
+    for (const t of tiles.values()) {
+      const veg = t.parts && t.parts.veg;
+      if (!veg || !veg.userData.trees || !veg.visible) continue;
+      const x0 = R.xmin + t.i * size, z0 = R.zmin + t.j * size;
+      const dx = Math.max(x0 - cam.x, 0, cam.x - x0 - size), dz = Math.max(z0 - cam.z, 0, cam.z - z0 - size);
+      if (Math.hypot(dx, dz) > rad) continue;
+      const T = veg.userData.trees;
+      for (let i = 0; i < T.length; i += TS) { const d = Math.hypot(T[i] - cam.x, T[i + 2] - cam.z); if (d < rad) cand.push(d, T, i); }
+    }
+    // troppi alberi (bosco fitto): il raggio si riduce a quello dei piu' vicini
+    let r = rad, n = cand.length / 3;
+    if (n > N.cap) {
+      const ds = []; for (let k = 0; k < cand.length; k += 3) ds.push(cand[k]);
+      ds.sort((a, b) => a - b); r = ds[N.cap - 1];
+    }
+    for (const im of N.meshes) im.count = 0;
+    const m = new THREE.Matrix4(), q = new THREE.Quaternion(), s = new THREE.Vector3(), p = new THREE.Vector3(), c = new THREE.Color(), up = new THREE.Vector3(0, 1, 0);
+    for (let k = 0; k < cand.length; k += 3) {
+      if (cand[k] >= r) continue;
+      const T = cand[k + 1], i = cand[k + 2];
+      const kind = T[i + 5], autumn = T[i + 6], seed = T[i + 9];
+      const grp = kind === 1 ? 'conifer' : kind === 2 ? 'tall' : autumn ? 'autumn' : 'broad';
+      const list = N.groups[grp];
+      const im = list[Math.floor(seed * list.length) % list.length];
+      if (im.count >= N.cap) continue;
+      const M = im.userData.model, h = T[i + 3], cr = T[i + 4];
+      const sc = h / M.h * 1.15, sxz = Math.max(0.9, Math.min(1.6, cr * 1.2 / (M.r * sc))) * sc;
+      q.setFromAxisAngle(up, T[i + 8]); p.set(T[i], T[i + 1], T[i + 2]); s.set(sxz, sc, sxz);
+      m.compose(p, q, s); im.setMatrixAt(im.count, m);
+      const g = T[i + 7];
+      c.setRGB(g * (0.92 + 0.16 * seed), g, g * (0.95 + 0.1 * (1 - seed))); im.setColorAt(im.count, c);
+      im.count++;
+    }
+    for (const im of N.meshes) { im.instanceMatrix.needsUpdate = true; im.instanceColor.needsUpdate = true; im.instanceMatrix.clearUpdateRanges(); im.instanceColor.clearUpdateRanges(); }
+    NEAR.c.value.set(cam.x, 0, cam.z); NEAR.r.value = r; N.rEff = r; N.nCand = n;
   }
 
   build(tile, i, j, collision, tileKey, density = 1) {
@@ -98,11 +193,14 @@ export class Vegetation {
     const m = new THREE.Matrix4(), q = new THREE.Quaternion(), s = new THREE.Vector3(), p = new THREE.Vector3(), c = new THREE.Color();
     const up = new THREE.Vector3(0, 1, 0);
     let k = 0, ki = 0, kc = 0;
+    const trees = new Float32Array(n * TS);
     for (const [x, z, sc, conifer, tall] of ok) {
       const y = T.height(x, z);
       const h = (conifer ? 10 : tall ? 13 : 6.5) * sc * (0.8 + hash(k * 5 + 1) * 0.5);
       const cr = (conifer ? 2.1 : tall ? 1.5 : 2.6 + hash(k * 9) * 1.4) * sc;
       q.setFromAxisAngle(up, hash(k * 17) * 6.28);
+      const g0 = 0.75 + hash(k * 23) * 0.4;
+      trees.set([x, y, z, h, cr, conifer ? 1 : tall ? 2 : 0, !conifer && hash(k * 41) < 0.06 ? 1 : 0, g0, hash(k * 17) * 6.28, hash(k * 53 + 7)], k * TS);
       p.set(x, y + h * 0.3, z); s.set(1, h * 0.6, 1); m.compose(p, q, s); trunks.setMatrixAt(k, m);
       const g = 0.75 + hash(k * 23) * 0.4;
       if (conifer) {
@@ -118,12 +216,13 @@ export class Vegetation {
       k++;
     }
     crowns.castShadow = true; trunks.castShadow = false;
+    crowns.customDepthMaterial = this.depthMat;
     crowns.computeBoundingSphere(); trunks.computeBoundingSphere();
     // stessi alberi in versione leggera: World.setVegLod sceglie quale mostrare in base alla distanza
     const crownsLo = new THREE.InstancedMesh(this.crownLoGeo, this.crownMat, crowns.count);
     crownsLo.instanceMatrix.array.set(crowns.instanceMatrix.array);
     if (crowns.instanceColor) { crownsLo.instanceColor = new THREE.InstancedBufferAttribute(crowns.instanceColor.array, 3); }
-    crownsLo.castShadow = true; crownsLo.computeBoundingSphere(); crownsLo.visible = false;
+    crownsLo.castShadow = true; crownsLo.computeBoundingSphere(); crownsLo.visible = false; crownsLo.customDepthMaterial = this.depthMat;
     // ordine casuale delle istanze lontane: mostrandone solo una parte (World.update, tessere
     // lontane) il bosco si dirada in modo uniforme invece di perdere interi gruppi di alberi
     shuffleInstances(crownsLo, 0x51f1);
@@ -132,7 +231,9 @@ export class Vegetation {
     const g = new THREE.Group();
     g.add(crowns, trunks, crownsLo);
     g.userData.lod = { near: [crowns, trunks], far: [crownsLo], isNear: true };
-    if (cones) { cones.castShadow = true; cones.computeBoundingSphere(); g.add(cones); }
+    g.userData.trees = trees;
+    this.gen = (this.gen || 0) + 1;
+    if (cones) { cones.castShadow = true; cones.customDepthMaterial = this.depthMat; cones.computeBoundingSphere(); g.add(cones); }
     return g;
   }
 }

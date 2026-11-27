@@ -1,6 +1,63 @@
 import * as THREE from 'three';
 import { GeoBuilder, canvasTexture, hash } from './geo.js';
 import { buildFence, fenceMaterials } from './gates.js';
+import { loadData } from './data.js';
+
+// Materiali fisici (PBR) di asfalto, porfido e marciapiedi: foto CC0 di Poly Haven (colore, rilievo,
+// rugosita'; tools/road-pbr.mjs), in coordinate del mondo. Sopra: una variazione di tono su larga
+// scala (la stessa foto letta molto piu' grande) che nasconde la ripetizione, e il bagnato: con la
+// pioggia l'asfalto diventa lucido (riflette il cielo e le luci) e nelle conche si formano
+// pozzanghere a specchio, piu' estese quanto piu' piove.
+export const ROAD_WET = { value: 0 };
+function pbrTextures(name) {
+  const mk = (fill, srgb) => {
+    const c = document.createElement('canvas'); c.width = c.height = 2;
+    const x = c.getContext('2d'); x.fillStyle = fill; x.fillRect(0, 0, 2, 2);
+    const t = new THREE.Texture(c);
+    t.wrapS = t.wrapT = THREE.RepeatWrapping; t.anisotropy = 8; t.colorSpace = srgb ? THREE.SRGBColorSpace : THREE.NoColorSpace; t.needsUpdate = true;
+    return t;
+  };
+  const T = { c: mk('#8a8a8a', true), n: mk('#8080ff', false), r: mk('#e0e0e0', false) };
+  for (const k of ['c', 'n', 'r']) loadData(`tex_road_${name}_${k}`, `data/tex/road_${name}_${k}.js`).then((img) => { T[k].image = img; T[k].needsUpdate = true; }).catch(() => {});
+  return T;
+}
+function pbrMaterial(T, { normal = 1, rough = 1, mean = 0.25, macro = 0.4, puddles = 1, side } = {}) {
+  const m = new THREE.MeshStandardMaterial({ map: T.c, normalMap: T.n, roughnessMap: T.r, roughness: rough, metalness: 0, vertexColors: true, side: side || THREE.FrontSide });
+  m.normalScale.set(normal, normal);
+  m.envMapIntensity = 0.55;
+  m.onBeforeCompile = (sh) => {
+    sh.uniforms.uWet = ROAD_WET;
+    sh.uniforms.uMacro = { value: new THREE.Vector3(mean, macro, puddles) };
+    sh.fragmentShader = sh.fragmentShader.replace('#include <common>', `#include <common>
+        uniform float uWet; uniform vec3 uMacro;
+        float rhash(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
+        float rnoise(vec2 p) { vec2 i = floor(p), f = fract(p); f = f * f * (3.0 - 2.0 * f);
+          return mix(mix(rhash(i), rhash(i + vec2(1.0, 0.0)), f.x), mix(rhash(i + vec2(0.0, 1.0)), rhash(i + vec2(1.0, 1.0)), f.x), f.y); }`)
+      .replace('#include <map_fragment>', `#include <map_fragment>
+        // tono su larga scala (la stessa foto 14 e 50 volte piu' grande): niente ripetizione visibile
+        float mv = dot(texture2D(map, vMapUv * 0.071).rgb, vec3(0.3333)) * 0.6 + dot(texture2D(map, vMapUv * 0.019 + 0.37).rgb, vec3(0.3333)) * 0.4;
+        diffuseColor.rgb *= mix(1.0, clamp(mv / uMacro.x, 0.6, 1.5), uMacro.y);
+        // pozzanghere: conche da un rumore in coordinate del mondo (1 e 3 m), piu' estese con piu' pioggia
+        float pud = 0.0;
+        if (uWet > 0.01) {
+          float pn = rnoise(vMapUv * 0.9) * 0.65 + rnoise(vMapUv * 2.7 + 7.3) * 0.35;
+          pud = uWet * uMacro.z * smoothstep(0.76 - 0.14 * uWet, 0.82 - 0.14 * uWet, pn);
+        }
+        diffuseColor.rgb *= mix(1.0, 0.62, pud);`)
+      .replace('#include <roughnessmap_fragment>', `#include <roughnessmap_fragment>
+        roughnessFactor = 0.62 + 0.38 * roughnessFactor;              // da asciutto: opaco (niente cielo riflesso)
+        roughnessFactor = mix(roughnessFactor, roughnessFactor * 0.72, uWet);
+        roughnessFactor = mix(roughnessFactor, 0.05, pud);`)
+      .replace('#include <normal_fragment_maps>', `#include <normal_fragment_maps>
+        normal = normalize(mix(normal, nonPerturbedNormal, pud));`)
+      // luce diffusa come il resto della citta' (sole + cielo emisferico): dal cielo riflesso solo i
+      // riflessi lucidi, non altra luce diffusa (la strada diventava chiara e azzurrina, di notte compresa)
+      .replace('#include <lights_fragment_maps>', `#include <lights_fragment_maps>
+        iblIrradiance = vec3(0.0);`);
+  };
+  m.customProgramCacheKey = () => 'road-pbr';
+  return m;
+}
 
 // Classi stradali (come tools/build_data.py)
 export const CLS = { MOTORWAY: 0, TRUNK: 1, PRIMARY: 2, SECONDARY: 3, TERTIARY: 4, UNCLASSIFIED: 5, RESIDENTIAL: 6, LIVING: 7, SERVICE: 8, TRACK: 9, PEDESTRIAN: 10 };
@@ -494,11 +551,25 @@ export class RoadNetwork {
       cell('tri', () => { ctx.beginPath(); ctx.moveTo(64, 120); ctx.lineTo(20, 20); ctx.lineTo(108, 20); ctx.closePath(); ctx.fill(); });
     }, false);
     const po = (m, f, u) => { m.polygonOffset = true; m.polygonOffsetFactor = f; m.polygonOffsetUnits = u; return m; };
+    // qualita' media e alta: materiali fisici dalle foto (sopra); bassa: le texture disegnate
+    let road, stoneM, path, walkM;
+    if (this.pbr) {
+      const A = pbrTextures('asphalt'), S = pbrTextures('stone'), W = pbrTextures('walk');
+      road = pbrMaterial(A, { normal: 0.9, mean: 0.25, macro: 0.4 });
+      stoneM = pbrMaterial(S, { normal: 1.1, mean: 0.29, macro: 0.3, puddles: 0.35 });
+      path = pbrMaterial(A, { normal: 0.9, mean: 0.25, macro: 0.4 });
+      walkM = pbrMaterial(W, { normal: 0.8, mean: 0.43, macro: 0.25, puddles: 0.5, side: THREE.DoubleSide });
+    } else {
+      road = new THREE.MeshLambertMaterial({ map: asphalt, vertexColors: true });
+      stoneM = new THREE.MeshLambertMaterial({ map: stone, vertexColors: true });
+      path = new THREE.MeshLambertMaterial({ map: asphalt, vertexColors: true });
+      walkM = new THREE.MeshLambertMaterial({ map: slab, vertexColors: true, side: THREE.DoubleSide });
+    }
     this._mats = {
-      road: po(new THREE.MeshLambertMaterial({ map: asphalt, vertexColors: true }), -2, -4),
-      stone: po(new THREE.MeshLambertMaterial({ map: stone, vertexColors: true }), -2, -4),
-      path: po(new THREE.MeshLambertMaterial({ map: asphalt, vertexColors: true }), -1, -2),
-      walk: new THREE.MeshLambertMaterial({ map: slab, vertexColors: true, side: THREE.DoubleSide }),
+      road: po(road, -2, -4),
+      stone: po(stoneM, -2, -4),
+      path: po(path, -1, -2),
+      walk: walkM,
       mark: po(new THREE.MeshLambertMaterial({ color: 0xf2f2ee, vertexColors: true }), -4, -8),
       decal: po(new THREE.MeshLambertMaterial({ map: decals, color: 0xf2f2ee, transparent: true, alphaTest: 0.35, depthWrite: false }), -5, -10),
       wall: new THREE.MeshLambertMaterial({ color: 0xa8a49a, side: THREE.DoubleSide }),

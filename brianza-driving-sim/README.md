@@ -368,6 +368,58 @@ sono ridotte a rilievo in scala di grigi (`tools/facade-detail.mjs`, `data/tex/`
 tiene il suo colore; finestre, persiane e vetrine non le prendono; il dettaglio sfuma oltre i
 ~150 m. Costo: 4 texture da 512 px e una lettura in più per pixel delle facciate.
 
+## Grafica: post-produzione, strade fisiche, alberi veri, cielo e luce
+
+Con qualità **media** e **alta** (la bassa resta com'era, per i PC datati):
+
+- **Post-produzione** (`src/post.js`): la scena si disegna in HDR su un'immagine intermedia a 4
+  campioni per pixel, poi
+  - **occlusione ambientale** (GTAO): angoli, piedi dei muri, sotto le auto e tra gli alberi;
+    - si ricava dalla profondità già disegnata, senza ridisegnare la scena;
+    - sparisce oltre ~300 m, dove c'è la foschia;
+    - mezza risoluzione in qualità media, piena in alta;
+  - **bagliore** (bloom) curato: di giorno solo il sole e i suoi riflessi, di notte lampioni, fari e
+    finestre; la soglia segue l'esposizione;
+  - **finale**: esposizione, curva ACES, correzione del colore (bilanciamento del bianco,
+    saturazione, contrasto a S, ombre appena sollevate), vignettatura leggera, rumore contro le bande.
+- **Foschia atmosferica** (`src/fog.js`, per tutti i materiali):
+  - esponenziale con la distanza, quindi senza un bordo netto dove inizia;
+  - più fitta in basso e più rada in quota: le cime e i palazzi alti escono dalla foschia;
+  - verso il sole si scalda, per il controluce al tramonto.
+- **Esposizione automatica** (adattamento dell'occhio):
+  - entrando in galleria all'inizio è buio, poi l'occhio si apre (adattamento al buio ~1,5 s);
+  - uscendo c'è un attimo di abbagliamento (adattamento alla luce ~0,5 s);
+  - di notte e con il cielo coperto l'esposizione sale un po', ma la notte resta notte;
+  - il colore segue l'ora: neutro di giorno, caldo con il sole basso, freddo di notte, spento sotto
+    la pioggia, giallo sodio in galleria.
+- **Cielo e luce** (`src/sky.js`): diffusione atmosferica semplificata.
+  - Il sole cambia colore con lo spessore d'aria attraversato (massa d'aria di Kasten-Young,
+    estinzione per colore): bianco a mezzogiorno, giallo, arancio e rosso verso l'orizzonte; la sua
+    luce in scena prende lo stesso colore.
+  - Alone attorno al sole (Henyey-Greenstein) e disco luminoso, che il bagliore fa brillare.
+  - Orizzonte caldo dalla parte del sole al tramonto; fascia rosata dalla parte opposta nel
+    crepuscolo (la "cintura di Venere").
+  - Nuvole con il bordo argentato in controluce e la pancia grigia quando il cielo è coperto.
+- **Strade e marciapiedi fisici (PBR)** (`src/roads.js`, `tools/road-pbr.mjs`): asfalto, porfido e
+  lastre dei marciapiedi da foto CC0 di Poly Haven, con colore, rilievo (normal map) e rugosità.
+  - Una variazione di tono su larga scala nasconde la ripetizione.
+  - Da asciutto è opaco.
+  - **Con la pioggia** l'asfalto si scurisce e diventa lucido; nelle conche si formano pozzanghere
+    a specchio, più estese quanto più piove.
+  - Il tono per tipo di strada resta quello di prima.
+- **Alberi veri vicino alla telecamera** (`src/vegetation.js`, `tools/import-trees.mjs`): entro
+  ~110 m (media) o ~160 m (alta) ci sono i modelli dell'"Ultimate Nature Pack" di **Quaternius**
+  (CC0):
+  - 5 latifoglie, 2 autunnali, 3 betulle per i filari e 3 pini per le conifere;
+  - tronco e rami veri, chioma con normali ammorbidite, tinta e rotazione per albero;
+  - ombre comprese.
+  - Più lontano restano le chiome semplici, molto più leggere (migliaia di alberi per km²).
+  - Il cambio è esatto: le chiome semplici dentro il raggio spariscono nello shader, anche dalle
+    ombre, e al loro posto ci sono i modelli, scelti con lo stesso centro e raggio.
+  - Nei boschi fitti il raggio si riduce: al massimo 550 alberi in qualità media, 900 in alta.
+- **Qualità automatica**: se i fotogrammi rallentano si spegne prima l'occlusione ambientale, poi
+  le ombre, poi si abbassa la risoluzione.
+
 ## Stile open world
 
 - **Pedoni** sui marciapiedi delle strade reali e nelle vie pedonali: svoltano agli incroci,
@@ -1018,6 +1070,11 @@ npm run watch
 | `src/plane.js` | aereo da turismo: modello, fisica di volo, strumenti |
 
 ## Licenze dei dati
+
+- Texture di asfalto, porfido e marciapiedi (`data/tex/road_*`) e facciate: Poly Haven, **CC0**
+  (vedi `data/tex/CREDITS.md`).
+- Alberi vicini (`data/veg/trees.js`): "Ultimate Nature Pack" di Quaternius, **CC0**
+  (`data/veg/LICENSE-Quaternius-Nature.txt`).
 
 - Cartografia © [OpenStreetMap contributors](https://www.openstreetmap.org/copyright), ODbL.
 - Altimetria: Terrarium tiles (Mapzen / AWS Open Data Registry; fonti SRTM, EU-DEM e altre).

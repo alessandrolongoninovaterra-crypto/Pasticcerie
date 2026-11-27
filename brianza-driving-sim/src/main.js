@@ -24,11 +24,9 @@ import { Pedestrians } from './pedestrians.js';
 import { signalState } from './signs.js';
 import { NT } from './roads.js';
 import { fleetPalette } from './vendor/city/car.js';
-import { EffectComposer } from 'three/examples/jsm/postprocessing/EffectComposer.js';
-import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass.js';
-import { UnrealBloomPass } from 'three/examples/jsm/postprocessing/UnrealBloomPass.js';
-import { OutputPass } from 'three/examples/jsm/postprocessing/OutputPass.js';
-import { ShaderPass } from 'three/examples/jsm/postprocessing/ShaderPass.js';
+import { Post } from './post.js';
+import { updateFog } from './fog.js';
+import { ROAD_WET } from './roads.js';
 import { DriveFX } from './effects.js';
 import { Weather, WEATHER } from './weather.js';
 import { Police, SPEC as POLICE_SPEC } from './police.js';
@@ -38,26 +36,12 @@ import { Dialogue } from './dialogue.js';
 const WEATHER_ICON = () => (G.weather ? (G.weather.state === 'clear' && G.sky && G.sky.night > 0.5 ? '🌙' : WEATHER[G.weather.state].icon) : '');
 import './geo.js';   // aggancio di computeVertexNormals (normali nulle) prima di costruire qualsiasi modello
 
-// Pulizia del buffer HDR prima del bloom: un solo pixel NaN o infinito, sfocato dal bloom su piu'
-// livelli, diventava un quadrato nero grande come mezzo schermo. Qui diventa nero (NaN) o viene
-// limitato (valori enormi vicino alle luci).
-const SanitizeShader = {
-  uniforms: { tDiffuse: { value: null } },
-  vertexShader: 'varying vec2 vUv; void main() { vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }',
-  fragmentShader: `uniform sampler2D tDiffuse; varying vec2 vUv;
-    void main() {
-      vec4 c = texture2D(tDiffuse, vUv);
-      if (any(isnan(c)) || any(isinf(c)) || !(c.r >= 0.0 && c.g >= 0.0 && c.b >= 0.0 && c.r < 1e5 && c.g < 1e5 && c.b < 1e5)) c = vec4(0.0, 0.0, 0.0, 1.0);
-      gl_FragColor = vec4(min(c.rgb, vec3(64.0)), c.a);
-    }`,
-};
-
 const $ = (id) => document.getElementById(id);
 const QUALITY = {
   // farKm: raggio degli edifici semplificati in lontananza (in volo; a terra bastano 3 km per la foschia)
   low: { viewTiles: 1, shadows: false, pixelRatio: 1, trees: 0.5, bloom: false, peds: 20, parked: 132, farKm: 0, detailDist: 350 },
-  mid: { viewTiles: 2, shadows: true, softShadows: false, pixelRatio: 1, trees: 0.8, bloom: true, peds: 45, parked: 288, farKm: 5, detailKm: 1.5, detailDist: 500 },
-  high: { viewTiles: 3, shadows: true, softShadows: true, pixelRatio: 1.5, trees: 1, bloom: true, peds: 70, parked: 432, farKm: 7, detailKm: 2.2, detailDist: 750 },
+  mid: { viewTiles: 2, shadows: true, softShadows: false, pixelRatio: 1, trees: 0.8, bloom: true, ao: 'half', peds: 45, parked: 288, farKm: 5, detailKm: 1.5, detailDist: 500 },
+  high: { viewTiles: 3, shadows: true, softShadows: true, pixelRatio: 1.5, trees: 1, bloom: true, ao: 'full', peds: 70, parked: 432, farKm: 7, detailKm: 2.2, detailDist: 750 },
 };
 
 const G = { started: false, paused: false, mapOpen: false, camMode: 0, route: null, dest: null, voice: true, carIdx: 0,
@@ -204,6 +188,7 @@ function ensureGame() {
   const canvas = $('game');
   const q = QUALITY[$('quality').value] || QUALITY.mid;
   G.settings = { ...q };
+  G.roads.pbr = !!q.bloom;           // strade con materiali fisici (qualita' media e alta)
   const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: 'high-performance' });
   renderer.setPixelRatio(Math.min(devicePixelRatio, q.pixelRatio));
   renderer.setSize(innerWidth, innerHeight);
@@ -217,6 +202,8 @@ function ensureGame() {
   G.camera = new THREE.PerspectiveCamera(62, innerWidth / innerHeight, 0.5, 5000);
   G.sky = new Sky(scene, G.meta.proj.lat0);
   G.world = new World(scene, G.meta, G.terrain, G.roads, G.settings);
+  // alberi vicini con i modelli veri (qualita' media e alta)
+  if (q.bloom) G.world.vegetation.enableNear(scene, q.ao === 'full' ? 160 : 110, q.ao === 'full' ? 900 : 550);
   G.fx = new DriveFX(scene);
   G.weather = new Weather(scene);
   G.envMap = new EnvMap(renderer, G.sky);
@@ -240,15 +227,11 @@ function ensureGame() {
   G.peds.onHit = (p, speed, t) => { if (t.player) infraction('ped'); };
   scene.add(G.peds.group);
   if (q.bloom) {
-    // alone delle luci di notte (lampioni, fari, finestre)
-    // con il bagliore notturno si disegna su un'immagine intermedia: 4 campioni per pixel, cosi'
-    // i bordi restano lisci come senza effetti (prima erano seghettati)
-    G.composer = new EffectComposer(renderer, new THREE.WebGLRenderTarget(innerWidth * renderer.getPixelRatio(), innerHeight * renderer.getPixelRatio(), { type: THREE.HalfFloatType, samples: 4 }));
-    G.composer.addPass(new RenderPass(scene, G.camera));
-    G.composer.addPass(new ShaderPass(SanitizeShader));
-    G.bloom = new UnrealBloomPass(new THREE.Vector2(innerWidth, innerHeight), 0, 0.4, 0.82);
-    G.composer.addPass(G.bloom);
-    G.composer.addPass(new OutputPass());
+    // post-produzione (src/post.js): occlusione ambientale, bagliore, esposizione e colore; la scena
+    // si disegna su un'immagine intermedia a 4 campioni per pixel (bordi lisci come senza effetti)
+    G.post = new Post(renderer, scene, G.camera, q);
+    G.post.setPixelRatio(renderer.getPixelRatio()); G.post.setSize(innerWidth, innerHeight);
+    G.composer = G.post;
   }
   // telecamera orbitale: trascina con il mouse
   let drag = null;
@@ -1037,21 +1020,60 @@ function autoQuality(frame) {
   if (AQ.t < 1.5) return;
   const avg = AQ.t / AQ.n; AQ.t = 0; AQ.n = 0;
   const base = Math.min(devicePixelRatio, G.settings.pixelRatio);
-  const apply = () => { const pr = Math.max(0.5, base * AQ.scale); G.renderer.setPixelRatio(pr); if (G.composer) G.composer.setPixelRatio(pr); };
-  // prima si spengono le ombre (in volo quasi non si vedono), poi si abbassa la risoluzione ma non
-  // sotto il 75%: piu' in basso l'immagine diventava sfocata
+  const apply = () => { const pr = Math.max(0.5, base * AQ.scale); G.renderer.setPixelRatio(pr); if (G.composer) { G.composer.setPixelRatio(pr); G.composer.setSize(innerWidth, innerHeight); } };
+  // prima si spegne l'occlusione ambientale, poi le ombre (in volo quasi non si vedono), poi si
+  // abbassa la risoluzione ma non sotto il 75%: piu' in basso l'immagine diventava sfocata
   if (avg > 0.034) {
     AQ.good = 0;
-    if (!AQ.shadowsOff && G.settings.shadows) { AQ.shadowsOff = true; G.sky.sun.castShadow = false; }
+    if (!AQ.aoOff && G.post && G.post.ao) { AQ.aoOff = true; G.post.setAO(false); }
+    else if (!AQ.shadowsOff && G.settings.shadows) { AQ.shadowsOff = true; G.sky.sun.castShadow = false; }
     else if (AQ.scale > 0.71) { AQ.scale = Math.max(0.7, AQ.scale - 0.1); apply(); }
   } else if (avg < 0.018) {
     if (++AQ.good >= 3) {
       AQ.good = 0;
       if (AQ.scale < 1) { AQ.scale = Math.min(1, AQ.scale + 0.1); apply(); }
       else if (AQ.shadowsOff && !flying()) { AQ.shadowsOff = false; G.sky.sun.castShadow = true; }
+      else if (AQ.aoOff && !flying()) { AQ.aoOff = false; G.post.setAO(true); }
     }
   } else AQ.good = 0;
-  $('fps').title = `risoluzione ${Math.round(AQ.scale * 100)}%${AQ.shadowsOff ? ', ombre spente' : ''}`;
+  $('fps').title = `risoluzione ${Math.round(AQ.scale * 100)}%${AQ.shadowsOff ? ', ombre spente' : ''}${AQ.aoOff ? ', occlusione spenta' : ''}`;
+}
+
+// ------------------------------------------------------------------ esposizione e colore
+// L'occhio (la "telecamera") si adatta alla luce: entrando in galleria all'inizio e' buio e poi si
+// vede, uscendo c'e' un attimo di abbagliamento; di notte e con il cielo coperto l'esposizione sale
+// (ma la notte resta notte). Adattamento al buio piu' lento (circa 1,5 s) di quello alla luce (0,5 s).
+// Il colore segue l'ora: neutro di giorno, caldo con il sole basso, freddo di notte, spento sotto
+// la pioggia.
+const LOOK = { exposure: 1.2, wb: new THREE.Vector3(1, 1, 1), saturation: 1.08, contrast: 0.12, lift: new THREE.Vector3(), vignette: 0.2, ao: 1 };
+const lookTmp = new THREE.Vector3();
+function sceneLook(dt) {
+  const S = G.sky, W = G.weather, night = S.night, tk = G.tunnelK || 0;
+  const over = W ? W.cur.over : 0, rain = W ? W.cur.rain : 0, fog = W ? W.cur.fog : 0;
+  const golden = Math.max(0, 1 - Math.abs(S.sunDir.y - 0.06) * 6) * (1 - night) * (1 - over);
+  // esposizione voluta (in scala logaritmica: si somma in "stop")
+  let stops = Math.log2(1.2);
+  stops += night * 0.5 + over * 0.25 + golden * 0.08;
+  stops += tk * 0.9;                                    // galleria: l'occhio si apre (circa x1,9)
+  const target = Math.pow(2, stops);
+  if (dt <= 0 || !LOOK.adapted) { LOOK.exposure = target; LOOK.adapted = true; }
+  else {
+    const cur = Math.log2(LOOK.exposure), tau = target > LOOK.exposure ? 1.5 : 0.5;
+    LOOK.exposure = Math.pow(2, cur + (stops - cur) * Math.min(1, dt / tau));
+  }
+  // bilanciamento del bianco e colore
+  lookTmp.set(1, 1, 1)
+    .lerp(new THREE.Vector3(1.07, 1.0, 0.9), golden)
+    .lerp(new THREE.Vector3(0.9, 0.96, 1.1), night * 0.8)
+    .lerp(new THREE.Vector3(0.96, 0.99, 1.04), over * (1 - night) * 0.6)
+    .lerp(new THREE.Vector3(1.04, 1.0, 0.9), tk * 0.7);      // lampade al sodio in galleria
+  LOOK.wb.copy(lookTmp);
+  LOOK.saturation = 1.1 + golden * 0.06 - over * 0.16 - rain * 0.05 - night * 0.2 - fog * 0.1;
+  LOOK.contrast = 0.14 - over * 0.06 - fog * 0.06;
+  LOOK.lift.set(0.004, 0.007, 0.014).multiplyScalar(1 + night * 1.2);
+  LOOK.vignette = 0.2 + tk * 0.12 + night * 0.06;
+  LOOK.ao = 1 - 0.45 * night - 0.3 * tk;
+  return LOOK;
 }
 
 // ------------------------------------------------------------------ ciclo
@@ -1228,10 +1250,13 @@ function loop(now) {
   if (envT) G.scene.environment = envT;
   G.scene.environmentIntensity = 1 - 0.85 * G.tunnelK;
   const wk = 1 - 0.4 * G.weather.wet, RM = G.roads.materials();
-  if (Math.abs((G.wetK || 1) - wk) > 0.005) { G.wetK = wk; for (const k of ['road', 'stone', 'path', 'walk']) RM[k].color.setScalar(wk); }
+  ROAD_WET.value = G.weather.wet;
+  if (Math.abs((G.wetK || 1) - wk) > 0.005) { G.wetK = wk; for (const k of ['road', 'stone', 'path', 'walk']) { RM[k].color.setScalar(wk); RM[k].envMapIntensity = 0.55 - 0.15 * G.weather.wet; } }
   v.gripMul = 1 - 0.3 * G.weather.wet;          // asfalto bagnato: meno aderenza
   if (G.tunnelK > 0.01) { G.sky.sun.intensity *= 1 - 0.92 * G.tunnelK; G.sky.hemi.intensity *= 1 - 0.6 * G.tunnelK; G.scene.fog.color.multiplyScalar(1 - 0.88 * G.tunnelK); }
   G.world.updateWater(now / 1000, G.scene.fog.color);
+  G.world.vegetation.updateNear(dt, G.camera.position, G.world.tiles);
+  updateFog(G.sky, G.camera.position.y - G.terrain.height(G.camera.position.x, G.camera.position.z), G.weather.wet, G.weather.cur.fog, G.tunnelK);
   autoQuality(frame);
   // in quota l'aria e' piu' limpida: la foschia si allontana e si vedono i paesi vicini
   const clear = flying() ? 1 + Math.min(1.9, v.agl / 130) : 1;
@@ -1260,12 +1285,11 @@ function loop(now) {
   else G.audio.update(v.rpm, v.throttle, Math.abs(v.u) * 3.6, v.slip, skid, { cabin: G.camMode === 1, limiter: v.spec.rpmMax, motorRpm: v.rpm });
   if (v.impact > 0.25 && !f.on && !v.isPlane) { showToast('💥 Urto!', 700); }
   v.impact = 0;
-  // di notte il bagliore passa da un'immagine intermedia (composer), di giorno si disegna
-  // direttamente sullo schermo (molto piu' leggero: niente immagine intermedia multicampionata e
-  // due passaggi a schermo intero in meno). Le due strade hanno shader diversi (tono e spazio
-  // colore): warmShaders() li prepara entrambi al caricamento, cosi' al tramonto non si ricompila.
-  if (G.composer && G.sky.night > 0.2) { G.bloom.enabled = true; G.bloom.strength = G.sky.night * 0.55; G.composer.render(); }
-  else G.renderer.render(G.scene, G.camera);
+  // esposizione (adattamento dell'occhio) e colore, poi il disegno: con la post-produzione
+  // (qualita' media e alta) o direttamente sullo schermo (bassa)
+  const look = sceneLook(dt); G.look = look;
+  if (G.post) G.post.render(dt, G.sky, look);
+  else { G.renderer.toneMappingExposure = look.exposure; G.renderer.render(G.scene, G.camera); }
 }
 const tmpV2 = new THREE.Vector3();
 
@@ -1301,11 +1325,7 @@ function warmShaders(sync) {
       for (const tg of G.composer ? [null, G.composer.renderTarget1] : [null]) { r.setRenderTarget(tg); r.compileAsync(G.scene, G.camera).catch(() => {}); }
       sun.castShadow = cs;
     }
-    if (G.composer && sync) {
-      // un fotogramma con il bagliore acceso (intensita' zero) prepara i suoi passaggi
-      const e = G.bloom.enabled, s = G.bloom.strength;
-      G.bloom.enabled = true; G.bloom.strength = 0; r.setRenderTarget(old); G.composer.render(); G.bloom.enabled = e; G.bloom.strength = s;
-    }
+    if (G.post && sync) { r.setRenderTarget(old); G.post.render(0, G.sky, sceneLook(0)); }   // prepara i passaggi della post-produzione
   } catch (err) { console.warn('warmShaders', err); }
   r.setRenderTarget(old);
   restore();

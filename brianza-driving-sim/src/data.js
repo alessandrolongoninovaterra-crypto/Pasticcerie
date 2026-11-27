@@ -35,9 +35,9 @@ function injectScript(key, src) {
 
 export async function loadData(key, src) {
   const { fmt, b64 } = await injectScript(key, src);
-  if (fmt === 'png') {
+  if (fmt === 'png' || fmt === 'jpg') {
     const img = new Image();
-    img.src = 'data:image/png;base64,' + b64;
+    img.src = `data:image/${fmt === 'jpg' ? 'jpeg' : 'png'};base64,` + b64;
     await img.decode();
     return img;
   }
