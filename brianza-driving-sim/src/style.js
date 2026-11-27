@@ -10,7 +10,7 @@ import * as THREE from 'three';
 export const STYLES = {
   real: { name: 'Realistico' },
   toon: { name: 'Cartoon', outline: 1, photo: false, sat: 0.32, contrast: 0.1, vignette: -0.2, bloom: 0.05, fogFar: 1.35 },
-  soft: { name: 'Stilizzato', outline: 0, photo: false, sat: 0.28, contrast: 0.02, vignette: -0.1, bloom: 0.18, warm: 1, fogFar: 1.2 },
+  soft: { name: 'Stilizzato', outline: 0, photo: false, sat: 0.28, contrast: 0.02, vignette: -0.1, bloom: 0.08, warm: 1, fogFar: 1.2 },
 };
 
 const DOT = 'float dotNL = saturate( dot( geometryNormal, directLight.direction ) );';
@@ -26,9 +26,12 @@ export function applyStyleShaders(style) {
     // luce avvolgente (wrap) e bordo luminoso in controluce
     rep = `float dotNL = saturate( ( dot( geometryNormal, directLight.direction ) + 0.45 ) / 1.45 );
       dotNL = dotNL * dotNL * ( 3.0 - 2.0 * dotNL );
-      dotNL += pow( 1.0 - saturate( dot( geometryNormal, geometryViewDir ) ), 4.0 ) * 0.35 * saturate( dot( geometryViewDir, -directLight.direction ) + 0.6 );`;
+      dotNL += pow( 1.0 - saturate( dot( geometryNormal, geometryViewDir ) ), 4.0 ) * 0.1 * saturate( dot( geometryViewDir, -directLight.direction ) + 0.3 );`;
   }
-  for (const k of ['lights_lambert_pars_fragment', 'lights_phong_pars_fragment', 'lights_physical_pars_fragment']) {
+  // stilizzato: le carrozzerie (materiali fisici, lucidi) restano con la luce normale, altrimenti i
+  // riflessi della vernice si accendevano anche dal lato in ombra e le auto diventavano bianche
+  const keys = style === 'soft' ? ['lights_lambert_pars_fragment', 'lights_phong_pars_fragment'] : ['lights_lambert_pars_fragment', 'lights_phong_pars_fragment', 'lights_physical_pars_fragment'];
+  for (const k of keys) {
     if (C[k].includes(DOT)) C[k] = C[k].replace(DOT, rep);
   }
 }
